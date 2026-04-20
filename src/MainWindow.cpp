@@ -82,10 +82,19 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
 
     QImage image(pixelsPerRow, rows, QImage::Format_Grayscale8);
 
+    int dataIdx = 0;
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < pixelsPerRow; ++x) {
-            qint32 pixelValue;
-            in >> pixelValue;
+            if (dataIdx + 4 > dataSize) {
+                return QImage();
+            }
+            qint32 pixelValue = static_cast<qint32>(
+                (static_cast<quint8>(data[dataIdx + 3]) << 24) |
+                (static_cast<quint8>(data[dataIdx + 2]) << 16) |
+                (static_cast<quint8>(data[dataIdx + 1]) << 8) |
+                (static_cast<quint8>(data[dataIdx]))
+            );
+            dataIdx += 4;
             quint8 grayValue = static_cast<quint8>(qBound(0, pixelValue, 255));
             image.setPixel(x, y, grayValue);
         }
