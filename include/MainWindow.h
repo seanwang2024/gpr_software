@@ -4,6 +4,9 @@
 #include <QMainWindow>
 #include <QLabel>
 #include <QPushButton>
+#include <QVBoxLayout>
+#include <QFileDialog>
+#include <QPixmap>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
