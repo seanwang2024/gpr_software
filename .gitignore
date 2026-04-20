@@ -54,3 +54,7 @@ cmake-build-*
 
 # Local configuration file for absolute paths
 config.pri
+
+#other dirs and files 
+.claude
+CLAUDE.md
