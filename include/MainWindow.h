@@ -4,11 +4,10 @@
 #include <QMainWindow>
 #include <QLabel>
 #include <QPushButton>
-#include <QVBoxLayout>
-#include <QFileDialog>
-#include <QPixmap>
+#include <QImage>
 
-class MainWindow : public QMainWindow {
+class MainWindow : public QMainWindow
+{
     Q_OBJECT
 
 public:
@@ -16,11 +15,13 @@ public:
     ~MainWindow();
 
 private slots:
-    void onButtonClicked();
+    void onOpenFile();
 
 private:
-    QLabel *m_label;
-    QPushButton *m_button;
+    QImage loadDZTFile(const QString &filePath);
+
+    QLabel *imageLabel;
+    QPushButton *openButton;
 };
 
-#endif // MAINWINDOW_H
+#endif

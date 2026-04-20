@@ -56,5 +56,7 @@ cmake-build-*
 config.pri
 
 #other dirs and files 
-.claude
+.claude*/
+specs*/
 CLAUDE.md
+docs*/

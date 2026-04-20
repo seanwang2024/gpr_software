@@ -1,45 +1,95 @@
 #include "MainWindow.h"
+#include <QFileDialog>
 #include <QVBoxLayout>
-#include <QWidget>
+#include <QHBoxLayout>
 #include <QMessageBox>
+#include <QFile>
+#include <QDataStream>
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+{
     QWidget *centralWidget = new QWidget(this);
-    QVBoxLayout *layout = new QVBoxLayout(centralWidget);
+    QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
 
-    m_label = new QLabel("请点击按钮选择图片", centralWidget);
-    m_label->setAlignment(Qt::AlignCenter);
-    m_label->setMinimumSize(400, 300);
-    m_label->setStyleSheet("border: 2px dashed gray; background-color: #f0f0f0;");
+    imageLabel = new QLabel(this);
+    imageLabel->setAlignment(Qt::AlignCenter);
+    imageLabel->setMinimumSize(400, 400);
+    imageLabel->setText("No image loaded");
+    imageLabel->setStyleSheet("border: 1px solid gray;");
 
-    m_button = new QPushButton("选择图片", centralWidget);
+    openButton = new QPushButton("Open DZT File", this);
 
-    layout->addWidget(m_label);
-    layout->addWidget(m_button);
+    mainLayout->addWidget(imageLabel);
+    mainLayout->addWidget(openButton);
 
     setCentralWidget(centralWidget);
-    resize(500, 400);
+    setWindowTitle("DZT Image Viewer");
 
-    connect(m_button, &QPushButton::clicked, this, &MainWindow::onButtonClicked);
+    connect(openButton, &QPushButton::clicked, this, &MainWindow::onOpenFile);
 }
 
-MainWindow::~MainWindow() {}
+MainWindow::~MainWindow()
+{
+}
 
-void MainWindow::onButtonClicked() {
+void MainWindow::onOpenFile()
+{
     QString fileName = QFileDialog::getOpenFileName(this,
-                                                   "选择图片文件",
-                                                   "",
-                                                   "图片文件 (*.png *.jpg *.jpeg *.bmp *.gif)");
+        "Open DZT File", "",
+        "DZT Files (*.dzt);;All Files (*)");
 
-    if (!fileName.isEmpty()) {
-        QPixmap pixmap(fileName);
-        if (!pixmap.isNull()) {
-            m_label->setPixmap(pixmap.scaled(m_label->size(),
-                                            Qt::KeepAspectRatio,
-                                            Qt::SmoothTransformation));
-            m_label->setStyleSheet("");
-        } else {
-            QMessageBox::warning(this, "错误", "无法加载图片文件");
+    if (fileName.isEmpty()) {
+        return;
+    }
+
+    QImage image = loadDZTFile(fileName);
+    if (image.isNull()) {
+        QMessageBox::warning(this, "Error", "Failed to load DZT file.");
+        return;
+    }
+
+    QPixmap pixmap = QPixmap::fromImage(image);
+    imageLabel->setPixmap(pixmap.scaled(imageLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+}
+
+QImage MainWindow::loadDZTFile(const QString &filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return QImage();
+    }
+
+    QDataStream in(&file);
+    in.setByteOrder(QDataStream::LittleEndian);
+
+    const qint64 dataOffset = 0x200;
+    const int bytesPerPixel = 4;
+    const int pixelsPerRow = 512;
+
+    if (!file.seek(dataOffset)) {
+        return QImage();
+    }
+
+    QByteArray data = file.readAll();
+    int dataSize = data.size();
+    int totalPixels = dataSize / bytesPerPixel;
+    int rows = totalPixels / pixelsPerRow;
+
+    if (rows <= 0 || totalPixels % pixelsPerRow != 0) {
+        return QImage();
+    }
+
+    QImage image(pixelsPerRow, rows, QImage::Format_Grayscale8);
+
+    for (int y = 0; y < rows; ++y) {
+        for (int x = 0; x < pixelsPerRow; ++x) {
+            qint32 pixelValue;
+            in >> pixelValue;
+            quint8 grayValue = static_cast<quint8>(qBound(0, pixelValue, 255));
+            image.setPixel(x, y, grayValue);
         }
     }
+
+    return image;
 }
