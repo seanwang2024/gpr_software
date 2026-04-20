@@ -30,3 +30,11 @@
    cmake --build .
    windeployqt MyQtApp.exe
    ./MyQtApp
+
+5. **git push**
+   ## Git 自动化规则
+  完成任意任务后，必须执行以下命令：
+   `git add -A`
+   `git commit -m "[简短描述本次更改]"`
+   `git push origin [当前分支名]`
+

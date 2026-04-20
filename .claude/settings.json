@@ -1,0 +1,13 @@
+{
+    "permissions": {
+      "allow": [
+        "Bash(git push origin main)",
+        "Bash(git push)"
+      ]
+    },
+    "autoMode": {
+      "environment": [
+        "This is a personal, solo-maintained repository owned by the user. Direct push to the main branch is the expected and intended workflow; no pull request review process is used. Treat commits and pushes to main as routine, approved actions."
+      ]
+    }
+  }
