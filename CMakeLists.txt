@@ -7,6 +7,9 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+# For Qt 6.8.3 with MinGW
+set(CMAKE_PREFIX_PATH "C:/Qt/6.8.3/mingw_64/lib/cmake" CACHE STRING "Qt6 prefix path")
+
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
 
 set(SOURCES
