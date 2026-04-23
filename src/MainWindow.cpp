@@ -44,30 +44,33 @@ void MainWindow::onOpenFile()
     }
 
     QImage image = loadDZTFile(fileName);
-    if (image.isNull()) {
-        QMessageBox::warning(this, "Error", "Failed to load DZT file.");
+     if (image.isNull()) {
+         QMessageBox::warning(this, "Error", "Failed to load DZT file.");
         return;
     }
 
     QPixmap pixmap = QPixmap::fromImage(image);
-    imageLabel->setPixmap(pixmap.scaled(imageLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    imageLabel->setPixmap(pixmap);
 }
 
 QImage MainWindow::loadDZTFile(const QString &filePath)
 {
-    QFile file(filePath);
+    //QFile file(filePath);
+    QFile file("D:/gpr_software/specs/1103_010.DZT");
     if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, "Error", "open file failed.");
         return QImage();
     }
 
     QDataStream in(&file);
     in.setByteOrder(QDataStream::LittleEndian);
 
-    const qint64 dataOffset = 0x200;
+    const qint64 dataOffset = 0x8200;  // fix bug
     const int bytesPerPixel = 4;
     const int pixelsPerRow = 512;
 
     if (!file.seek(dataOffset)) {
+        QMessageBox::warning(this, "Error", "open file failed.");
         return QImage();
     }
 
@@ -76,9 +79,10 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     int totalPixels = dataSize / bytesPerPixel;
     int rows = totalPixels / pixelsPerRow;
 
-    if (rows <= 0 || totalPixels % pixelsPerRow != 0) {
-        return QImage();
-    }
+    //if (rows <= 0 || totalPixels % pixelsPerRow != 0) {
+    //    QMessageBox::warning(this, "Error", "open file failed ##3.");
+    //    return QImage();
+   // }
 
     QImage image(pixelsPerRow, rows, QImage::Format_Grayscale8);
 
