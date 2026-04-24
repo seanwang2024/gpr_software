@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE QtCreatorProject>
+<qtcreator>
+    <data>
+        <variable>Profile.ProjectValues</variable>
+        <valuemap type="QVariantMap">
+            <value type="QString" key="PE.Profile.Name">Qt MinGW 64-bit</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64">C:/Qt/Tools/mingw1310_64/bin/g++.exe</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.64bit">true</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.Project.ClangBackEnd">false</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.7">Qt6.8.3_mingw64</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.8">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.9">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.10">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.11">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.12">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.13">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.14">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.15">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.16">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.17">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.18">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.19">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.20">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.21">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.22">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.23">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.24">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.25">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.26">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.27">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.28">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.29">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.30">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.31">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.32">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.33">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.34">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.35">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.36">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.37">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.38">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.39">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.40">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.41">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.42">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.43">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.44">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.45">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.46">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.47">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.48">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.49">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.50">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.51">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.52">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.53">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.54">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.55">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.56">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.57">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.58">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.59">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.60">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.61">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.62">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.63">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.64">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.65">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.66">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.67">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.68">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.69">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.70">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.71">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.72">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.73">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.74">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.75">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.76">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.77">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.78">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.79">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.80">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.81">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.82">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.83">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.84">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.85">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.86">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.87">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.88">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.89">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.90">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.91">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.92">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.93">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.94">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.95">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.96">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.97">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.98">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.99">6.8.3</value>
+            <value type="QString" key="Qt.QtSupport.Target.MinGW64.QtVersion.100">6.8.3</value>
+        </valuemap>
+    </data>
+</qtcreator>

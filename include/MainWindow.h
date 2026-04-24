@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QImage>
+#include <QScrollArea>
 
 class MainWindow : public QMainWindow
 {
@@ -20,6 +21,7 @@ private slots:
 private:
     QImage loadDZTFile(const QString &filePath);
 
+    QScrollArea *scrollArea;
     QLabel *imageLabel;
     QPushButton *openButton;
 };

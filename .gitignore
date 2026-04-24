@@ -42,9 +42,19 @@ ui_*.h
 *.qbs.user
 *.qbs.user.*
 *.creator.user*
+*.moc
+*.uic
+*.qrc
+*.autosave
+*.pro.*~
 
 # Build directories
-build*/
+build/
+build-debug/
+build-release/
+build-*/
+Makefile
+Makefile.*
 *-build*/
 build-*
 cmake-build-*
