@@ -7,18 +7,76 @@
 #include <QDataStream>
 #include <QDebug>
 #include <QScrollArea>
+#include <QPainter>
+#include <QMouseEvent>
+#include <QPen>
+
+ImageLabel::ImageLabel(QWidget *parent)
+    : QLabel(parent)
+    , m_showCrosshair(false)
+{
+    setAlignment(Qt::AlignCenter);
+    setMinimumSize(400, 400);
+    setText("No image loaded");
+    setStyleSheet("border: 1px solid gray;");
+}
+
+void ImageLabel::setImage(const QImage &img)
+{
+    m_image = img;
+    m_showCrosshair = false;
+    if (!img.isNull()) {
+        setPixmap(QPixmap::fromImage(img));
+        resize(img.size());
+    } else {
+        clear();
+        setText("No image loaded");
+    }
+}
+
+void ImageLabel::mousePressEvent(QMouseEvent *event)
+{
+    if (m_image.isNull()) {
+        QLabel::mousePressEvent(event);
+        return;
+    }
+
+    if (event->button() == Qt::LeftButton) {
+        m_crosshairPos = event->pos();
+        m_showCrosshair = true;
+        emit imageClicked(m_crosshairPos);
+        update();
+    }
+    QLabel::mousePressEvent(event);
+}
+
+void ImageLabel::paintEvent(QPaintEvent *event)
+{
+    QLabel::paintEvent(event);
+
+    if (m_showCrosshair && !m_image.isNull()) {
+        QPainter painter(this);
+        QPen pen(Qt::white, 2);
+        painter.setPen(pen);
+
+        int x = m_crosshairPos.x();
+        int y = m_crosshairPos.y();
+
+        int size = 10;
+        painter.drawLine(x - size, y, x + size, y);
+        painter.drawLine(x, y - size, x, y + size);
+    }
+}
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
+    , m_dataOffset(0)
+    , m_pixelsPerRow(512)
 {
     QWidget *centralWidget = new QWidget(this);
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
 
-    imageLabel = new QLabel(this);
-    imageLabel->setAlignment(Qt::AlignCenter);
-    imageLabel->setMinimumSize(400, 400);
-    imageLabel->setText("No image loaded");
-    imageLabel->setStyleSheet("border: 1px solid gray;");
+    imageLabel = new ImageLabel(this);
 
     scrollArea = new QScrollArea(this);
 
@@ -30,18 +88,22 @@ MainWindow::MainWindow(QWidget *parent)
 
     //mainLayout->addWidget(imageLabel);
     mainLayout->addWidget(scrollArea);
+    coordinateLabel = new QLabel("点击图片查看坐标", this);
+    coordinateLabel->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px; font-family: monospace;");
+
     openButton = new QPushButton("Open DZT File", this);
 
+    QHBoxLayout *buttonLayout = new QHBoxLayout();
+    buttonLayout->addWidget(openButton);
+    buttonLayout->addWidget(coordinateLabel);
 
-    mainLayout->addWidget(openButton);
-
+    mainLayout->addLayout(buttonLayout);
 
     setCentralWidget(centralWidget);
     setWindowTitle("DZT Image Viewer");
 
-    //setCentralWidget(scrollArea);
-
     connect(openButton, &QPushButton::clicked, this, &MainWindow::onOpenFile);
+    connect(imageLabel, &ImageLabel::imageClicked, this, &MainWindow::onImageClicked);
 }
 
 MainWindow::~MainWindow()
@@ -58,26 +120,63 @@ void MainWindow::onOpenFile()
         return;
     }
 
-    //QImage image(1024,512,  QImage::Format_Grayscale8);    //// first 1024 colunm for test and x yx reverse
-    //image.setPixel(100, 100, qRgb(255, 255, 255));
-    //image.fill(255); //
-
     QImage image = loadDZTFile(fileName);
-    
-     if (image.isNull()) {
-         QMessageBox::warning(this, "Error", "Failed to load DZT file.");
+
+    if (image.isNull()) {
+        QMessageBox::warning(this, "Error", "Failed to load DZT file.");
         return;
     }
 
-    QPixmap pixmap = QPixmap::fromImage(image);
+    imageLabel->setImage(image);
+    coordinateLabel->setText("点击图片查看坐标");
+}
 
+void MainWindow::onImageClicked(const QPoint &pos)
+{
+    updateCoordinateLabel(pos.x(), pos.y());
+}
 
+void MainWindow::updateCoordinateLabel(int x, int y)
+{
+    if (m_rawData.isEmpty()) {
+        return;
+    }
 
-    imageLabel->setPixmap(pixmap);
-    // 关键：将 QLabel 的大小设置为图片的原始尺寸
-    imageLabel->resize(pixmap.size());
+    if (x < 0 || y < 0) {
+        return;
+    }
 
+    qint32 pixelValue = getPixelValue(x, y);
+    double normalizedValue = static_cast<double>(pixelValue) / (256.0 * 256.0 * 2.0);
 
+    coordinateLabel->setText(QString("坐标: X=%1, Y=%2 | Pixel值: %3 | 归一化值: %4")
+                           .arg(x)
+                           .arg(y)
+                           .arg(pixelValue)
+                           .arg(normalizedValue, 0, 'f', 6));
+}
+
+qint32 MainWindow::getPixelValue(int x, int y)
+{
+    if (m_rawData.isEmpty()) {
+        return 0;
+    }
+
+    const int bytesPerPixel = 4;
+    int dataIdx = (x * m_pixelsPerRow + y) * bytesPerPixel;
+
+    if (dataIdx + 4 > m_rawData.size()) {
+        return 0;
+    }
+
+    qint32 pixelValue = static_cast<qint32>(
+        (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
+        (static_cast<quint8>(m_rawData[dataIdx + 2]) << 16) |
+        (static_cast<quint8>(m_rawData[dataIdx + 1]) << 8) |
+        (static_cast<quint8>(m_rawData[dataIdx]))
+    );
+
+    return pixelValue;
 }
 
 QImage MainWindow::loadDZTFile(const QString &filePath)
@@ -97,13 +196,17 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     const int bytesPerPixel = 4;
     const int pixelsPerRow = 512;
 
+    // 存储原始数据供点击时使用
+    m_dataOffset = dataOffset;
+    m_pixelsPerRow = pixelsPerRow;
+
     if (!file.seek(dataOffset)) {
         QMessageBox::warning(this, "Error", "open file failed.");
         return QImage();
     }
 
-    QByteArray data = file.readAll();
-    int dataSize = data.size();
+    m_rawData = file.readAll();
+    int dataSize = m_rawData.size();
     int totalPixels = dataSize / bytesPerPixel;
     int rows = totalPixels / pixelsPerRow;
     qDebug() << "dataSize = "  <<  dataSize;
@@ -127,10 +230,10 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
                 return QImage();
              }
             qint32 pixelValue = static_cast<qint32>(
-                (static_cast<quint8>(data[dataIdx + 3]) << 24) |
-                (static_cast<quint8>(data[dataIdx + 2]) << 16) |
-                (static_cast<quint8>(data[dataIdx + 1]) << 8) |
-                (static_cast<quint8>(data[dataIdx]))
+                (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
+                (static_cast<quint8>(m_rawData[dataIdx + 2]) << 16) |
+                (static_cast<quint8>(m_rawData[dataIdx + 1]) << 8) |
+                (static_cast<quint8>(m_rawData[dataIdx]))
             );
 
             //quint8 grayValue = static_cast<quint8>(qBound(0, pixelValue, 255));
