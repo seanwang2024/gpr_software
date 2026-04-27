@@ -92,52 +92,36 @@ MainWindow::MainWindow(QWidget *parent)
     imageLabel = new ImageLabel(this);
     scrollArea->setWidget(imageLabel);
 
-    // 创建图表
+    // 创建垂直图表：Y轴为Y坐标（从上到下），X轴为像素值
     chartView = new QChartView();
     chartView->setRenderHint(QPainter::Antialiasing);
-
-    // 创建一个图形视图用于旋转
-   // QGraphicsView *graphicsView = new QGraphicsView(chartView);
-   // graphicsView->setMinimumHeight(400);
-   // graphicsView->setMaximumHeight(400);
-   // graphicsView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-   // graphicsView->setRenderHint(QPainter::Antialiasing);
-   // graphicsView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-   // graphicsView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-   // graphicsView->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-
-   // // 旋转90度
-   // QTransform transform;
-   // transform.rotate(90);
-   // graphicsView->setTransform(transform);
-
-   // // 移除默认边框
-   // graphicsView->setFrameShape(QFrame::NoFrame);
+    chartView->setStyleSheet("border: none; background-color: transparent;");
+    chartView->setMinimumWidth(200);
+    chartView->setMaximumWidth(300);
 
     chartSeries = new QLineSeries();
     chartView->chart()->addSeries(chartSeries);
     chartView->chart()->legend()->hide();
 
-    // 设置坐标轴（保持原图坐标系）
+    // X轴：像素值（动态更新范围）
     QValueAxis *axisX = new QValueAxis();
-    axisX->setTitleText("Y Coordinate (0-511)");
-    axisX->setRange(0, 511);
+    axisX->setTitleText("Value");
+    axisX->setRange(-100, 100);
     axisX->setLabelFormat("%d");
+    axisX->setTickCount(5);
 
+    // Y轴：Y坐标（反转，0在顶部，511在底部，与图片对齐）
     QValueAxis *axisY = new QValueAxis();
-    axisY->setTitleText("Pixel Value");
-    axisY->setRange(-16777216, 16777215); // qint32 range: -256^3 to 256^3
-    axisY->setLabelFormat("%lld");
+    axisY->setTitleText("Y");
+    axisY->setRange(0, 511);
+    axisY->setTickCount(6);
+    axisY->setLabelFormat("%d");
+    axisY->setReverse(true);
 
     chartView->chart()->setAxisX(axisX, chartSeries);
     chartView->chart()->setAxisY(axisY, chartSeries);
 
-    // 设置图表大小以适应旋转后的视图
     chartView->chart()->setAnimationOptions(QChart::NoAnimation);
-    chartView->setSceneRect(0, 0, 400, 512);
-
-    // 将包装后的视图添加到布局中
-    //contentLayout->addWidget(graphicsView);
 
     contentLayout->addWidget(chartView);
     contentLayout->addWidget(scrollArea);
@@ -223,16 +207,24 @@ void MainWindow::updateChart(int xValue)
 
     chartSeries->clear();
 
-    const int bytesPerPixel = 4;
-    const int maxPoints = 512; // Y range 0-511
+    const int maxPoints = 512;
+    qint32 minVal = 0, maxVal = 0;
 
     for (int y = 0; y < maxPoints; ++y) {
         qint32 pixelValue = getPixelValue(xValue, y);
-        chartSeries->append(static_cast<qreal>(y), static_cast<qreal>(pixelValue));
+        chartSeries->append(static_cast<qreal>(pixelValue), static_cast<qreal>(y));
+        if (y == 0 || pixelValue < minVal) minVal = pixelValue;
+        if (y == 0 || pixelValue > maxVal) maxVal = pixelValue;
     }
 
-    // 更新图表标题显示当前X值
-    chartView->chart()->setTitle(QString("Current X = %1 (Pixel Value: -16,777,216 to +16,777,215)").arg(xValue));
+    // 动态更新X轴范围
+    QValueAxis *axisX = qobject_cast<QValueAxis*>(chartView->chart()->axisX(chartSeries));
+    if (axisX) {
+        qint32 margin = qMax<qint32>(1, (maxVal - minVal) / 10);
+        axisX->setRange(static_cast<qreal>(minVal - margin), static_cast<qreal>(maxVal + margin));
+    }
+
+    chartView->chart()->setTitle(QString("X = %1").arg(xValue));
 }
 
 qint32 MainWindow::getPixelValue(int x, int y)

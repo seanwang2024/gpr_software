@@ -1,0 +1,82 @@
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+    , m_dataOffset(0)
+    , m_pixelsPerRow(512)
+{
+    QWidget *centralWidget = new QWidget(this);
+    QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
+
+    // 创建水平布局，左边放图表，右边放图片
+    QHBoxLayout *contentLayout = new QHBoxLayout();
+
+    // 创建滚动区域
+    scrollArea = new QScrollArea(this);
+    scrollArea->setWidgetResizable(false);
+    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+
+    imageLabel = new ImageLabel(this);
+    scrollArea->setWidget(imageLabel);
+
+    // 创建图表
+    chartView = new QChartView();
+    chartView->setRenderHint(QPainter::Antialiasing);
+    chartView->setMinimumHeight(400);
+    chartView->setMaximumHeight(400);
+    chartView->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+
+    // 创建一个图形视图用于旋转
+    QGraphicsView *graphicsView = new QGraphicsView(chartView);
+    graphicsView->setMinimumHeight(400);
+    graphicsView->setMaximumHeight(400);
+    graphicsView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    graphicsView->setRenderHint(QPainter::Antialiasing);
+    graphicsView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    graphicsView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    graphicsView->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    graphicsView->setFrameShape(QFrame::NoFrame);
+
+    chartSeries = new QLineSeries();
+    chartView->chart()->addSeries(chartSeries);
+    chartView->chart()->legend()->hide();
+
+    // 设置坐标轴（保持原图坐标系）
+    QValueAxis *axisX = new QValueAxis();
+    axisX->setTitleText("Y Coordinate (0-511)");
+    axisX->setRange(0, 511);
+    axisX->setLabelFormat("%d");
+
+    QValueAxis *axisY = new QValueAxis();
+    axisY->setTitleText("Pixel Value");
+    axisY->setRange(-16777216, 16777215); // qint32 range: -256^3 to 256^3
+    axisY->setLabelFormat("%lld");
+
+    chartView->chart()->setAxisX(axisX, chartSeries);
+    chartView->chart()->setAxisY(axisY, chartSeries);
+
+    // 旋转整个图表90度（保持XY轴不变）
+    graphicsView->rotate(90);
+
+    // 将旋转后的视图添加到布局中
+    contentLayout->addWidget(graphicsView);
+    contentLayout->addWidget(scrollArea);
+
+    mainLayout->addLayout(contentLayout);
+
+    coordinateLabel = new QLabel("点击图片查看坐标", this);
+    coordinateLabel->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px; font-family: monospace;");
+
+    openButton = new QPushButton("Open DZT File", this);
+
+    QHBoxLayout *buttonLayout = new QHBoxLayout();
+    buttonLayout->addWidget(openButton);
+    buttonLayout->addWidget(coordinateLabel);
+
+    mainLayout->addLayout(buttonLayout);
+
+    setCentralWidget(centralWidget);
+    setWindowTitle("DZT Image Viewer");
+
+    connect(openButton, &QPushButton::clicked, this, &MainWindow::onOpenFile);
+    connect(imageLabel, &ImageLabel::imageClicked, this, &MainWindow::onImageClicked);
+}
