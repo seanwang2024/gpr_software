@@ -1,4 +1,4 @@
-#include "include/MainWindow.h"
+#include "MainWindow.h"
 #include <QFileDialog>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -106,7 +106,8 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     int dataSize = data.size();
     int totalPixels = dataSize / bytesPerPixel;
     int rows = totalPixels / pixelsPerRow;
-    qDebug() << rows;
+    qDebug() << "dataSize = "  <<  dataSize;
+    qDebug() << "row = "  <<  rows;
 
     //if (rows <= 0 || totalPixels % pixelsPerRow != 0) {
     //    QMessageBox::warning(this, "Error", "open file failed ##3.");
@@ -120,7 +121,7 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
 
     int dataIdx = 0;
     //for (int y = 0; y < rows; ++y) {
-    for (int y = 0; y < rows-1; ++y) {        // first 1024 colunm for test
+    for (int y = 0; y < rows; ++y) {        // first 1024 colunm for test
         for (int x = 0; x < pixelsPerRow; ++x) {
             if (dataIdx + 4 > dataSize) {
                 return QImage();
@@ -131,15 +132,17 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
                 (static_cast<quint8>(data[dataIdx + 1]) << 8) |
                 (static_cast<quint8>(data[dataIdx]))
             );
-            dataIdx += 4;
+
             //quint8 grayValue = static_cast<quint8>(qBound(0, pixelValue, 255));
             //image.setPixel(x, y, grayValue);   // 
             /*    处理以127为中心 0 最黑       */
             //image.setPixel(y, x, 127 + grayValue/(256*256*2));   //   x y reverse  ??? 是否是127 需要测试
             //image.setPixel(y, x, 127 + pixelValue/(256*256*2));   //   x y reverse  ??? 是否是127 需要测试
             //image.setPixel(y, x, 127 + data[dataIdx + 2]/2);   //   x y reverse  ??? 是否是127 需要测试
-            image.setPixel(y, x, qRgb(127 + data[dataIdx + 2]/2,127 + data[dataIdx + 2]/2,127 + data[dataIdx + 2]/2));   //   x y reverse  ??? 是否是127 需要测试
-            image.setPixel(y, x, qRgb(127 + pixelValue/(256*256*2),127 + pixelValue/(256*256*2),127 + pixelValue/(256*256*2)));
+            //image.setPixel(y, x, qRgb(127 + data[dataIdx + 2]/2,127 + data[dataIdx + 2]/2,127 + data[dataIdx + 2]/2));   //   x y reverse  ??? 是否是127 需要测试
+             image.setPixel(y, x, qRgb(127 + pixelValue/(256*256*2),127 + pixelValue/(256*256*2),127 + pixelValue/(256*256*2)));
+
+            dataIdx += 4;
         }
     }
     image = image.convertToFormat(QImage::Format_Grayscale8);

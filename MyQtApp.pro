@@ -35,8 +35,9 @@ SOURCES += \
     src/main.cpp \
     src/MainWindow.cpp
 
-HEADERS += \
-    include/MainWindow.h
+INCLUDEPATH += $$PWD/include
+#HEADERS += \
+#    include/MainWindow.h
 
 FORMS +=
 
@@ -44,3 +45,6 @@ FORMS +=
 qnx: target.path = /tmp/$${TARGET}/bin
 else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
+
+HEADERS += \
+    include/MainWindow.h
