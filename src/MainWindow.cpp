@@ -10,6 +10,10 @@
 #include <QPainter>
 #include <QMouseEvent>
 #include <QPen>
+#include <QChartView>
+#include <QLineSeries>
+#include <QValueAxis>
+#include <QChart>
 
 ImageLabel::ImageLabel(QWidget *parent)
     : QLabel(parent)
@@ -76,18 +80,70 @@ MainWindow::MainWindow(QWidget *parent)
     QWidget *centralWidget = new QWidget(this);
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
 
-    imageLabel = new ImageLabel(this);
+    // 创建水平布局，左边放图表，右边放图片
+    QHBoxLayout *contentLayout = new QHBoxLayout();
 
+    // 创建滚动区域
     scrollArea = new QScrollArea(this);
+    scrollArea->setWidgetResizable(false);
+    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
+    imageLabel = new ImageLabel(this);
     scrollArea->setWidget(imageLabel);
 
-    scrollArea->setWidgetResizable(false);        // 禁止自动缩放，让 label 保持原始尺寸
-    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);   // 禁用垂直滚动条
-    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);  // 水平滚动条按需显示
+    // 创建图表
+    chartView = new QChartView();
+    chartView->setRenderHint(QPainter::Antialiasing);
 
-    //mainLayout->addWidget(imageLabel);
-    mainLayout->addWidget(scrollArea);
+    // 创建一个图形视图用于旋转
+   // QGraphicsView *graphicsView = new QGraphicsView(chartView);
+   // graphicsView->setMinimumHeight(400);
+   // graphicsView->setMaximumHeight(400);
+   // graphicsView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+   // graphicsView->setRenderHint(QPainter::Antialiasing);
+   // graphicsView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+   // graphicsView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+   // graphicsView->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+
+   // // 旋转90度
+   // QTransform transform;
+   // transform.rotate(90);
+   // graphicsView->setTransform(transform);
+
+   // // 移除默认边框
+   // graphicsView->setFrameShape(QFrame::NoFrame);
+
+    chartSeries = new QLineSeries();
+    chartView->chart()->addSeries(chartSeries);
+    chartView->chart()->legend()->hide();
+
+    // 设置坐标轴（保持原图坐标系）
+    QValueAxis *axisX = new QValueAxis();
+    axisX->setTitleText("Y Coordinate (0-511)");
+    axisX->setRange(0, 511);
+    axisX->setLabelFormat("%d");
+
+    QValueAxis *axisY = new QValueAxis();
+    axisY->setTitleText("Pixel Value");
+    axisY->setRange(-16777216, 16777215); // qint32 range: -256^3 to 256^3
+    axisY->setLabelFormat("%lld");
+
+    chartView->chart()->setAxisX(axisX, chartSeries);
+    chartView->chart()->setAxisY(axisY, chartSeries);
+
+    // 设置图表大小以适应旋转后的视图
+    chartView->chart()->setAnimationOptions(QChart::NoAnimation);
+    chartView->setSceneRect(0, 0, 400, 512);
+
+    // 将包装后的视图添加到布局中
+    //contentLayout->addWidget(graphicsView);
+
+    contentLayout->addWidget(chartView);
+    contentLayout->addWidget(scrollArea);
+
+    mainLayout->addLayout(contentLayout);
+
     coordinateLabel = new QLabel("点击图片查看坐标", this);
     coordinateLabel->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px; font-family: monospace;");
 
@@ -154,6 +210,29 @@ void MainWindow::updateCoordinateLabel(int x, int y)
                            .arg(y)
                            .arg(pixelValue)
                            .arg(normalizedValue, 0, 'f', 6));
+
+    // 更新图表显示
+    updateChart(x);
+}
+
+void MainWindow::updateChart(int xValue)
+{
+    if (m_rawData.isEmpty()) {
+        return;
+    }
+
+    chartSeries->clear();
+
+    const int bytesPerPixel = 4;
+    const int maxPoints = 512; // Y range 0-511
+
+    for (int y = 0; y < maxPoints; ++y) {
+        qint32 pixelValue = getPixelValue(xValue, y);
+        chartSeries->append(static_cast<qreal>(y), static_cast<qreal>(pixelValue));
+    }
+
+    // 更新图表标题显示当前X值
+    chartView->chart()->setTitle(QString("Current X = %1 (Pixel Value: -16,777,216 to +16,777,215)").arg(xValue));
 }
 
 qint32 MainWindow::getPixelValue(int x, int y)

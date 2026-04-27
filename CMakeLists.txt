@@ -10,7 +10,7 @@ set(CMAKE_AUTOUIC ON)
 # For Qt 6.8.3 with MinGW
 set(CMAKE_PREFIX_PATH "C:/Qt/6.8.3/mingw_64/lib/cmake" CACHE STRING "Qt6 prefix path")
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Charts)
 
 set(SOURCES
     src/main.cpp
@@ -25,7 +25,7 @@ add_executable(MyQtApp ${SOURCES} ${HEADERS})
 
 target_include_directories(MyQtApp PRIVATE include)
 
-target_link_libraries(MyQtApp PRIVATE Qt6::Core Qt6::Widgets)
+target_link_libraries(MyQtApp PRIVATE Qt6::Core Qt6::Widgets Qt6::Charts)
 
 if(WIN32)
     set_target_properties(MyQtApp PROPERTIES WIN32_EXECUTABLE TRUE)
