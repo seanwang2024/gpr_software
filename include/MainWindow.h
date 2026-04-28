@@ -10,14 +10,44 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPen>
+#include <QSlider>
 #include <QContextMenuEvent>
+#include <QChartView>
+#include <QLineSeries>
+#include <QValueAxis>
+#include <QTableWidget>
 
 QT_BEGIN_NAMESPACE
 class QChart;
-class QChartView;
-class QLineSeries;
-class QValueAxis;
 QT_END_NAMESPACE
+
+class CustomChartView : public QChartView
+{
+    Q_OBJECT
+
+public:
+    CustomChartView(QWidget *parent = nullptr);
+    void setLineSeries(QLineSeries *series);
+
+    float topHandleX() const { return m_topHandleX; }
+    float bottomHandleX() const { return m_bottomHandleX; }
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+
+private:
+    enum DragState { None, TopHandle, BottomHandle };
+    float m_topHandleX;
+    float m_bottomHandleX;
+    DragState m_dragging;
+    QLineSeries *m_series;
+    qreal mapChartToWidgetX(float x);
+    float mapWidgetToChartX(qreal widgetX);
+    qreal mapChartToWidgetY(float y);
+};
 
 class ImageLabel : public QLabel
 {
@@ -68,8 +98,9 @@ private:
     ImageLabel *imageLabel;
     QPushButton *openButton;
     QLabel *coordinateLabel;
-    QChartView *chartView;
+    CustomChartView *chartView;
     QLineSeries *chartSeries;
+    QTableWidget *gainTable;
     QByteArray m_rawData;
     qint64 m_dataOffset;
     int m_pixelsPerRow;

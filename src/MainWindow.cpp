@@ -16,6 +16,111 @@
 #include <QChart>
 #include <QMenu>
 #include <QDialog>
+#include <QTableWidget>
+#include <QHeaderView>
+
+// --- CustomChartView ---
+CustomChartView::CustomChartView(QWidget *parent)
+    : QChartView(parent)
+    , m_topHandleX(0)
+    , m_bottomHandleX(0)
+    , m_dragging(None)
+    , m_series(nullptr)
+{
+    setMouseTracking(true);
+}
+
+void CustomChartView::setLineSeries(QLineSeries *series) { m_series = series; }
+
+qreal CustomChartView::mapChartToWidgetX(float x)
+{
+    if (!m_series || !chart()) return 0;
+    return chart()->mapToPosition(QPointF(x, 0), m_series).x();
+}
+
+float CustomChartView::mapWidgetToChartX(qreal widgetX)
+{
+    if (!m_series || !chart()) return 0;
+    return static_cast<float>(chart()->mapToValue(QPointF(widgetX, 0), m_series).x());
+}
+
+qreal CustomChartView::mapChartToWidgetY(float y)
+{
+    if (!m_series || !chart()) return 0;
+    return chart()->mapToPosition(QPointF(0, y), m_series).y();
+}
+
+void CustomChartView::paintEvent(QPaintEvent *event)
+{
+    QChartView::paintEvent(event);
+
+    if (!chart()) return;
+    QRectF plotArea = chart()->plotArea();
+
+    QPainter painter(viewport());
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    qreal topWy = mapChartToWidgetY(0);
+    qreal bottomWy = mapChartToWidgetY(511);
+
+    // 顶部水平线（Y=0）
+    QPen topPen(Qt::red, 1);
+    painter.setPen(topPen);
+    painter.drawLine(QPointF(plotArea.left(), topWy), QPointF(plotArea.right(), topWy));
+
+    // 顶部手柄（小，6x6）
+    qreal topHx = mapChartToWidgetX(m_topHandleX);
+    painter.setBrush(Qt::red);
+    painter.drawRect(QRectF(topHx - 3, topWy - 3, 6, 6));
+
+    // 底部水平线（Y=511）
+    QPen bottomPen(Qt::blue, 1);
+    painter.setPen(bottomPen);
+    painter.drawLine(QPointF(plotArea.left(), bottomWy), QPointF(plotArea.right(), bottomWy));
+
+    // 底部手柄（8x8）
+    qreal bottomHx = mapChartToWidgetX(m_bottomHandleX);
+    painter.setBrush(Qt::blue);
+    painter.drawRect(QRectF(bottomHx - 4, bottomWy - 4, 8, 8));
+}
+
+void CustomChartView::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton) {
+        qreal topWy = mapChartToWidgetY(0);
+        qreal bottomWy = mapChartToWidgetY(511);
+        qreal topHx = mapChartToWidgetX(m_topHandleX);
+        qreal bottomHx = mapChartToWidgetX(m_bottomHandleX);
+
+        QPointF pos = event->pos();
+        if (qAbs(pos.y() - topWy) < 6 && qAbs(pos.x() - topHx) < 8)
+            m_dragging = TopHandle;
+        else if (qAbs(pos.y() - bottomWy) < 6 && qAbs(pos.x() - bottomHx) < 8)
+            m_dragging = BottomHandle;
+    }
+    QChartView::mousePressEvent(event);
+}
+
+void CustomChartView::mouseMoveEvent(QMouseEvent *event)
+{
+    if (m_dragging != None) {
+        float x = mapWidgetToChartX(event->pos().x());
+        if (m_dragging == TopHandle)
+            m_topHandleX = x;
+        else
+            m_bottomHandleX = x;
+        update();
+    }
+    QChartView::mouseMoveEvent(event);
+}
+
+void CustomChartView::mouseReleaseEvent(QMouseEvent *event)
+{
+    m_dragging = None;
+    QChartView::mouseReleaseEvent(event);
+}
+
+// --- ImageLabel ---
 #include <QLineEdit>
 #include <QDoubleValidator>
 ImageLabel::ImageLabel(QWidget *parent)
@@ -167,7 +272,7 @@ MainWindow::MainWindow(QWidget *parent)
     scrollArea->setWidget(imageLabel);
 
     // 创建垂直图表：Y轴为Y坐标（从上到下），X轴为像素值
-    chartView = new QChartView();
+    chartView = new CustomChartView();
     chartView->setRenderHint(QPainter::Antialiasing);
     chartView->setStyleSheet("border: none; background-color: transparent;");
     chartView->setMinimumWidth(200);
@@ -176,6 +281,7 @@ MainWindow::MainWindow(QWidget *parent)
     chartSeries = new QLineSeries();
     chartView->chart()->addSeries(chartSeries);
     chartView->chart()->legend()->hide();
+    chartView->setLineSeries(chartSeries);
 
     // X轴：像素值（动态更新范围）
     QValueAxis *axisX = new QValueAxis();
@@ -197,7 +303,34 @@ MainWindow::MainWindow(QWidget *parent)
 
     chartView->chart()->setAnimationOptions(QChart::NoAnimation);
 
-    contentLayout->addWidget(chartView);
+    // 增益调整表格（2列x10行）
+    gainTable = new QTableWidget(10, 2);
+    gainTable->setHorizontalHeaderLabels({"参数", "值"});
+    gainTable->horizontalHeader()->setStretchLastSection(true);
+    gainTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    gainTable->verticalHeader()->setVisible(false);
+    gainTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    gainTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    gainTable->setSelectionMode(QAbstractItemView::NoSelection);
+    gainTable->setMaximumWidth(300);
+    gainTable->setMinimumWidth(200);
+
+    // 表格预设内容
+    QStringList params = {"增益(dB)", "实际增益", "顶部滑块X", "底部滑块X",
+                          "Y起始", "Y结束", "行数", "列数", "数据偏移", "像素位宽"};
+    for (int i = 0; i < params.size(); ++i) {
+        gainTable->setItem(i, 0, new QTableWidgetItem(params[i]));
+        gainTable->setItem(i, 1, new QTableWidgetItem(""));
+    }
+
+    // 左侧垂直布局：chart（上半） + 表格（下半，同高度）
+    QVBoxLayout *leftLayout = new QVBoxLayout();
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(0);
+    leftLayout->addWidget(chartView, 1);
+    leftLayout->addWidget(gainTable, 1);
+
+    contentLayout->addLayout(leftLayout);
     contentLayout->addWidget(scrollArea);
 
     mainLayout->addLayout(contentLayout);
