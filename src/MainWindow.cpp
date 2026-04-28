@@ -23,15 +23,29 @@
 // --- CustomChartView ---
 CustomChartView::CustomChartView(QWidget *parent)
     : QChartView(parent)
-    , m_topHandleX(0)
-    , m_bottomHandleX(0)
-    , m_dragging(None)
+    , m_lineCount(0)
+    , m_draggingIdx(-1)
     , m_series(nullptr)
 {
     setMouseTracking(true);
 }
 
 void CustomChartView::setLineSeries(QLineSeries *series) { m_series = series; }
+
+void CustomChartView::setLineCount(int count)
+{
+    m_lineCount = qBound(0, count, 9);
+    m_lineY.resize(m_lineCount);
+    m_handleX.resize(m_lineCount);
+    for (int i = 0; i < m_lineCount; ++i) {
+        if (m_lineCount == 1)
+            m_lineY[i] = 0;
+        else
+            m_lineY[i] = 511.0f * i / (m_lineCount - 1);
+        if (m_handleX[i] == 0) m_handleX[i] = 0;
+    }
+    update();
+}
 
 qreal CustomChartView::mapChartToWidgetX(float x)
 {
@@ -61,55 +75,39 @@ void CustomChartView::paintEvent(QPaintEvent *event)
     QPainter painter(viewport());
     painter.setRenderHint(QPainter::Antialiasing);
 
-    qreal topWy = mapChartToWidgetY(0);
-    qreal bottomWy = mapChartToWidgetY(511);
+    for (int i = 0; i < m_lineCount; ++i) {
+        qreal wy = mapChartToWidgetY(m_lineY[i]);
+        qreal hx = mapChartToWidgetX(m_handleX[i]);
 
-    // 顶部水平线（Y=0）
-    QPen topPen(Qt::red, 1);
-    painter.setPen(topPen);
-    painter.drawLine(QPointF(plotArea.left(), topWy), QPointF(plotArea.right(), topWy));
+        QPen pen(Qt::red, 1);
+        painter.setPen(pen);
+        painter.drawLine(QPointF(plotArea.left(), wy), QPointF(plotArea.right(), wy));
 
-    // 顶部手柄（小，6x6）
-    qreal topHx = mapChartToWidgetX(m_topHandleX);
-    painter.setBrush(Qt::red);
-    painter.drawRect(QRectF(topHx - 3, topWy - 3, 6, 6));
-
-    // 底部水平线（Y=511）
-    QPen bottomPen(Qt::blue, 1);
-    painter.setPen(bottomPen);
-    painter.drawLine(QPointF(plotArea.left(), bottomWy), QPointF(plotArea.right(), bottomWy));
-
-    // 底部手柄（8x8）
-    qreal bottomHx = mapChartToWidgetX(m_bottomHandleX);
-    painter.setBrush(Qt::blue);
-    painter.drawRect(QRectF(bottomHx - 4, bottomWy - 4, 8, 8));
+        painter.setBrush(Qt::red);
+        painter.drawRect(QRectF(hx - 3, wy - 3, 6, 6));
+    }
 }
 
 void CustomChartView::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
-        qreal topWy = mapChartToWidgetY(0);
-        qreal bottomWy = mapChartToWidgetY(511);
-        qreal topHx = mapChartToWidgetX(m_topHandleX);
-        qreal bottomHx = mapChartToWidgetX(m_bottomHandleX);
-
         QPointF pos = event->pos();
-        if (qAbs(pos.y() - topWy) < 6 && qAbs(pos.x() - topHx) < 8)
-            m_dragging = TopHandle;
-        else if (qAbs(pos.y() - bottomWy) < 6 && qAbs(pos.x() - bottomHx) < 8)
-            m_dragging = BottomHandle;
+        for (int i = 0; i < m_lineCount; ++i) {
+            qreal wy = mapChartToWidgetY(m_lineY[i]);
+            qreal hx = mapChartToWidgetX(m_handleX[i]);
+            if (qAbs(pos.y() - wy) < 6 && qAbs(pos.x() - hx) < 8) {
+                m_draggingIdx = i;
+                break;
+            }
+        }
     }
     QChartView::mousePressEvent(event);
 }
 
 void CustomChartView::mouseMoveEvent(QMouseEvent *event)
 {
-    if (m_dragging != None) {
-        float x = mapWidgetToChartX(event->pos().x());
-        if (m_dragging == TopHandle)
-            m_topHandleX = x;
-        else
-            m_bottomHandleX = x;
+    if (m_draggingIdx >= 0 && m_draggingIdx < m_lineCount) {
+        m_handleX[m_draggingIdx] = mapWidgetToChartX(event->pos().x());
         update();
     }
     QChartView::mouseMoveEvent(event);
@@ -117,7 +115,7 @@ void CustomChartView::mouseMoveEvent(QMouseEvent *event)
 
 void CustomChartView::mouseReleaseEvent(QMouseEvent *event)
 {
-    m_dragging = None;
+    m_draggingIdx = -1;
     QChartView::mouseReleaseEvent(event);
 }
 
@@ -330,7 +328,7 @@ MainWindow::MainWindow(QWidget *parent)
     pointSpinBox->setValue(0);
     gainTable->setCellWidget(0, 1, pointSpinBox);
 
-    // 点数变化时更新增益行显示
+    // 点数变化时更新增益行显示和chart水平线
     connect(pointSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int count) {
         for (int i = 1; i <= 9; ++i) {
             if (i <= count) {
@@ -340,6 +338,7 @@ MainWindow::MainWindow(QWidget *parent)
                 gainTable->item(i, 1)->setText("");
             }
         }
+        chartView->setLineCount(count);
     });
 
     // 左侧垂直布局：chart（上半） + 表格（下半，同高度）

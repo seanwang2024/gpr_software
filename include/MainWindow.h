@@ -28,9 +28,7 @@ class CustomChartView : public QChartView
 public:
     CustomChartView(QWidget *parent = nullptr);
     void setLineSeries(QLineSeries *series);
-
-    float topHandleX() const { return m_topHandleX; }
-    float bottomHandleX() const { return m_bottomHandleX; }
+    void setLineCount(int count);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -39,10 +37,10 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
 
 private:
-    enum DragState { None, TopHandle, BottomHandle };
-    float m_topHandleX;
-    float m_bottomHandleX;
-    DragState m_dragging;
+    int m_lineCount;
+    QVector<qreal> m_handleX;
+    QVector<float> m_lineY;
+    int m_draggingIdx;
     QLineSeries *m_series;
     qreal mapChartToWidgetX(float x);
     float mapWidgetToChartX(qreal widgetX);
