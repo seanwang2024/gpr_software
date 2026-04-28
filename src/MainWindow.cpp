@@ -84,15 +84,14 @@ void ImageLabel::paintEvent(QPaintEvent *event)
 
     if (m_showCrosshair && !m_image.isNull()) {
         QPainter painter(this);
-        QPen pen(Qt::white, 2);
+        QPen pen(Qt::white, 1);
         painter.setPen(pen);
 
         int x = m_crosshairPos.x();
         int y = m_crosshairPos.y();
 
-        int size = 10;
-        painter.drawLine(x - size, y, x + size, y);
-        painter.drawLine(x, y - size, x, y + size);
+        painter.drawLine(0, y, width(), y);
+        painter.drawLine(x, 0, x, height());
     }
 }
 
