@@ -15,6 +15,9 @@
 #include <QValueAxis>
 #include <QChart>
 #include <QMenu>
+#include <QDialog>
+#include <QLineEdit>
+#include <QDoubleValidator>
 ImageLabel::ImageLabel(QWidget *parent)
     : QLabel(parent)
     , m_showCrosshair(false)
@@ -107,7 +110,7 @@ void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
         gainMap[act] = g;
     }
     gainMenu->addSeparator();
-    gainMenu->addAction("自定义");
+    QAction *customAct = gainMenu->addAction("自定义");
 
     menu.addAction("2 变换");
 
@@ -115,6 +118,28 @@ void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
     if (selected && gainMap.contains(selected)) {
         m_currentGainDb = gainMap[selected];
         emit gainSelected(gainMap[selected]);
+    } else if (selected == customAct) {
+        QDialog dlg(this);
+        dlg.setWindowTitle("输入增益值");
+        QHBoxLayout *layout = new QHBoxLayout(&dlg);
+
+        QLineEdit *input = new QLineEdit(&dlg);
+        input->setValidator(new QDoubleValidator(-999.0, 999.0, 2, &dlg));
+        input->setText("0.00");
+        input->setFixedWidth(100);
+
+        QPushButton *okBtn = new QPushButton("确定", &dlg);
+
+        layout->addWidget(input);
+        layout->addWidget(okBtn);
+
+        connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+        if (dlg.exec() == QDialog::Accepted) {
+            float val = input->text().toFloat();
+            m_currentGainDb = val;
+            emit gainSelected(val);
+        }
     }
 }
 
