@@ -23,6 +23,7 @@ ImageLabel::ImageLabel(QWidget *parent)
     setMinimumSize(400, 400);
     setText("No image loaded");
     setStyleSheet("border: 1px solid gray;");
+    setMouseTracking(true);
 }
 
 void ImageLabel::setImage(const QImage &img)
@@ -52,6 +53,25 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
         update();
     }
     QLabel::mousePressEvent(event);
+}
+
+void ImageLabel::mouseMoveEvent(QMouseEvent *event)
+{
+    if (m_showCrosshair && !m_image.isNull() && (event->buttons() & Qt::LeftButton)) {
+        m_crosshairPos = event->pos();
+        emit imageClicked(m_crosshairPos);
+        update();
+    }
+    QLabel::mouseMoveEvent(event);
+}
+
+void ImageLabel::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton) {
+        m_showCrosshair = false;
+        update();
+    }
+    QLabel::mouseReleaseEvent(event);
 }
 
 void ImageLabel::paintEvent(QPaintEvent *event)
