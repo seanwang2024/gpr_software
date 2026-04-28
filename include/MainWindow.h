@@ -42,6 +42,7 @@ private:
     QImage m_image;
     QPoint m_crosshairPos;
     bool m_showCrosshair;
+    float m_currentGainDb;
 };
 
 class MainWindow : public QMainWindow

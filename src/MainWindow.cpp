@@ -18,6 +18,7 @@
 ImageLabel::ImageLabel(QWidget *parent)
     : QLabel(parent)
     , m_showCrosshair(false)
+    , m_currentGainDb(0)
 {
     setAlignment(Qt::AlignCenter);
     setMinimumSize(400, 400);
@@ -100,7 +101,9 @@ void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
     QList<float> gainValues = {60, 40, 30, 20, 12, 6, 3, 0, -6};
     QMap<QAction*, float> gainMap;
     for (float g : gainValues) {
-        QAction *act = gainMenu->addAction(QString::number(static_cast<int>(g)));
+        QString label = QString::number(static_cast<int>(g));
+        if (g == m_currentGainDb) label += " \xE2\x97\x8F";
+        QAction *act = gainMenu->addAction(label);
         gainMap[act] = g;
     }
     gainMenu->addSeparator();
@@ -110,6 +113,7 @@ void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
 
     QAction *selected = menu.exec(event->globalPos());
     if (selected && gainMap.contains(selected)) {
+        m_currentGainDb = gainMap[selected];
         emit gainSelected(gainMap[selected]);
     }
 }
