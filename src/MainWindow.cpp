@@ -218,11 +218,17 @@ void MainWindow::updateChart(int xValue)
     }
 
     // 动态更新X轴范围
+  // QValueAxis *axisX = qobject_cast<QValueAxis*>(chartView->chart()->axisX(chartSeries));
+  // if (axisX) {
+  //     qint32 margin = qMax<qint32>(1, (maxVal - minVal) / 10);
+  //     axisX->setRange(static_cast<qreal>(minVal - margin), static_cast<qreal>(maxVal + margin));
+  // }
+
     QValueAxis *axisX = qobject_cast<QValueAxis*>(chartView->chart()->axisX(chartSeries));
-    if (axisX) {
-        qint32 margin = qMax<qint32>(1, (maxVal - minVal) / 10);
-        axisX->setRange(static_cast<qreal>(minVal - margin), static_cast<qreal>(maxVal + margin));
-    }
+   // if (axisX) {
+    //    qint32 margin = qMax<qint32>(1, (maxVal - minVal) / 10);
+        axisX->setRange(-256*256*256/2, 256*256*256/2);
+  //  }
 
     chartView->chart()->setTitle(QString("X = %1").arg(xValue));
 }
@@ -293,6 +299,10 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     
     qDebug() << image.format();
 
+    float gain = 4;
+
+    int pixelValue_display;
+
     int dataIdx = 0;
     //for (int y = 0; y < rows; ++y) {
     for (int y = 0; y < rows; ++y) {        // first 1024 colunm for test
@@ -314,7 +324,15 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
             //image.setPixel(y, x, 127 + pixelValue/(256*256*2));   //   x y reverse  ??? 是否是127 需要测试
             //image.setPixel(y, x, 127 + data[dataIdx + 2]/2);   //   x y reverse  ??? 是否是127 需要测试
             //image.setPixel(y, x, qRgb(127 + data[dataIdx + 2]/2,127 + data[dataIdx + 2]/2,127 + data[dataIdx + 2]/2));   //   x y reverse  ??? 是否是127 需要测试
-             image.setPixel(y, x, qRgb(127 + pixelValue/(256*256*2),127 + pixelValue/(256*256*2),127 + pixelValue/(256*256*2)));
+            if(gain*pixelValue>=256*256*256/2)
+                pixelValue_display = 256*256*256/2 -1 ;
+            else if (gain*pixelValue<=-256*256*256/2)
+                pixelValue_display = -256*256*256/2 +1 ;
+            else
+                pixelValue_display = gain*pixelValue;
+
+             //image.setPixel(y, x, qRgb(127 + gain*pixelValue/(256*256),127 + gain*pixelValue/(256*256),127 + gain*pixelValue/(256*256)));
+             image.setPixel(y, x, qRgb(127 + pixelValue_display/(256*256), 127+ pixelValue_display/(256*256), 127 + pixelValue_display/(256*256)));
 
             dataIdx += 4;
         }
