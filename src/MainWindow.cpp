@@ -18,6 +18,7 @@
 #include <QDialog>
 #include <QTableWidget>
 #include <QHeaderView>
+#include <QSpinBox>
 
 // --- CustomChartView ---
 CustomChartView::CustomChartView(QWidget *parent)
@@ -305,23 +306,41 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 增益调整表格（2列x10行）
     gainTable = new QTableWidget(10, 2);
-    gainTable->setHorizontalHeaderLabels({"参数", "值"});
-    gainTable->horizontalHeader()->setStretchLastSection(true);
-    gainTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    gainTable->horizontalHeader()->hide();
     gainTable->verticalHeader()->setVisible(false);
-    gainTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    gainTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    gainTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    gainTable->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     gainTable->setSelectionMode(QAbstractItemView::NoSelection);
     gainTable->setMaximumWidth(300);
     gainTable->setMinimumWidth(200);
+    gainTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 
-    // 表格预设内容
-    QStringList params = {"增益(dB)", "实际增益", "顶部滑块X", "底部滑块X",
-                          "Y起始", "Y结束", "行数", "列数", "数据偏移", "像素位宽"};
-    for (int i = 0; i < params.size(); ++i) {
-        gainTable->setItem(i, 0, new QTableWidgetItem(params[i]));
+    // 预填充增益行（行1-9）
+    for (int i = 1; i <= 9; ++i) {
+        QTableWidgetItem *labelItem = new QTableWidgetItem("");
+        labelItem->setFlags(labelItem->flags() & ~Qt::ItemIsEditable);
+        gainTable->setItem(i, 0, labelItem);
         gainTable->setItem(i, 1, new QTableWidgetItem(""));
     }
+
+    // 第一行：点数 + SpinBox（默认0，最大9）
+    gainTable->setItem(0, 0, new QTableWidgetItem("点数"));
+    QSpinBox *pointSpinBox = new QSpinBox();
+    pointSpinBox->setRange(0, 9);
+    pointSpinBox->setValue(0);
+    gainTable->setCellWidget(0, 1, pointSpinBox);
+
+    // 点数变化时更新增益行显示
+    connect(pointSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int count) {
+        for (int i = 1; i <= 9; ++i) {
+            if (i <= count) {
+                gainTable->item(i, 0)->setText(QString("增益%1").arg(i));
+            } else {
+                gainTable->item(i, 0)->setText("");
+                gainTable->item(i, 1)->setText("");
+            }
+        }
+    });
 
     // 左侧垂直布局：chart（上半） + 表格（下半，同高度）
     QVBoxLayout *leftLayout = new QVBoxLayout();
