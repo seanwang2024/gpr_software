@@ -14,7 +14,7 @@
 #include <QLineSeries>
 #include <QValueAxis>
 #include <QChart>
-
+#include <QMenu>
 ImageLabel::ImageLabel(QWidget *parent)
     : QLabel(parent)
     , m_showCrosshair(false)
@@ -90,6 +90,27 @@ void ImageLabel::paintEvent(QPaintEvent *event)
         painter.drawLine(x - size, y, x + size, y);
         painter.drawLine(x, y - size, x, y + size);
     }
+}
+
+void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
+{
+    QMenu menu(this);
+
+    QMenu *gainMenu = menu.addMenu("1 增益");
+    gainMenu->addAction("60");
+    gainMenu->addAction("40");
+    gainMenu->addAction("30");
+    gainMenu->addAction("20");
+    gainMenu->addAction("12");
+    gainMenu->addAction("6");
+    gainMenu->addAction("3");
+    gainMenu->addAction("0");
+    gainMenu->addAction("-6");
+    gainMenu->addAction("自定义");
+
+    menu.addAction("2 变换");
+
+    menu.exec(event->globalPos());
 }
 
 MainWindow::MainWindow(QWidget *parent)

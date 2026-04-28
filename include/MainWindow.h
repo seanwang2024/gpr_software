@@ -10,6 +10,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPen>
+#include <QContextMenuEvent>
 
 QT_BEGIN_NAMESPACE
 class QChart;
@@ -31,6 +32,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
 signals:
     void imageClicked(const QPoint &pos);
