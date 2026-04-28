@@ -187,8 +187,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(openButton, &QPushButton::clicked, this, &MainWindow::onOpenFile);
     connect(imageLabel, &ImageLabel::imageClicked, this, &MainWindow::onImageClicked);
-    connect(imageLabel, &ImageLabel::gainSelected, this, [this](float gain) {
-        m_gain = gain;
+    connect(imageLabel, &ImageLabel::gainSelected, this, [this](float gainDb) {
+        m_gain = pow(10.0f, gainDb / 20.0f);
         refreshImage();
     });
 }
