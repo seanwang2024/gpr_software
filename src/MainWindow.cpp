@@ -103,6 +103,7 @@ void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
     QMenu *gainMenu = menu.addMenu("1 增益");
     QList<float> gainValues = {60, 40, 30, 20, 12, 6, 3, 0, -6};
     QMap<QAction*, float> gainMap;
+    bool isPreset = gainValues.contains(m_currentGainDb);
     for (float g : gainValues) {
         QString label = QString::number(static_cast<int>(g));
         if (g == m_currentGainDb) label += " \xE2\x97\x8F";
@@ -110,7 +111,9 @@ void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
         gainMap[act] = g;
     }
     gainMenu->addSeparator();
-    QAction *customAct = gainMenu->addAction("自定义");
+    QString customLabel = "自定义";
+    if (!isPreset) customLabel = "\xE2\x97\x8F 自定义";
+    QAction *customAct = gainMenu->addAction(customLabel);
 
     menu.addAction("2 变换");
 
