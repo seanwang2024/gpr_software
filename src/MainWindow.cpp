@@ -97,26 +97,28 @@ void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
     QMenu menu(this);
 
     QMenu *gainMenu = menu.addMenu("1 增益");
-    gainMenu->addAction("60");
-    gainMenu->addAction("40");
-    gainMenu->addAction("30");
-    gainMenu->addAction("20");
-    gainMenu->addAction("12");
-    gainMenu->addAction("6");
-    gainMenu->addAction("3");
-    gainMenu->addAction("0");
-    gainMenu->addAction("-6");
+    QList<float> gainValues = {60, 40, 30, 20, 12, 6, 3, 0, -6};
+    QMap<QAction*, float> gainMap;
+    for (float g : gainValues) {
+        QAction *act = gainMenu->addAction(QString::number(static_cast<int>(g)));
+        gainMap[act] = g;
+    }
+    gainMenu->addSeparator();
     gainMenu->addAction("自定义");
 
     menu.addAction("2 变换");
 
-    menu.exec(event->globalPos());
+    QAction *selected = menu.exec(event->globalPos());
+    if (selected && gainMap.contains(selected)) {
+        emit gainSelected(gainMap[selected]);
+    }
 }
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_dataOffset(0)
     , m_pixelsPerRow(512)
+    , m_gain(4.0f)
 {
     QWidget *centralWidget = new QWidget(this);
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
@@ -185,6 +187,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(openButton, &QPushButton::clicked, this, &MainWindow::onOpenFile);
     connect(imageLabel, &ImageLabel::imageClicked, this, &MainWindow::onImageClicked);
+    connect(imageLabel, &ImageLabel::gainSelected, this, [this](float gain) {
+        m_gain = gain;
+        refreshImage();
+    });
 }
 
 MainWindow::~MainWindow()
@@ -340,7 +346,7 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     
     qDebug() << image.format();
 
-    float gain = 4;
+    float gain = m_gain;
 
     int pixelValue_display;
 
@@ -359,7 +365,7 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
             );
 
             //quint8 grayValue = static_cast<quint8>(qBound(0, pixelValue, 255));
-            //image.setPixel(x, y, grayValue);   // 
+            //image.setPixel(x, y, grayValue);   //
             /*    处理以127为中心 0 最黑       */
             //image.setPixel(y, x, 127 + grayValue/(256*256*2));   //   x y reverse  ??? 是否是127 需要测试
             //image.setPixel(y, x, 127 + pixelValue/(256*256*2));   //   x y reverse  ??? 是否是127 需要测试
@@ -380,4 +386,46 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     }
     image = image.convertToFormat(QImage::Format_Grayscale8);
     return image;
+}
+
+void MainWindow::refreshImage()
+{
+    if (m_rawData.isEmpty()) return;
+
+    const int bytesPerPixel = 4;
+    const int pixelsPerRow = m_pixelsPerRow;
+    int totalPixels = m_rawData.size() / bytesPerPixel;
+    int rows = totalPixels / pixelsPerRow;
+    int dataSize = m_rawData.size();
+
+    QImage image(rows, pixelsPerRow, QImage::Format_Grayscale8);
+    float gain = m_gain;
+    int pixelValue_display;
+    int dataIdx = 0;
+
+    for (int y = 0; y < rows; ++y) {
+        for (int x = 0; x < pixelsPerRow; ++x) {
+            if (dataIdx + 4 > dataSize) return;
+            qint32 pixelValue = static_cast<qint32>(
+                (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
+                (static_cast<quint8>(m_rawData[dataIdx + 2]) << 16) |
+                (static_cast<quint8>(m_rawData[dataIdx + 1]) << 8) |
+                (static_cast<quint8>(m_rawData[dataIdx]))
+            );
+
+            if (gain * pixelValue >= 256 * 256 * 256 / 2)
+                pixelValue_display = 256 * 256 * 256 / 2 - 1;
+            else if (gain * pixelValue <= -256 * 256 * 256 / 2)
+                pixelValue_display = -256 * 256 * 256 / 2 + 1;
+            else
+                pixelValue_display = gain * pixelValue;
+
+            image.setPixel(y, x, qRgb(127 + pixelValue_display / (256 * 256),
+                                       127 + pixelValue_display / (256 * 256),
+                                       127 + pixelValue_display / (256 * 256)));
+            dataIdx += 4;
+        }
+    }
+    image = image.convertToFormat(QImage::Format_Grayscale8);
+    imageLabel->setImage(image);
 }

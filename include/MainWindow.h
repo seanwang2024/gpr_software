@@ -36,6 +36,7 @@ protected:
 
 signals:
     void imageClicked(const QPoint &pos);
+    void gainSelected(float gain);
 
 private:
     QImage m_image;
@@ -60,6 +61,7 @@ private:
     void updateCoordinateLabel(int x, int y);
     qint32 getPixelValue(int x, int y);
     void updateChart(int xValue);
+    void refreshImage();
 
     QScrollArea *scrollArea;
     ImageLabel *imageLabel;
@@ -70,6 +72,7 @@ private:
     QByteArray m_rawData;
     qint64 m_dataOffset;
     int m_pixelsPerRow;
+    float m_gain;
 };
 
 #endif
