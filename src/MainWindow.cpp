@@ -351,6 +351,14 @@ MainWindow::MainWindow(QWidget *parent)
     contentLayout->addLayout(leftLayout);
     contentLayout->addWidget(scrollArea);
 
+    // QQuickWidget 显示浮动球体
+    quickWidget = new QQuickWidget(this);
+    quickWidget->setSource(QUrl::fromLocalFile("D:/gpr_software/qml/Sphere.qml"));
+    quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    quickWidget->setFixedWidth(200);
+
+    contentLayout->addWidget(quickWidget);
+
     mainLayout->addLayout(contentLayout);
 
     coordinateLabel = new QLabel("点击图片查看坐标", this);

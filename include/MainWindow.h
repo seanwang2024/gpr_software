@@ -16,6 +16,7 @@
 #include <QLineSeries>
 #include <QValueAxis>
 #include <QTableWidget>
+#include <QQuickWidget>
 
 QT_BEGIN_NAMESPACE
 class QChart;
@@ -99,6 +100,7 @@ private:
     CustomChartView *chartView;
     QLineSeries *chartSeries;
     QTableWidget *gainTable;
+    QQuickWidget *quickWidget;
     QByteArray m_rawData;
     qint64 m_dataOffset;
     int m_pixelsPerRow;
