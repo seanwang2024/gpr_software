@@ -19,6 +19,34 @@
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QSpinBox>
+#include <QQuickItem>
+#include <complex>
+#include <vector>
+
+// --- FFT ---
+static void fft(std::vector<std::complex<double>> &x)
+{
+    int N = x.size();
+    for (int i = 1, j = 0; i < N; i++) {
+        int bit = N >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) std::swap(x[i], x[j]);
+    }
+    for (int len = 2; len <= N; len <<= 1) {
+        double ang = -2.0 * M_PI / len;
+        std::complex<double> wn(cos(ang), sin(ang));
+        for (int i = 0; i < N; i += len) {
+            std::complex<double> w(1);
+            for (int j = 0; j < len / 2; j++) {
+                auto u = x[i + j], v = w * x[i + j + len / 2];
+                x[i + j] = u + v;
+                x[i + j + len / 2] = u - v;
+                w *= wn;
+            }
+        }
+    }
+}
 
 // --- CustomChartView ---
 CustomChartView::CustomChartView(QWidget *parent)
@@ -126,6 +154,7 @@ ImageLabel::ImageLabel(QWidget *parent)
     : QLabel(parent)
     , m_showCrosshair(false)
     , m_currentGainDb(0)
+    , m_transformMode(0)
 {
     setAlignment(Qt::AlignCenter);
     setMinimumSize(400, 400);
@@ -145,6 +174,7 @@ void ImageLabel::setImage(const QImage &img)
         clear();
         setText("No image loaded");
     }
+    emit imageChanged();
 }
 
 void ImageLabel::mousePressEvent(QMouseEvent *event)
@@ -218,7 +248,15 @@ void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
     if (!isPreset) customLabel = "\xE2\x97\x8F 自定义";
     QAction *customAct = gainMenu->addAction(customLabel);
 
-    menu.addAction("2 变换");
+    QMenu *transformMenu = menu.addMenu("2 变换");
+    QMap<QAction*, int> transformMap;
+    QList<QPair<QString, int>> transforms = {{"无", 0}, {"绝对值", 1}, {"取反", 2}, {"频谱", 3}};
+    for (auto &t : transforms) {
+        QString label = t.first;
+        if (t.second == m_transformMode) label += " \xE2\x97\x8F";
+        QAction *act = transformMenu->addAction(label);
+        transformMap[act] = t.second;
+    }
 
     QAction *selected = menu.exec(event->globalPos());
     if (selected && gainMap.contains(selected)) {
@@ -246,6 +284,9 @@ void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
             m_currentGainDb = val;
             emit gainSelected(val);
         }
+    } else if (selected && transformMap.contains(selected)) {
+        m_transformMode = transformMap[selected];
+        emit transformSelected(m_transformMode);
     }
 }
 
@@ -253,7 +294,8 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_dataOffset(0)
     , m_pixelsPerRow(512)
-    , m_gain(4.0f)
+    , m_gain(1.0f)
+    , m_transformMode(0)
 {
     QWidget *centralWidget = new QWidget(this);
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
@@ -355,7 +397,7 @@ MainWindow::MainWindow(QWidget *parent)
     quickWidget = new QQuickWidget(this);
     quickWidget->setSource(QUrl::fromLocalFile("D:/gpr_software/qml/Sphere.qml"));
     quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
-    quickWidget->setFixedWidth(200);
+    quickWidget->setFixedWidth(1200);
 
     contentLayout->addWidget(quickWidget);
 
@@ -377,6 +419,11 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(openButton, &QPushButton::clicked, this, &MainWindow::onOpenFile);
     connect(imageLabel, &ImageLabel::imageClicked, this, &MainWindow::onImageClicked);
+    connect(imageLabel, &ImageLabel::imageChanged, this, &MainWindow::updateCubeTexture);
+    connect(imageLabel, &ImageLabel::transformSelected, this, [this](int mode) {
+        m_transformMode = mode;
+        refreshImage();
+    });
     connect(imageLabel, &ImageLabel::gainSelected, this, [this](float gainDb) {
         m_gain = pow(10.0f, gainDb / 20.0f);
         refreshImage();
@@ -582,40 +629,94 @@ void MainWindow::refreshImage()
 {
     if (m_rawData.isEmpty()) return;
 
-    const int bytesPerPixel = 4;
     const int pixelsPerRow = m_pixelsPerRow;
-    int totalPixels = m_rawData.size() / bytesPerPixel;
+    int totalPixels = m_rawData.size() / 4;
     int rows = totalPixels / pixelsPerRow;
-    int dataSize = m_rawData.size();
 
     QImage image(rows, pixelsPerRow, QImage::Format_Grayscale8);
-    float gain = m_gain;
-    int pixelValue_display;
-    int dataIdx = 0;
 
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < pixelsPerRow; ++x) {
-            if (dataIdx + 4 > dataSize) return;
-            qint32 pixelValue = static_cast<qint32>(
-                (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
-                (static_cast<quint8>(m_rawData[dataIdx + 2]) << 16) |
-                (static_cast<quint8>(m_rawData[dataIdx + 1]) << 8) |
-                (static_cast<quint8>(m_rawData[dataIdx]))
-            );
+    if (m_transformMode == 3) {
+        // FFT模式：每列512点FFT，显示前256个频率分量的幅度
+        for (int col = 0; col < rows; ++col) {
+            std::vector<std::complex<double>> data(512);
+            for (int y = 0; y < 512; ++y)
+                data[y] = std::complex<double>(getPixelValue(col, y), 0.0);
 
-            if (gain * pixelValue >= 256 * 256 * 256 / 2)
-                pixelValue_display = 256 * 256 * 256 / 2 - 1;
-            else if (gain * pixelValue <= -256 * 256 * 256 / 2)
-                pixelValue_display = -256 * 256 * 256 / 2 + 1;
-            else
-                pixelValue_display = gain * pixelValue;
+            fft(data);
 
-            image.setPixel(y, x, qRgb(127 + pixelValue_display / (256 * 256),
-                                       127 + pixelValue_display / (256 * 256),
-                                       127 + pixelValue_display / (256 * 256)));
-            dataIdx += 4;
+            // 找最大幅度用于归一化
+            double maxMag = 0;
+            double mags[256];
+            for (int bin = 0; bin < 256; ++bin) {
+                mags[bin] = std::abs(data[bin]) / 512.0;
+                if (mags[bin] > maxMag) maxMag = mags[bin];
+            }
+
+            for (int bin = 0; bin < 256; ++bin) {
+                int normalized = (maxMag > 0) ? static_cast<int>(mags[bin] / maxMag * 128.0) : 0;
+                normalized = qBound(0, normalized, 128);
+
+                int gray = 127 + normalized;
+                int row = bin * 2;
+                image.setPixel(col, row, qRgb(gray, gray, gray));
+                if (row - 1 >= 0)
+                    image.setPixel(col, row - 1, qRgb(gray, gray, gray));
+            }
+        }
+    } else {
+        // 非FFT模式：原始渲染逻辑
+        int dataSize = m_rawData.size();
+        float gain = m_gain;
+        int pixelValue_display;
+        int dataIdx = 0;
+
+        for (int y = 0; y < rows; ++y) {
+            for (int x = 0; x < pixelsPerRow; ++x) {
+                if (dataIdx + 4 > dataSize) return;
+                qint32 pixelValue = static_cast<qint32>(
+                    (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
+                    (static_cast<quint8>(m_rawData[dataIdx + 2]) << 16) |
+                    (static_cast<quint8>(m_rawData[dataIdx + 1]) << 8) |
+                    (static_cast<quint8>(m_rawData[dataIdx]))
+                );
+
+                if (gain * pixelValue >= 256 * 256 * 256 / 2)
+                    pixelValue_display = 256 * 256 * 256 / 2 - 1;
+                else if (gain * pixelValue <= -256 * 256 * 256 / 2)
+                    pixelValue_display = -256 * 256 * 256 / 2 + 1;
+                else
+                    pixelValue_display = gain * pixelValue;
+
+                if (m_transformMode == 1)
+                    pixelValue_display = qAbs(pixelValue_display);
+                else if (m_transformMode == 2)
+                    pixelValue_display = -pixelValue_display;
+
+                image.setPixel(y, x, qRgb(127 + pixelValue_display / (256 * 256),
+                                           127 + pixelValue_display / (256 * 256),
+                                           127 + pixelValue_display / (256 * 256)));
+                dataIdx += 4;
+            }
         }
     }
+
     image = image.convertToFormat(QImage::Format_Grayscale8);
     imageLabel->setImage(image);
+}
+
+void MainWindow::updateCubeTexture()
+{
+    QPixmap pix = imageLabel->pixmap();
+    if (pix.isNull()) return;
+
+    static int counter = 0;
+    counter++;
+    QString texPath = QString("D:/gpr_software/build/cube_tex_%1.png").arg(counter);
+    pix.save(texPath, "PNG");
+
+    QQuickItem *root = quickWidget->rootObject();
+    if (root) {
+        root->setProperty("textureSource",
+                           QUrl::fromLocalFile(texPath).toString());
+    }
 }

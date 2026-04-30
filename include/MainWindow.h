@@ -66,12 +66,15 @@ protected:
 signals:
     void imageClicked(const QPoint &pos);
     void gainSelected(float gain);
+    void imageChanged();
+    void transformSelected(int mode);
 
 private:
     QImage m_image;
     QPoint m_crosshairPos;
     bool m_showCrosshair;
     float m_currentGainDb;
+    int m_transformMode;
 };
 
 class MainWindow : public QMainWindow
@@ -92,6 +95,7 @@ private:
     qint32 getPixelValue(int x, int y);
     void updateChart(int xValue);
     void refreshImage();
+    void updateCubeTexture();
 
     QScrollArea *scrollArea;
     ImageLabel *imageLabel;
@@ -105,6 +109,7 @@ private:
     qint64 m_dataOffset;
     int m_pixelsPerRow;
     float m_gain;
+    int m_transformMode;
 };
 
 #endif
