@@ -19,7 +19,11 @@
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QSpinBox>
+#include <QMenuBar>
 #include <QQuickItem>
+#include <QTabWidget>
+#include <QToolButton>
+#include <QFrame>
 #include <complex>
 #include <vector>
 
@@ -417,6 +421,9 @@ MainWindow::MainWindow(QWidget *parent)
     setCentralWidget(centralWidget);
     setWindowTitle("DZT Image Viewer");
 
+    // 创建菜单栏
+    createMenuBar();
+
     connect(openButton, &QPushButton::clicked, this, &MainWindow::onOpenFile);
     connect(imageLabel, &ImageLabel::imageClicked, this, &MainWindow::onImageClicked);
     connect(imageLabel, &ImageLabel::imageChanged, this, &MainWindow::updateCubeTexture);
@@ -426,6 +433,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(imageLabel, &ImageLabel::gainSelected, this, [this](float gainDb) {
         m_gain = pow(10.0f, gainDb / 20.0f);
+        m_transformMode = 0;
         refreshImage();
     });
 }
@@ -719,4 +727,101 @@ void MainWindow::updateCubeTexture()
         root->setProperty("textureSource",
                            QUrl::fromLocalFile(texPath).toString());
     }
+}
+
+void MainWindow::createMenuBar()
+{
+    ribbonTab = new QTabWidget(this);
+    ribbonTab->setTabPosition(QTabWidget::North);
+    ribbonTab->setDocumentMode(true);
+    ribbonTab->setFixedHeight(120);
+    ribbonTab->setStyleSheet(
+        "QTabWidget::pane { border: 1px solid #c0c0c0; background: #f0f0f0; }"
+        "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; }"
+        "QTabBar::tab:selected { background: #ffffff; border-bottom: 2px solid #0078d7; }"
+    );
+
+    // --- Tab: 开始 ---
+    QWidget *startPage = new QWidget();
+    QHBoxLayout *startLayout = new QHBoxLayout(startPage);
+    startLayout->setContentsMargins(4, 2, 4, 2);
+    startLayout->setSpacing(8);
+
+    // Helper lambda: create a group with a frame and label
+    auto addGroup = [](QHBoxLayout *parentLayout, const QString &groupName) -> QVBoxLayout* {
+        QFrame *frame = new QFrame();
+        frame->setFrameShape(QFrame::StyledPanel);
+        frame->setFrameShadow(QFrame::Plain);
+        frame->setStyleSheet("QFrame { border: 1px solid #d0d0d0; border-radius: 3px; background: #fafafa; }");
+        QVBoxLayout *groupLayout = new QVBoxLayout(frame);
+        groupLayout->setContentsMargins(4, 2, 4, 2);
+        groupLayout->setSpacing(4);
+        QLabel *groupLabel = new QLabel(groupName);
+        groupLabel->setAlignment(Qt::AlignCenter);
+        groupLabel->setStyleSheet("color: #666; font-size: 10px; border: none;");
+        groupLayout->addWidget(groupLabel);
+        QHBoxLayout *btnRow = new QHBoxLayout();
+        btnRow->setSpacing(2);
+        groupLayout->insertLayout(0, btnRow);
+        parentLayout->addWidget(frame);
+        return groupLayout;
+    };
+
+    auto makeBtn = [](const QString &iconPath, const QString &text) -> QToolButton* {
+        QToolButton *btn = new QToolButton();
+        btn->setIcon(QIcon(iconPath));
+        btn->setText(text);
+        btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+        btn->setIconSize(QSize(32, 32));
+        btn->setFixedSize(56, 64);
+        btn->setStyleSheet(
+            "QToolButton { border: none; border-radius: 3px; background: transparent; font-size: 11px; }"
+            "QToolButton:hover { background: #dce7f5; }"
+            "QToolButton:pressed { background: #b8d0ea; }"
+        );
+        return btn;
+    };
+
+    // 文件设置 group
+    QVBoxLayout *fileGroup = addGroup(startLayout, "文件设置");
+    QHBoxLayout *fileBtns = qobject_cast<QHBoxLayout*>(fileGroup->itemAt(0)->layout());
+    QToolButton *btnOpen = makeBtn(":/icons/resources/open.png", "打开");
+    QToolButton *btnSave = makeBtn(":/icons/resources/save.png", "保存");
+    QToolButton *btnClose = makeBtn(":/icons/resources/close.png", "关闭");
+    fileBtns->addWidget(btnOpen);
+    fileBtns->addWidget(btnSave);
+    fileBtns->addWidget(btnClose);
+
+    connect(btnOpen, &QToolButton::clicked, this, &MainWindow::onOpenFile);
+    connect(btnClose, &QToolButton::clicked, this, &QWidget::close);
+
+    // 图像缩放 group
+    QVBoxLayout *zoomGroup = addGroup(startLayout, "图像缩放");
+    QHBoxLayout *zoomBtns = qobject_cast<QHBoxLayout*>(zoomGroup->itemAt(0)->layout());
+    zoomBtns->addWidget(makeBtn(":/icons/resources/hzoomin.png", "水平放大"));
+    zoomBtns->addWidget(makeBtn(":/icons/resources/hzoomout.png", "水平缩小"));
+    zoomBtns->addWidget(makeBtn(":/icons/resources/restore.png", "图像还原"));
+    zoomBtns->addWidget(makeBtn(":/icons/resources/stack.png", "堆积图"));
+    zoomBtns->addWidget(makeBtn(":/icons/resources/palette.png", "调色板"));
+
+    // 简易处理 group
+    QVBoxLayout *processGroup = addGroup(startLayout, "简易处理");
+    QHBoxLayout *processBtns = qobject_cast<QHBoxLayout*>(processGroup->itemAt(0)->layout());
+    processBtns->addWidget(makeBtn(":/icons/resources/autoprocess.png", "一键处理"));
+    processBtns->addWidget(makeBtn(":/icons/resources/adjustzero.png", "调节零点"));
+    processBtns->addWidget(makeBtn(":/icons/resources/correctoffset.png", "校正零偏"));
+    processBtns->addWidget(makeBtn(":/icons/resources/bgremove.png", "背景消除"));
+    processBtns->addWidget(makeBtn(":/icons/resources/adjustgain.png", "调节增益"));
+    processBtns->addWidget(makeBtn(":/icons/resources/filter.png", "数字滤波"));
+    processBtns->addWidget(makeBtn(":/icons/resources/batch.png", "批处理"));
+
+    startLayout->addStretch();
+    ribbonTab->addTab(startPage, "开始");
+
+    // --- Tab: 数据处理 (placeholder) ---
+    QWidget *dataPage = new QWidget();
+    ribbonTab->addTab(dataPage, "数据处理");
+
+    // Insert ribbon at top of main layout
+    qobject_cast<QVBoxLayout*>(centralWidget()->layout())->insertWidget(0, ribbonTab);
 }

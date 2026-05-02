@@ -17,6 +17,8 @@
 #include <QValueAxis>
 #include <QTableWidget>
 #include <QQuickWidget>
+#include <QTabWidget>
+#include <QToolButton>
 
 QT_BEGIN_NAMESPACE
 class QChart;
@@ -96,6 +98,7 @@ private:
     void updateChart(int xValue);
     void refreshImage();
     void updateCubeTexture();
+    void createMenuBar();
 
     QScrollArea *scrollArea;
     ImageLabel *imageLabel;
@@ -105,6 +108,7 @@ private:
     QLineSeries *chartSeries;
     QTableWidget *gainTable;
     QQuickWidget *quickWidget;
+    QTabWidget *ribbonTab;
     QByteArray m_rawData;
     qint64 m_dataOffset;
     int m_pixelsPerRow;

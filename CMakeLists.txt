@@ -21,7 +21,11 @@ set(HEADERS
     include/MainWindow.h
 )
 
-add_executable(MyQtApp ${SOURCES} ${HEADERS})
+set(RESOURCES
+    resources.qrc
+)
+
+add_executable(MyQtApp ${SOURCES} ${HEADERS} ${RESOURCES})
 
 target_include_directories(MyQtApp PRIVATE include)
 
