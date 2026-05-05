@@ -516,7 +516,7 @@ MainWindow::MainWindow(QWidget *parent)
     scrollArea = new QScrollArea(this);
     scrollArea->setWidgetResizable(false);
     scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
     imageLabel = new ImageLabel(this);
     scrollArea->setWidget(imageLabel);
@@ -628,6 +628,19 @@ MainWindow::MainWindow(QWidget *parent)
     imageGrid->setColumnStretch(1, 1);
     imageGrid->setRowStretch(1, 1);
 
+    // External horizontal scrollbar (below scrollArea, never overlaps)
+    m_extHScrollBar = new QScrollBar(Qt::Horizontal, this);
+    imageGrid->addWidget(m_extHScrollBar, 2, 1);
+
+    connect(m_extHScrollBar, &QScrollBar::valueChanged, this, [this](int value) {
+        QScrollBar *isb = scrollArea->horizontalScrollBar();
+        isb->setRange(m_extHScrollBar->minimum(), m_extHScrollBar->maximum());
+        isb->setPageStep(m_extHScrollBar->pageStep());
+        isb->setValue(value);
+    });
+    connect(m_extHScrollBar, &QScrollBar::valueChanged,
+            m_topRuler, &HRulerWidget::setOffset);
+
     // Welcome image (replaces the three data controls area)
     welcomeLabel = new QLabel(this);
     welcomeLabel->setAlignment(Qt::AlignCenter);
@@ -648,6 +661,7 @@ MainWindow::MainWindow(QWidget *parent)
     topLeftCorner->hide();
     topRightCorner->hide();
     scrollArea->hide();
+    m_extHScrollBar->hide();
     chartView->hide();
 
     welcomeLabel->show();
@@ -685,8 +699,6 @@ MainWindow::MainWindow(QWidget *parent)
         m_transformMode = 0;
         refreshImage();
     });
-    connect(scrollArea->horizontalScrollBar(), &QScrollBar::valueChanged,
-            m_topRuler, &HRulerWidget::setOffset);
 }
 
 MainWindow::~MainWindow()
@@ -722,6 +734,7 @@ void MainWindow::onOpenFile()
     topLeftCorner->show();
     topRightCorner->show();
     scrollArea->show();
+    m_extHScrollBar->show();
     chartView->show();
 
     updateRulers();
@@ -999,8 +1012,12 @@ void MainWindow::resizeImageLabel()
     if (viewH <= 0) viewH = m_pixelsPerRow;
 
     imageLabel->setFixedSize(m_traceCount, viewH);
-    scrollArea->horizontalScrollBar()->setRange(0, qMax(0, m_traceCount - scrollArea->viewport()->width()));
-    scrollArea->horizontalScrollBar()->setPageStep(scrollArea->viewport()->width());
+
+    // Update external scrollbar
+    int maxVal = qMax(0, m_traceCount - scrollArea->viewport()->width());
+    m_extHScrollBar->setRange(0, maxVal);
+    m_extHScrollBar->setPageStep(scrollArea->viewport()->width());
+    m_extHScrollBar->setVisible(maxVal > 0);
 
     m_leftRuler->update();
     m_rightRuler->update();
@@ -1090,6 +1107,7 @@ void MainWindow::createMenuBar()
         topLeftCorner->hide();
         topRightCorner->hide();
         scrollArea->hide();
+        m_extHScrollBar->hide();
         chartView->hide();
     });
 

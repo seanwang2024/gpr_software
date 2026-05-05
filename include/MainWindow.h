@@ -21,6 +21,7 @@
 
 QT_BEGIN_NAMESPACE
 class QChart;
+class QScrollBar;
 QT_END_NAMESPACE
 
 class HRulerWidget : public QWidget
@@ -146,6 +147,7 @@ private:
     QLabel *welcomeLabel;
     QWidget *topLeftCorner;
     QWidget *topRightCorner;
+    QScrollBar *m_extHScrollBar;
     QByteArray m_rawData;
     qint64 m_dataOffset;
     int m_pixelsPerRow;
