@@ -22,6 +22,7 @@
 QT_BEGIN_NAMESPACE
 class QChart;
 class QScrollBar;
+class QGridLayout;
 QT_END_NAMESPACE
 
 class HRulerWidget : public QWidget
@@ -113,6 +114,32 @@ private:
     QSize m_originalSize;
 };
 
+// Per-file data and widgets for each open tab
+struct TabData {
+    QString filePath;
+    QByteArray rawData;
+    qint64 dataOffset = 0;
+    int pixelsPerRow = 512;
+    float gain = 1.0f;
+    int transformMode = 0;
+    int traceCount = 0;
+    double timeRange = 20.0;
+    double depthRange = 1.25;
+
+    QWidget *page = nullptr;
+    QScrollArea *scrollArea = nullptr;
+    QGridLayout *imageGrid = nullptr;
+    ImageLabel *imageLabel = nullptr;
+    CustomChartView *chartView = nullptr;
+    QLineSeries *chartSeries = nullptr;
+    HRulerWidget *topRuler = nullptr;
+    VRulerWidget *leftRuler = nullptr;
+    VRulerWidget *rightRuler = nullptr;
+    QScrollBar *extHScrollBar = nullptr;
+    QWidget *topLeftCorner = nullptr;
+    QWidget *topRightCorner = nullptr;
+};
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -136,29 +163,38 @@ private:
     void resizeImageLabel();
     void resizeEvent(QResizeEvent *event) override;
 
-    QScrollArea *scrollArea;
-    ImageLabel *imageLabel;
+    // Tab management
+    TabData* createTab(const QString &filePath, const QImage &image);
+    void closeTab(int index);
+    void switchToTab(int index);
+    void showWelcome();
+    void hideWelcome();
+
+    // Shared/global widgets
     QPushButton *openButton;
     QLabel *coordinateLabel;
-    CustomChartView *chartView;
-    QLineSeries *chartSeries;
     QTableWidget *gainTable;
     QTabWidget *ribbonTab;
     QLabel *welcomeLabel;
-    QWidget *topLeftCorner;
-    QWidget *topRightCorner;
-    QScrollBar *m_extHScrollBar;
+    QTabWidget *m_docTabWidget;
+
+    // Tab management
+    QVector<TabData*> m_tabs;
+    TabData *m_currentTab = nullptr;
+
+    // Shortcut pointers to current tab's data/widgets
+    QScrollArea *scrollArea;
+    ImageLabel *imageLabel;
+    CustomChartView *chartView;
+    QLineSeries *chartSeries;
     QByteArray m_rawData;
     qint64 m_dataOffset;
     int m_pixelsPerRow;
     float m_gain;
     int m_transformMode;
-    HRulerWidget *m_topRuler;
-    VRulerWidget *m_leftRuler;
-    VRulerWidget *m_rightRuler;
-    int m_traceCount = 0;
-    double m_timeRange = 20.0;
-    double m_depthRange = 1.0;
+    int m_traceCount;
+    double m_timeRange;
+    double m_depthRange;
 };
 
 #endif

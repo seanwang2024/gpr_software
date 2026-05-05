@@ -20,7 +20,6 @@
 #include <QHeaderView>
 #include <QSpinBox>
 #include <QMenuBar>
-#include <QQuickItem>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QFrame>
@@ -28,6 +27,7 @@
 #include <QScrollBar>
 #include <QFontMetrics>
 #include <QTimer>
+#include <QFileInfo>
 #include <complex>
 #include <vector>
 
@@ -364,7 +364,6 @@ void HRulerWidget::paintEvent(QPaintEvent *)
     int startTrace = m_offset;
     int endTrace = m_offset + w;
 
-    // Minor ticks every 10 traces
     int firstMinor = (startTrace / 10) * 10;
     if (firstMinor < startTrace) firstMinor += 10;
 
@@ -374,7 +373,6 @@ void HRulerWidget::paintEvent(QPaintEvent *)
             p.drawLine(x, h - 5, x, h);
     }
 
-    // Major ticks + labels every 100 traces
     int firstMajor = (startTrace / 100) * 100;
     if (firstMajor < startTrace) firstMajor += 100;
 
@@ -443,11 +441,9 @@ void VRulerWidget::paintEvent(QPaintEvent *)
         p.drawLine(0, 0, 0, imgH);
 
     if (m_direction == Left) {
-        // Left ruler: major tick every 2.5ns, 10 minor ticks between majors
         double majorInterval = 2.5;
-        double minorInterval = majorInterval / 10.0;  // 0.25ns
+        double minorInterval = majorInterval / 10.0;
 
-        // Minor ticks
         double firstMinor = ceil(m_minVal / minorInterval) * minorInterval;
         for (double val = firstMinor; val <= m_maxVal; val += minorInterval) {
             double fraction = (val - m_minVal) / range;
@@ -458,7 +454,6 @@ void VRulerWidget::paintEvent(QPaintEvent *)
                 p.drawLine(w - 4, y, w, y);
         }
 
-        // Major ticks + labels
         double firstMajor = ceil(m_minVal / majorInterval) * majorInterval;
         for (double val = firstMajor; val <= m_maxVal; val += majorInterval) {
             double fraction = (val - m_minVal) / range;
@@ -470,11 +465,9 @@ void VRulerWidget::paintEvent(QPaintEvent *)
                        QString::number(val, 'f', 1));
         }
     } else {
-        // Right ruler: major tick every 0.25m, 10 minor ticks between majors
         double majorInterval = 0.25;
-        double minorInterval = majorInterval / 10.0;  // 0.025m
+        double minorInterval = majorInterval / 10.0;
 
-        // Minor ticks
         double firstMinor = ceil(m_minVal / minorInterval) * minorInterval;
         for (double val = firstMinor; val <= m_maxVal; val += minorInterval) {
             double fraction = (val - m_minVal) / range;
@@ -485,7 +478,6 @@ void VRulerWidget::paintEvent(QPaintEvent *)
                 p.drawLine(0, y, 4, y);
         }
 
-        // Major ticks + labels
         double firstMajor = ceil(m_minVal / majorInterval) * majorInterval;
         for (double val = firstMajor; val <= m_maxVal; val += majorInterval) {
             double fraction = (val - m_minVal) / range;
@@ -499,70 +491,38 @@ void VRulerWidget::paintEvent(QPaintEvent *)
     }
 }
 
+// --- MainWindow ---
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
+    , scrollArea(nullptr)
+    , imageLabel(nullptr)
+    , chartView(nullptr)
+    , chartSeries(nullptr)
     , m_dataOffset(0)
     , m_pixelsPerRow(512)
     , m_gain(1.0f)
     , m_transformMode(0)
+    , m_traceCount(0)
+    , m_timeRange(20.0)
+    , m_depthRange(1.25)
 {
     QWidget *centralWidget = new QWidget(this);
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
 
-    // 创建水平布局，左边放图表，右边放图片
     QHBoxLayout *contentLayout = new QHBoxLayout();
 
-    // 创建滚动区域
-    scrollArea = new QScrollArea(this);
-    scrollArea->setWidgetResizable(false);
-    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-
-    imageLabel = new ImageLabel(this);
-    scrollArea->setWidget(imageLabel);
-
-    // 创建垂直图表：Y轴为Y坐标（从上到下），X轴为像素值
-    chartView = new CustomChartView();
-    chartView->setRenderHint(QPainter::Antialiasing);
-    chartView->setStyleSheet("border: none; background-color: transparent;");
-    chartView->setMinimumWidth(200);
-    chartView->setMaximumWidth(300);
-
-    chartSeries = new QLineSeries();
-    chartView->chart()->addSeries(chartSeries);
-    chartView->chart()->legend()->hide();
-    chartView->setLineSeries(chartSeries);
-
-    // X轴：像素值（动态更新范围）
-    QValueAxis *axisX = new QValueAxis();
-    axisX->setRange(-100, 100);
-    axisX->setLabelFormat("%d");
-    axisX->setTickCount(5);
-
-    // Y轴：Y坐标（反转，0在顶部，511在底部，与图片对齐）
-    QValueAxis *axisY = new QValueAxis();
-    axisY->setRange(0, 511);
-    axisY->setTickCount(6);
-    axisY->setLabelFormat("%d");
-    axisY->setReverse(true);
-
-    chartView->chart()->setAxisX(axisX, chartSeries);
-    chartView->chart()->setAxisY(axisY, chartSeries);
-
-    chartView->chart()->setAnimationOptions(QChart::NoAnimation);
-
-    // 增益调整表格（2列x10行）
+    // --- Shared: gain table ---
     gainTable = new QTableWidget(10, 2);
     gainTable->horizontalHeader()->hide();
     gainTable->verticalHeader()->setVisible(false);
     gainTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     gainTable->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     gainTable->setSelectionMode(QAbstractItemView::NoSelection);
-    gainTable->setMaximumWidth(300);
+    gainTable->setMaximumWidth(250);
     gainTable->setMinimumWidth(200);
     gainTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 
-    // 预填充增益行（行1-9）
     for (int i = 1; i <= 9; ++i) {
         QTableWidgetItem *labelItem = new QTableWidgetItem("");
         labelItem->setFlags(labelItem->flags() & ~Qt::ItemIsEditable);
@@ -570,14 +530,12 @@ MainWindow::MainWindow(QWidget *parent)
         gainTable->setItem(i, 1, new QTableWidgetItem(""));
     }
 
-    // 第一行：点数 + SpinBox（默认0，最大9）
     gainTable->setItem(0, 0, new QTableWidgetItem("点数"));
     QSpinBox *pointSpinBox = new QSpinBox();
     pointSpinBox->setRange(0, 9);
     pointSpinBox->setValue(0);
     gainTable->setCellWidget(0, 1, pointSpinBox);
 
-    // 点数变化时更新增益行显示和chart水平线
     connect(pointSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int count) {
         for (int i = 1; i <= 9; ++i) {
             if (i <= count) {
@@ -587,89 +545,38 @@ MainWindow::MainWindow(QWidget *parent)
                 gainTable->item(i, 1)->setText("");
             }
         }
-        chartView->setLineCount(count);
+        if (chartView) chartView->setLineCount(count);
     });
 
-    // 左侧增益表格
-    gainTable->setMaximumWidth(250);
-    gainTable->setMinimumWidth(200);
-
-    // 右侧chart（拉满高度）
-    chartView->setMinimumWidth(200);
-    chartView->setMaximumWidth(300);
-
-    // Create rulers
-    m_topRuler = new HRulerWidget(this);
-    m_leftRuler = new VRulerWidget(VRulerWidget::Left, this);
-    m_rightRuler = new VRulerWidget(VRulerWidget::Right, this);
-
-    m_leftRuler->setLabel(QString::fromUtf8("时间标尺(ns)"));
-    m_rightRuler->setLabel(QString::fromUtf8("深度标尺(m)"));
-
-    // Grid layout: rulers + scrollArea
-    QGridLayout *imageGrid = new QGridLayout();
-    imageGrid->setSpacing(0);
-    imageGrid->setContentsMargins(0, 0, 0, 0);
-
-    topLeftCorner = new QWidget();
-    topLeftCorner->setFixedSize(60, 40);
-    topLeftCorner->setStyleSheet("background: #f5f5f5;");
-    topRightCorner = new QWidget();
-    topRightCorner->setFixedSize(60, 40);
-    topRightCorner->setStyleSheet("background: #f5f5f5;");
-
-    imageGrid->addWidget(topLeftCorner, 0, 0);
-    imageGrid->addWidget(m_topRuler, 0, 1);
-    imageGrid->addWidget(topRightCorner, 0, 2);
-    imageGrid->addWidget(m_leftRuler, 1, 0);
-    imageGrid->addWidget(scrollArea, 1, 1);
-    imageGrid->addWidget(m_rightRuler, 1, 2);
-
-    imageGrid->setColumnStretch(1, 1);
-    imageGrid->setRowStretch(1, 1);
-
-    // External horizontal scrollbar (below scrollArea, never overlaps)
-    m_extHScrollBar = new QScrollBar(Qt::Horizontal, this);
-    imageGrid->addWidget(m_extHScrollBar, 2, 1);
-
-    connect(m_extHScrollBar, &QScrollBar::valueChanged, this, [this](int value) {
-        QScrollBar *isb = scrollArea->horizontalScrollBar();
-        isb->setRange(m_extHScrollBar->minimum(), m_extHScrollBar->maximum());
-        isb->setPageStep(m_extHScrollBar->pageStep());
-        isb->setValue(value);
-    });
-    connect(m_extHScrollBar, &QScrollBar::valueChanged,
-            m_topRuler, &HRulerWidget::setOffset);
-
-    // Welcome image (replaces the three data controls area)
+    // --- Shared: welcome label ---
     welcomeLabel = new QLabel(this);
     welcomeLabel->setAlignment(Qt::AlignCenter);
     welcomeLabel->setStyleSheet("background: #2b2b2b;");
     QPixmap welcomePix(":/icons/resources/welcome.png");
     welcomeLabel->setPixmap(welcomePix.scaled(800, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation));
 
+    // --- Shared: document tab widget ---
+    m_docTabWidget = new QTabWidget(this);
+    m_docTabWidget->setTabsClosable(true);
+    m_docTabWidget->setDocumentMode(true);
+    m_docTabWidget->setStyleSheet(
+        "QTabWidget::pane { border: none; }"
+        "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
+        "QTabBar::tab:selected { background: #ffffff; }"
+    );
+
     contentLayout->addWidget(gainTable);
     contentLayout->addWidget(welcomeLabel, 1);
-    contentLayout->addLayout(imageGrid);
-    contentLayout->addWidget(chartView);
+    contentLayout->addWidget(m_docTabWidget, 1);
 
-    // Initially hide data controls, show welcome
+    // Initially show welcome, hide others
     gainTable->hide();
-    m_topRuler->hide();
-    m_leftRuler->hide();
-    m_rightRuler->hide();
-    topLeftCorner->hide();
-    topRightCorner->hide();
-    scrollArea->hide();
-    m_extHScrollBar->hide();
-    chartView->hide();
-
+    m_docTabWidget->hide();
     welcomeLabel->show();
-
-    // QQuickWidget 已移除，扩大图片显示区域
 
     mainLayout->addLayout(contentLayout);
 
+    // --- Bottom bar ---
     coordinateLabel = new QLabel("点击图片查看坐标", this);
     coordinateLabel->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px; font-family: monospace;");
 
@@ -685,25 +592,238 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowTitle("DZT Image Viewer");
     resize(1200, 700);
 
-    // 创建菜单栏
     createMenuBar();
 
     connect(openButton, &QPushButton::clicked, this, &MainWindow::onOpenFile);
-    connect(imageLabel, &ImageLabel::imageClicked, this, &MainWindow::onImageClicked);
-    connect(imageLabel, &ImageLabel::transformSelected, this, [this](int mode) {
-        m_transformMode = mode;
-        refreshImage();
-    });
-    connect(imageLabel, &ImageLabel::gainSelected, this, [this](float gainDb) {
-        m_gain = pow(10.0f, gainDb / 20.0f);
-        m_transformMode = 0;
-        refreshImage();
-    });
+    connect(m_docTabWidget, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
+    connect(m_docTabWidget, &QTabWidget::currentChanged, this, &MainWindow::switchToTab);
 }
 
 MainWindow::~MainWindow()
 {
+    qDeleteAll(m_tabs);
 }
+
+// --- Tab management ---
+
+TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
+{
+    TabData *tab = new TabData();
+    tab->filePath = filePath;
+    tab->rawData = m_rawData;
+    tab->dataOffset = m_dataOffset;
+    tab->pixelsPerRow = m_pixelsPerRow;
+    tab->gain = m_gain;
+    tab->transformMode = m_transformMode;
+    tab->traceCount = m_traceCount;
+    tab->timeRange = m_timeRange;
+    tab->depthRange = m_depthRange;
+
+    // Page widget
+    tab->page = new QWidget();
+    QHBoxLayout *pageLayout = new QHBoxLayout(tab->page);
+    pageLayout->setContentsMargins(0, 0, 0, 0);
+    pageLayout->setSpacing(0);
+
+    // ScrollArea + ImageLabel
+    tab->scrollArea = new QScrollArea();
+    tab->scrollArea->setWidgetResizable(false);
+    tab->scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    tab->scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+    tab->imageLabel = new ImageLabel();
+    tab->scrollArea->setWidget(tab->imageLabel);
+    tab->imageLabel->setImage(image);
+
+    // Chart
+    tab->chartView = new CustomChartView();
+    tab->chartView->setRenderHint(QPainter::Antialiasing);
+    tab->chartView->setStyleSheet("border: none; background-color: transparent;");
+    tab->chartView->setMinimumWidth(200);
+    tab->chartView->setMaximumWidth(300);
+
+    tab->chartSeries = new QLineSeries();
+    tab->chartView->chart()->addSeries(tab->chartSeries);
+    tab->chartView->chart()->legend()->hide();
+    tab->chartView->setLineSeries(tab->chartSeries);
+
+    QValueAxis *axisX = new QValueAxis();
+    axisX->setRange(-100, 100);
+    axisX->setLabelFormat("%d");
+    axisX->setTickCount(5);
+
+    QValueAxis *axisY = new QValueAxis();
+    axisY->setRange(0, 511);
+    axisY->setTickCount(6);
+    axisY->setLabelFormat("%d");
+    axisY->setReverse(true);
+
+    tab->chartView->chart()->setAxisX(axisX, tab->chartSeries);
+    tab->chartView->chart()->setAxisY(axisY, tab->chartSeries);
+    tab->chartView->chart()->setAnimationOptions(QChart::NoAnimation);
+
+    // Rulers
+    tab->topRuler = new HRulerWidget();
+    tab->leftRuler = new VRulerWidget(VRulerWidget::Left);
+    tab->rightRuler = new VRulerWidget(VRulerWidget::Right);
+    tab->leftRuler->setLabel(QString::fromUtf8("时间标尺(ns)"));
+    tab->rightRuler->setLabel(QString::fromUtf8("深度标尺(m)"));
+
+    // Corners
+    tab->topLeftCorner = new QWidget();
+    tab->topLeftCorner->setFixedSize(60, 40);
+    tab->topLeftCorner->setStyleSheet("background: #f5f5f5;");
+    tab->topRightCorner = new QWidget();
+    tab->topRightCorner->setFixedSize(60, 40);
+    tab->topRightCorner->setStyleSheet("background: #f5f5f5;");
+
+    // Image grid: rulers + scrollArea + extHScrollBar
+    tab->imageGrid = new QGridLayout();
+    tab->imageGrid->setSpacing(0);
+    tab->imageGrid->setContentsMargins(0, 0, 0, 0);
+    tab->imageGrid->addWidget(tab->topLeftCorner, 0, 0);
+    tab->imageGrid->addWidget(tab->topRuler, 0, 1);
+    tab->imageGrid->addWidget(tab->topRightCorner, 0, 2);
+    tab->imageGrid->addWidget(tab->leftRuler, 1, 0);
+    tab->imageGrid->addWidget(tab->scrollArea, 1, 1);
+    tab->imageGrid->addWidget(tab->rightRuler, 1, 2);
+    tab->imageGrid->setColumnStretch(1, 1);
+    tab->imageGrid->setRowStretch(1, 1);
+
+    // External horizontal scrollbar
+    tab->extHScrollBar = new QScrollBar(Qt::Horizontal);
+    tab->imageGrid->addWidget(tab->extHScrollBar, 2, 1);
+
+    // Page layout: imageGrid + chartView
+    pageLayout->addLayout(tab->imageGrid, 1);
+    pageLayout->addWidget(tab->chartView);
+
+    // Per-tab signal connections
+    connect(tab->imageLabel, &ImageLabel::imageClicked, this, &MainWindow::onImageClicked);
+
+    connect(tab->imageLabel, &ImageLabel::transformSelected, this, [this, tab](int mode) {
+        tab->transformMode = mode;
+        if (m_currentTab == tab) {
+            m_transformMode = mode;
+            refreshImage();
+        }
+    });
+
+    connect(tab->imageLabel, &ImageLabel::gainSelected, this, [this, tab](float gainDb) {
+        tab->gain = pow(10.0f, gainDb / 20.0f);
+        tab->transformMode = 0;
+        if (m_currentTab == tab) {
+            m_gain = tab->gain;
+            m_transformMode = 0;
+            refreshImage();
+        }
+    });
+
+    connect(tab->extHScrollBar, &QScrollBar::valueChanged, this, [this, tab](int value) {
+        QScrollBar *isb = tab->scrollArea->horizontalScrollBar();
+        isb->setRange(tab->extHScrollBar->minimum(), tab->extHScrollBar->maximum());
+        isb->setPageStep(tab->extHScrollBar->pageStep());
+        isb->setValue(value);
+    });
+    connect(tab->extHScrollBar, &QScrollBar::valueChanged,
+            tab->topRuler, &HRulerWidget::setOffset);
+
+    m_tabs.append(tab);
+
+    // Add to doc tab widget
+    QString tabTitle = QFileInfo(filePath).fileName();
+    int idx = m_docTabWidget->addTab(tab->page, tabTitle);
+    m_docTabWidget->setCurrentIndex(idx);
+
+    updateRulers();
+    resizeImageLabel();
+
+    return tab;
+}
+
+void MainWindow::switchToTab(int index)
+{
+    if (index < 0 || m_tabs.isEmpty()) {
+        m_currentTab = nullptr;
+        scrollArea = nullptr;
+        imageLabel = nullptr;
+        chartView = nullptr;
+        chartSeries = nullptr;
+        m_rawData.clear();
+        m_dataOffset = 0;
+        m_pixelsPerRow = 512;
+        m_gain = 1.0f;
+        m_transformMode = 0;
+        m_traceCount = 0;
+        m_timeRange = 20.0;
+        m_depthRange = 1.25;
+        return;
+    }
+
+    QWidget *page = m_docTabWidget->widget(index);
+    TabData *tab = nullptr;
+    for (auto *t : m_tabs) {
+        if (t->page == page) { tab = t; break; }
+    }
+    if (!tab) return;
+
+    m_currentTab = tab;
+
+    m_rawData = tab->rawData;
+    m_dataOffset = tab->dataOffset;
+    m_pixelsPerRow = tab->pixelsPerRow;
+    m_gain = tab->gain;
+    m_transformMode = tab->transformMode;
+    m_traceCount = tab->traceCount;
+    m_timeRange = tab->timeRange;
+    m_depthRange = tab->depthRange;
+
+    scrollArea = tab->scrollArea;
+    imageLabel = tab->imageLabel;
+    chartView = tab->chartView;
+    chartSeries = tab->chartSeries;
+
+    updateRulers();
+    resizeImageLabel();
+}
+
+void MainWindow::closeTab(int index)
+{
+    if (index < 0 || index >= m_docTabWidget->count()) return;
+
+    QWidget *page = m_docTabWidget->widget(index);
+    TabData *tab = nullptr;
+    for (auto *t : m_tabs) {
+        if (t->page == page) { tab = t; break; }
+    }
+    if (!tab) return;
+
+    m_tabs.removeOne(tab);
+    m_docTabWidget->removeTab(index);
+
+    delete tab->page;
+    delete tab;
+
+    if (m_tabs.isEmpty()) {
+        showWelcome();
+    }
+}
+
+void MainWindow::showWelcome()
+{
+    gainTable->hide();
+    m_docTabWidget->hide();
+    welcomeLabel->show();
+}
+
+void MainWindow::hideWelcome()
+{
+    welcomeLabel->hide();
+    gainTable->show();
+    m_docTabWidget->show();
+}
+
+// --- File operations ---
 
 void MainWindow::onOpenFile()
 {
@@ -711,34 +831,19 @@ void MainWindow::onOpenFile()
         "Open DZT File", "",
         "DZT Files (*.dzt);;All Files (*)");
 
-    if (fileName.isEmpty()) {
-        return;
-    }
+    if (fileName.isEmpty()) return;
 
     QImage image = loadDZTFile(fileName);
-
     if (image.isNull()) {
         QMessageBox::warning(this, "Error", "Failed to load DZT file.");
         return;
     }
 
-    imageLabel->setImage(image);
     coordinateLabel->setText("点击图片查看坐标");
 
-    // Hide welcome, show data controls FIRST
-    welcomeLabel->hide();
-    gainTable->show();
-    m_topRuler->show();
-    m_leftRuler->show();
-    m_rightRuler->show();
-    topLeftCorner->show();
-    topRightCorner->show();
-    scrollArea->show();
-    m_extHScrollBar->show();
-    chartView->show();
+    if (m_tabs.isEmpty()) hideWelcome();
 
-    updateRulers();
-    resizeImageLabel();
+    createTab(fileName, image);
 }
 
 void MainWindow::onImageClicked(const QPoint &pos)
@@ -748,13 +853,8 @@ void MainWindow::onImageClicked(const QPoint &pos)
 
 void MainWindow::updateCoordinateLabel(int x, int y)
 {
-    if (m_rawData.isEmpty()) {
-        return;
-    }
-
-    if (x < 0 || y < 0) {
-        return;
-    }
+    if (m_rawData.isEmpty()) return;
+    if (x < 0 || y < 0) return;
 
     qint32 pixelValue = getPixelValue(x, y);
     double normalizedValue = static_cast<double>(pixelValue) / (256.0 * 256.0 * 2.0);
@@ -765,15 +865,12 @@ void MainWindow::updateCoordinateLabel(int x, int y)
                            .arg(pixelValue)
                            .arg(normalizedValue, 0, 'f', 6));
 
-    // 更新图表显示
     updateChart(x);
 }
 
 void MainWindow::updateChart(int xValue)
 {
-    if (m_rawData.isEmpty()) {
-        return;
-    }
+    if (m_rawData.isEmpty() || !chartSeries) return;
 
     chartSeries->clear();
 
@@ -787,32 +884,18 @@ void MainWindow::updateChart(int xValue)
         if (y == 0 || pixelValue > maxVal) maxVal = pixelValue;
     }
 
-    // 动态更新X轴范围
-  // QValueAxis *axisX = qobject_cast<QValueAxis*>(chartView->chart()->axisX(chartSeries));
-  // if (axisX) {
-  //     qint32 margin = qMax<qint32>(1, (maxVal - minVal) / 10);
-  //     axisX->setRange(static_cast<qreal>(minVal - margin), static_cast<qreal>(maxVal + margin));
-  // }
-
     QValueAxis *axisX = qobject_cast<QValueAxis*>(chartView->chart()->axisX(chartSeries));
-   // if (axisX) {
-    //    qint32 margin = qMax<qint32>(1, (maxVal - minVal) / 10);
-        axisX->setRange(-256*256*256/2, 256*256*256/2);
-  //  }
+    axisX->setRange(-256*256*256/2, 256*256*256/2);
 }
 
 qint32 MainWindow::getPixelValue(int x, int y)
 {
-    if (m_rawData.isEmpty()) {
-        return 0;
-    }
+    if (m_rawData.isEmpty()) return 0;
 
     const int bytesPerPixel = 4;
     int dataIdx = (x * m_pixelsPerRow + y) * bytesPerPixel;
 
-    if (dataIdx + 4 > m_rawData.size()) {
-        return 0;
-    }
+    if (dataIdx + 4 > m_rawData.size()) return 0;
 
     qint32 pixelValue = static_cast<qint32>(
         (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
@@ -826,7 +909,6 @@ qint32 MainWindow::getPixelValue(int x, int y)
 
 QImage MainWindow::loadDZTFile(const QString &filePath)
 {
-    //QFile file(filePath);
     QFile file("D:/gpr_software/specs/1103_010.DZT");
     if (!file.open(QIODevice::ReadOnly)) {
         QMessageBox::warning(this, "Error", "open file failed.");
@@ -836,12 +918,10 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     QDataStream in(&file);
     in.setByteOrder(QDataStream::LittleEndian);
 
-    //const qint64 dataOffset = 0x8200;  // fix bug
-    const qint64 dataOffset = 0x20000;  // fix bug
+    const qint64 dataOffset = 0x20000;
     const int bytesPerPixel = 4;
     const int pixelsPerRow = 512;
 
-    // 存储原始数据供点击时使用
     m_dataOffset = dataOffset;
     m_pixelsPerRow = pixelsPerRow;
 
@@ -854,17 +934,11 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     int dataSize = m_rawData.size();
     int totalPixels = dataSize / bytesPerPixel;
     int rows = totalPixels / pixelsPerRow;
-    qDebug() << "dataSize = "  <<  dataSize;
-    qDebug() << "row = "  <<  rows;
+    qDebug() << "dataSize = " << dataSize;
+    qDebug() << "row = " << rows;
 
-    //if (rows <= 0 || totalPixels % pixelsPerRow != 0) {
-    //    QMessageBox::warning(this, "Error", "open file failed ##3.");
-    //    return QImage();
-   // }
+    QImage image(rows, pixelsPerRow, QImage::Format_Grayscale8);
 
-    //QImage image(pixelsPerRow, rows, QImage::Format_Grayscale8);
-    QImage image(rows,pixelsPerRow,  QImage::Format_Grayscale8);    //// first 1024 colunm for test and x yx reverse
-    
     qDebug() << image.format();
 
     float gain = m_gain;
@@ -872,12 +946,11 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     int pixelValue_display;
 
     int dataIdx = 0;
-    //for (int y = 0; y < rows; ++y) {
-    for (int y = 0; y < rows; ++y) {        // first 1024 colunm for test
+    for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < pixelsPerRow; ++x) {
             if (dataIdx + 4 > dataSize) {
                 return QImage();
-             }
+            }
             qint32 pixelValue = static_cast<qint32>(
                 (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
                 (static_cast<quint8>(m_rawData[dataIdx + 2]) << 16) |
@@ -885,13 +958,6 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
                 (static_cast<quint8>(m_rawData[dataIdx]))
             );
 
-            //quint8 grayValue = static_cast<quint8>(qBound(0, pixelValue, 255));
-            //image.setPixel(x, y, grayValue);   //
-            /*    处理以127为中心 0 最黑       */
-            //image.setPixel(y, x, 127 + grayValue/(256*256*2));   //   x y reverse  ??? 是否是127 需要测试
-            //image.setPixel(y, x, 127 + pixelValue/(256*256*2));   //   x y reverse  ??? 是否是127 需要测试
-            //image.setPixel(y, x, 127 + data[dataIdx + 2]/2);   //   x y reverse  ??? 是否是127 需要测试
-            //image.setPixel(y, x, qRgb(127 + data[dataIdx + 2]/2,127 + data[dataIdx + 2]/2,127 + data[dataIdx + 2]/2));   //   x y reverse  ??? 是否是127 需要测试
             if(gain*pixelValue>=256*256*256/2)
                 pixelValue_display = 256*256*256/2 -1 ;
             else if (gain*pixelValue<=-256*256*256/2)
@@ -899,8 +965,7 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
             else
                 pixelValue_display = gain*pixelValue;
 
-             //image.setPixel(y, x, qRgb(127 + gain*pixelValue/(256*256),127 + gain*pixelValue/(256*256),127 + gain*pixelValue/(256*256)));
-             image.setPixel(y, x, qRgb(127 + pixelValue_display/(256*256), 127+ pixelValue_display/(256*256), 127 + pixelValue_display/(256*256)));
+            image.setPixel(y, x, qRgb(127 + pixelValue_display/(256*256), 127+ pixelValue_display/(256*256), 127 + pixelValue_display/(256*256)));
 
             dataIdx += 4;
         }
@@ -911,7 +976,7 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
 
 void MainWindow::refreshImage()
 {
-    if (m_rawData.isEmpty()) return;
+    if (!m_currentTab || m_rawData.isEmpty()) return;
 
     const int pixelsPerRow = m_pixelsPerRow;
     int totalPixels = m_rawData.size() / 4;
@@ -920,7 +985,6 @@ void MainWindow::refreshImage()
     QImage image(rows, pixelsPerRow, QImage::Format_Grayscale8);
 
     if (m_transformMode == 3) {
-        // FFT模式：每列512点FFT，显示前256个频率分量的幅度
         for (int col = 0; col < rows; ++col) {
             std::vector<std::complex<double>> data(512);
             for (int y = 0; y < 512; ++y)
@@ -928,7 +992,6 @@ void MainWindow::refreshImage()
 
             fft(data);
 
-            // 找最大幅度用于归一化
             double maxMag = 0;
             double mags[256];
             for (int bin = 0; bin < 256; ++bin) {
@@ -948,7 +1011,6 @@ void MainWindow::refreshImage()
             }
         }
     } else {
-        // 非FFT模式：原始渲染逻辑
         int dataSize = m_rawData.size();
         float gain = m_gain;
         int pixelValue_display;
@@ -990,37 +1052,38 @@ void MainWindow::refreshImage()
 
 void MainWindow::updateRulers()
 {
-    if (m_rawData.isEmpty()) return;
+    if (!m_currentTab || m_rawData.isEmpty()) return;
 
     int totalPixels = m_rawData.size() / 4;
     m_traceCount = totalPixels / m_pixelsPerRow;
+    m_currentTab->traceCount = m_traceCount;
 
-    m_timeRange = 20.0;   // 512 samples = 20.0 ns
-    m_depthRange = 1.25;  // 20.0 ns corresponds to 1.25 m
+    m_timeRange = 20.0;
+    m_depthRange = 1.25;
+    m_currentTab->timeRange = m_timeRange;
+    m_currentTab->depthRange = m_depthRange;
 
-    m_topRuler->setDataRange(m_traceCount);
-
-    m_leftRuler->setRange(0, m_timeRange);
-    m_rightRuler->setRange(0, m_depthRange);
+    m_currentTab->topRuler->setDataRange(m_traceCount);
+    m_currentTab->leftRuler->setRange(0, m_timeRange);
+    m_currentTab->rightRuler->setRange(0, m_depthRange);
 }
 
 void MainWindow::resizeImageLabel()
 {
-    if (m_rawData.isEmpty()) return;
+    if (!m_currentTab || m_rawData.isEmpty()) return;
 
-    int viewH = scrollArea->viewport()->height();
+    int viewH = m_currentTab->scrollArea->viewport()->height();
     if (viewH <= 0) viewH = m_pixelsPerRow;
 
-    imageLabel->setFixedSize(m_traceCount, viewH);
+    m_currentTab->imageLabel->setFixedSize(m_traceCount, viewH);
 
-    // Update external scrollbar
-    int maxVal = qMax(0, m_traceCount - scrollArea->viewport()->width());
-    m_extHScrollBar->setRange(0, maxVal);
-    m_extHScrollBar->setPageStep(scrollArea->viewport()->width());
-    m_extHScrollBar->setVisible(maxVal > 0);
+    int maxVal = qMax(0, m_traceCount - m_currentTab->scrollArea->viewport()->width());
+    m_currentTab->extHScrollBar->setRange(0, maxVal);
+    m_currentTab->extHScrollBar->setPageStep(m_currentTab->scrollArea->viewport()->width());
+    m_currentTab->extHScrollBar->setVisible(maxVal > 0);
 
-    m_leftRuler->update();
-    m_rightRuler->update();
+    m_currentTab->leftRuler->update();
+    m_currentTab->rightRuler->update();
 }
 
 void MainWindow::resizeEvent(QResizeEvent *event)
@@ -1047,7 +1110,6 @@ void MainWindow::createMenuBar()
     startLayout->setContentsMargins(4, 2, 4, 2);
     startLayout->setSpacing(8);
 
-    // Helper lambda: create a group with a frame and label
     auto addGroup = [](QHBoxLayout *parentLayout, const QString &groupName) -> QVBoxLayout* {
         QFrame *frame = new QFrame();
         frame->setFrameShape(QFrame::StyledPanel);
@@ -1094,21 +1156,10 @@ void MainWindow::createMenuBar()
 
     connect(btnOpen, &QToolButton::clicked, this, &MainWindow::onOpenFile);
     connect(btnClose, &QToolButton::clicked, this, [this]() {
-        m_rawData.clear();
-        imageLabel->clear();
-        chartSeries->clear();
-        coordinateLabel->setText("点击图片查看坐标");
-
-        welcomeLabel->show();
-        gainTable->hide();
-        m_topRuler->hide();
-        m_leftRuler->hide();
-        m_rightRuler->hide();
-        topLeftCorner->hide();
-        topRightCorner->hide();
-        scrollArea->hide();
-        m_extHScrollBar->hide();
-        chartView->hide();
+        if (!m_tabs.isEmpty()) {
+            int idx = m_docTabWidget->currentIndex();
+            if (idx >= 0) closeTab(idx);
+        }
     });
 
     // 图像缩放 group
@@ -1134,10 +1185,9 @@ void MainWindow::createMenuBar()
     startLayout->addStretch();
     ribbonTab->addTab(startPage, "开始");
 
-    // --- Tab: 数据处理 (placeholder) ---
+    // --- Tab: 数据处理 ---
     QWidget *dataPage = new QWidget();
     ribbonTab->addTab(dataPage, "数据处理");
 
-    // Insert ribbon at top of main layout
     qobject_cast<QVBoxLayout*>(centralWidget()->layout())->insertWidget(0, ribbonTab);
 }
