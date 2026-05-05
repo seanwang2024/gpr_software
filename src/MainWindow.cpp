@@ -694,6 +694,9 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     tab->extHScrollBar = new QScrollBar(Qt::Horizontal);
     tab->imageGrid->addWidget(tab->extHScrollBar, 2, 1);
 
+    // Monitor viewport resize to auto-adjust imageLabel height
+    tab->scrollArea->viewport()->installEventFilter(this);
+
     // Page layout: imageGrid + chartView
     pageLayout->addLayout(tab->imageGrid, 1);
     pageLayout->addWidget(tab->chartView);
@@ -1081,7 +1084,7 @@ void MainWindow::resizeImageLabel()
     if (!m_currentTab || m_rawData.isEmpty()) return;
 
     int viewH = m_currentTab->scrollArea->viewport()->height();
-    if (viewH <= 0) viewH = m_pixelsPerRow;
+    if (viewH < m_pixelsPerRow) viewH = m_pixelsPerRow;
 
     m_currentTab->imageLabel->setFixedSize(m_traceCount, viewH);
 
@@ -1092,6 +1095,16 @@ void MainWindow::resizeImageLabel()
 
     m_currentTab->leftRuler->update();
     m_currentTab->rightRuler->update();
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::Resize && m_currentTab) {
+        if (watched == m_currentTab->scrollArea->viewport()) {
+            resizeImageLabel();
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::resizeEvent(QResizeEvent *event)

@@ -162,6 +162,7 @@ private:
     void updateRulers();
     void resizeImageLabel();
     void resizeEvent(QResizeEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
     // Tab management
     TabData* createTab(const QString &filePath, const QImage &image);
