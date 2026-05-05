@@ -109,6 +109,7 @@ private:
     bool m_showCrosshair;
     float m_currentGainDb;
     int m_transformMode;
+    QSize m_originalSize;
 };
 
 class MainWindow : public QMainWindow
@@ -131,6 +132,8 @@ private:
     void refreshImage();
     void createMenuBar();
     void updateRulers();
+    void resizeImageLabel();
+    void resizeEvent(QResizeEvent *event) override;
 
     QScrollArea *scrollArea;
     ImageLabel *imageLabel;

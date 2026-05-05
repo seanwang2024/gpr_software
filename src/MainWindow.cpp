@@ -27,6 +27,7 @@
 #include <QGridLayout>
 #include <QScrollBar>
 #include <QFontMetrics>
+#include <QTimer>
 #include <complex>
 #include <vector>
 
@@ -189,9 +190,10 @@ void ImageLabel::setImage(const QImage &img)
     m_image = img;
     m_showCrosshair = false;
     if (!img.isNull()) {
+        m_originalSize = img.size();
         setPixmap(QPixmap::fromImage(img));
-        resize(img.size());
     } else {
+        m_originalSize = QSize();
         clear();
         setText("No image loaded");
     }
@@ -208,7 +210,10 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
     if (event->button() == Qt::LeftButton) {
         m_crosshairPos = event->pos();
         m_showCrosshair = true;
-        emit imageClicked(m_crosshairPos);
+        int clampedY = qBound(0, event->pos().y(), height() - 1);
+        int origY = (height() > 1) ? clampedY * (m_originalSize.height() - 1) / (height() - 1) : 0;
+        QPoint origPos(event->pos().x(), origY);
+        emit imageClicked(origPos);
         update();
     }
     QLabel::mousePressEvent(event);
@@ -218,7 +223,10 @@ void ImageLabel::mouseMoveEvent(QMouseEvent *event)
 {
     if (m_showCrosshair && !m_image.isNull() && (event->buttons() & Qt::LeftButton)) {
         m_crosshairPos = event->pos();
-        emit imageClicked(m_crosshairPos);
+        int clampedY = qBound(0, event->pos().y(), height() - 1);
+        int origY = (height() > 1) ? clampedY * (m_originalSize.height() - 1) / (height() - 1) : 0;
+        QPoint origPos(event->pos().x(), origY);
+        emit imageClicked(origPos);
         update();
     }
     QLabel::mouseMoveEvent(event);
@@ -235,7 +243,12 @@ void ImageLabel::mouseReleaseEvent(QMouseEvent *event)
 
 void ImageLabel::paintEvent(QPaintEvent *event)
 {
-    QLabel::paintEvent(event);
+    if (!m_image.isNull()) {
+        QPainter p(this);
+        p.drawImage(rect(), m_image);
+    } else {
+        QLabel::paintEvent(event);
+    }
 
     if (m_showCrosshair && !m_image.isNull()) {
         QPainter painter(this);
@@ -451,7 +464,7 @@ void VRulerWidget::paintEvent(QPaintEvent *)
             double fraction = (val - m_minVal) / range;
             int y = (int)(fraction * imgH);
             p.drawLine(w - 8, y, w, y);
-            int textY = qBound(0, y - 8, imgH - 16);
+            int textY = (imgH > 16) ? qBound(0, y - 8, imgH - 16) : qMax(0, y - 8);
             p.drawText(QRect(20, textY, w - 30, 16),
                        Qt::AlignRight | Qt::AlignVCenter,
                        QString::number(val, 'f', 1));
@@ -478,7 +491,7 @@ void VRulerWidget::paintEvent(QPaintEvent *)
             double fraction = (val - m_minVal) / range;
             int y = (int)(fraction * imgH);
             p.drawLine(0, y, 8, y);
-            int textY = qBound(0, y - 8, imgH - 16);
+            int textY = (imgH > 16) ? qBound(0, y - 8, imgH - 16) : qMax(0, y - 8);
             p.drawText(QRect(8, textY, w - 20, 16),
                        Qt::AlignLeft | Qt::AlignVCenter,
                        QString::number(val, 'f', 2));
@@ -503,7 +516,7 @@ MainWindow::MainWindow(QWidget *parent)
     scrollArea = new QScrollArea(this);
     scrollArea->setWidgetResizable(false);
     scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
 
     imageLabel = new ImageLabel(this);
     scrollArea->setWidget(imageLabel);
@@ -697,10 +710,9 @@ void MainWindow::onOpenFile()
     }
 
     imageLabel->setImage(image);
-    updateRulers();
     coordinateLabel->setText("点击图片查看坐标");
 
-    // Hide welcome, show data controls
+    // Hide welcome, show data controls FIRST
     welcomeLabel->hide();
     gainTable->show();
     m_topRuler->show();
@@ -710,6 +722,9 @@ void MainWindow::onOpenFile()
     topRightCorner->show();
     scrollArea->show();
     chartView->show();
+
+    updateRulers();
+    resizeImageLabel();
 }
 
 void MainWindow::onImageClicked(const QPoint &pos)
@@ -972,12 +987,30 @@ void MainWindow::updateRulers()
     m_topRuler->setDataRange(m_traceCount);
 
     m_leftRuler->setRange(0, m_timeRange);
-    m_leftRuler->setImageHeight(m_pixelsPerRow);
-    m_leftRuler->setFixedHeight(m_pixelsPerRow);
-
     m_rightRuler->setRange(0, m_depthRange);
-    m_rightRuler->setImageHeight(m_pixelsPerRow);
-    m_rightRuler->setFixedHeight(m_pixelsPerRow);
+}
+
+void MainWindow::resizeImageLabel()
+{
+    if (m_rawData.isEmpty()) return;
+
+    int viewH = scrollArea->viewport()->height();
+    if (viewH <= 0) viewH = m_pixelsPerRow;
+
+    imageLabel->setFixedSize(m_traceCount, viewH);
+    scrollArea->horizontalScrollBar()->setRange(0, qMax(0, m_traceCount - scrollArea->viewport()->width()));
+    scrollArea->horizontalScrollBar()->setPageStep(scrollArea->viewport()->width());
+
+    m_leftRuler->setImageHeight(viewH);
+    m_leftRuler->setFixedHeight(viewH);
+    m_rightRuler->setImageHeight(viewH);
+    m_rightRuler->setFixedHeight(viewH);
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    resizeImageLabel();
 }
 
 void MainWindow::createMenuBar()
