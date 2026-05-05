@@ -24,6 +24,39 @@ QT_BEGIN_NAMESPACE
 class QChart;
 QT_END_NAMESPACE
 
+class HRulerWidget : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit HRulerWidget(QWidget *parent = nullptr);
+    void setDataRange(int dataWidth);
+    void setOffset(int offset);
+protected:
+    void paintEvent(QPaintEvent *event) override;
+private:
+    int m_offset = 0;
+    int m_dataWidth = 0;
+};
+
+class VRulerWidget : public QWidget
+{
+    Q_OBJECT
+public:
+    enum Direction { Left, Right };
+    explicit VRulerWidget(Direction dir, QWidget *parent = nullptr);
+    void setRange(double minVal, double maxVal);
+    void setLabel(const QString &label);
+    void setImageHeight(int height);
+protected:
+    void paintEvent(QPaintEvent *event) override;
+private:
+    Direction m_direction;
+    double m_minVal = 0;
+    double m_maxVal = 100;
+    QString m_label;
+    int m_imageHeight = 512;
+};
+
 class CustomChartView : public QChartView
 {
     Q_OBJECT
@@ -99,6 +132,7 @@ private:
     void refreshImage();
     void updateCubeTexture();
     void createMenuBar();
+    void updateRulers();
 
     QScrollArea *scrollArea;
     ImageLabel *imageLabel;
@@ -114,6 +148,12 @@ private:
     int m_pixelsPerRow;
     float m_gain;
     int m_transformMode;
+    HRulerWidget *m_topRuler;
+    VRulerWidget *m_leftRuler;
+    VRulerWidget *m_rightRuler;
+    int m_traceCount = 0;
+    double m_timeRange = 20.0;
+    double m_depthRange = 1.0;
 };
 
 #endif

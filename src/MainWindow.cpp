@@ -24,6 +24,9 @@
 #include <QTabWidget>
 #include <QToolButton>
 #include <QFrame>
+#include <QGridLayout>
+#include <QScrollBar>
+#include <QFontMetrics>
 #include <complex>
 #include <vector>
 
@@ -50,6 +53,20 @@ static void fft(std::vector<std::complex<double>> &x)
             }
         }
     }
+}
+
+static double niceInterval(double range, int maxTicks)
+{
+    if (range <= 0 || maxTicks <= 0) return range;
+    double rough = range / maxTicks;
+    double mag = pow(10.0, floor(log10(rough)));
+    double norm = rough / mag;
+    double nice;
+    if (norm <= 1.0) nice = 1.0;
+    else if (norm <= 2.0) nice = 2.0;
+    else if (norm <= 5.0) nice = 5.0;
+    else nice = 10.0;
+    return nice * mag;
 }
 
 // --- CustomChartView ---
@@ -294,6 +311,181 @@ void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
     }
 }
 
+// --- HRulerWidget ---
+HRulerWidget::HRulerWidget(QWidget *parent)
+    : QWidget(parent)
+{
+    setFixedHeight(40);
+    setMinimumWidth(100);
+}
+
+void HRulerWidget::setDataRange(int dataWidth)
+{
+    m_dataWidth = dataWidth;
+    update();
+}
+
+void HRulerWidget::setOffset(int offset)
+{
+    m_offset = offset;
+    update();
+}
+
+void HRulerWidget::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+    p.fillRect(rect(), QColor(245, 245, 245));
+    p.setPen(QPen(Qt::black, 1));
+    p.setFont(QFont("Microsoft YaHei", 8));
+
+    int h = height();
+    int w = width();
+
+    p.drawText(QRect(2, 2, 40, 16), Qt::AlignLeft | Qt::AlignTop,
+               QString::fromUtf8("道号"));
+
+    if (m_dataWidth <= 0) return;
+
+    p.drawLine(0, h - 1, w, h - 1);
+
+    int startTrace = m_offset;
+    int endTrace = m_offset + w;
+
+    // Minor ticks every 10 traces
+    int firstMinor = (startTrace / 10) * 10;
+    if (firstMinor < startTrace) firstMinor += 10;
+
+    for (int val = firstMinor; val <= endTrace; val += 10) {
+        int x = val - m_offset;
+        if (val % 100 != 0)
+            p.drawLine(x, h - 5, x, h);
+    }
+
+    // Major ticks + labels every 100 traces
+    int firstMajor = (startTrace / 100) * 100;
+    if (firstMajor < startTrace) firstMajor += 100;
+
+    for (int val = firstMajor; val <= endTrace; val += 100) {
+        int x = val - m_offset;
+        p.drawLine(x, h - 10, x, h);
+        int textX = qMax(0, x - 30);
+        p.drawText(textX, 14, 60, h - 24, Qt::AlignLeft,
+                   QString::number(val));
+    }
+}
+
+// --- VRulerWidget ---
+VRulerWidget::VRulerWidget(Direction dir, QWidget *parent)
+    : QWidget(parent), m_direction(dir)
+{
+    setFixedWidth(60);
+    setMinimumHeight(100);
+}
+
+void VRulerWidget::setRange(double minVal, double maxVal)
+{
+    m_minVal = minVal;
+    m_maxVal = maxVal;
+    update();
+}
+
+void VRulerWidget::setLabel(const QString &label)
+{
+    m_label = label;
+    update();
+}
+
+void VRulerWidget::setImageHeight(int height)
+{
+    m_imageHeight = height;
+}
+
+void VRulerWidget::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+    p.fillRect(rect(), QColor(245, 245, 245));
+    p.setPen(QPen(Qt::black, 1));
+    p.setFont(QFont("Microsoft YaHei", 8));
+
+    int w = width();
+    int imgH = m_imageHeight;
+
+    double range = m_maxVal - m_minVal;
+    if (range <= 0 || imgH <= 0) return;
+
+    p.save();
+    if (m_direction == Left) {
+        p.translate(12, imgH / 2);
+        p.rotate(-90);
+    } else {
+        p.translate(w - 12, imgH / 2);
+        p.rotate(90);
+    }
+    p.drawText(QRect(-150, -8, 300, 16), Qt::AlignCenter, m_label);
+    p.restore();
+
+    if (m_direction == Left)
+        p.drawLine(w - 1, 0, w - 1, imgH);
+    else
+        p.drawLine(0, 0, 0, imgH);
+
+    if (m_direction == Left) {
+        // Left ruler: major tick every 2.5ns, 10 minor ticks between majors
+        double majorInterval = 2.5;
+        double minorInterval = majorInterval / 10.0;  // 0.25ns
+
+        // Minor ticks
+        double firstMinor = ceil(m_minVal / minorInterval) * minorInterval;
+        for (double val = firstMinor; val <= m_maxVal; val += minorInterval) {
+            double fraction = (val - m_minVal) / range;
+            int y = (int)(fraction * imgH);
+            bool isMajor = qAbs(fmod(val, majorInterval)) < 1e-9
+                        || qAbs(fmod(val, majorInterval) - majorInterval) < 1e-9;
+            if (!isMajor)
+                p.drawLine(w - 4, y, w, y);
+        }
+
+        // Major ticks + labels
+        double firstMajor = ceil(m_minVal / majorInterval) * majorInterval;
+        for (double val = firstMajor; val <= m_maxVal; val += majorInterval) {
+            double fraction = (val - m_minVal) / range;
+            int y = (int)(fraction * imgH);
+            p.drawLine(w - 8, y, w, y);
+            int textY = qBound(0, y - 8, imgH - 16);
+            p.drawText(QRect(20, textY, w - 30, 16),
+                       Qt::AlignRight | Qt::AlignVCenter,
+                       QString::number(val, 'f', 1));
+        }
+    } else {
+        // Right ruler: major tick every 0.25m, 10 minor ticks between majors
+        double majorInterval = 0.25;
+        double minorInterval = majorInterval / 10.0;  // 0.025m
+
+        // Minor ticks
+        double firstMinor = ceil(m_minVal / minorInterval) * minorInterval;
+        for (double val = firstMinor; val <= m_maxVal; val += minorInterval) {
+            double fraction = (val - m_minVal) / range;
+            int y = (int)(fraction * imgH);
+            bool isMajor = qAbs(fmod(val, majorInterval)) < 1e-9
+                        || qAbs(fmod(val, majorInterval) - majorInterval) < 1e-9;
+            if (!isMajor)
+                p.drawLine(0, y, 4, y);
+        }
+
+        // Major ticks + labels
+        double firstMajor = ceil(m_minVal / majorInterval) * majorInterval;
+        for (double val = firstMajor; val <= m_maxVal; val += majorInterval) {
+            double fraction = (val - m_minVal) / range;
+            int y = (int)(fraction * imgH);
+            p.drawLine(0, y, 8, y);
+            int textY = qBound(0, y - 8, imgH - 16);
+            p.drawText(QRect(8, textY, w - 20, 16),
+                       Qt::AlignLeft | Qt::AlignVCenter,
+                       QString::number(val, 'f', 2));
+        }
+    }
+}
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_dataOffset(0)
@@ -394,8 +586,37 @@ MainWindow::MainWindow(QWidget *parent)
     leftLayout->addWidget(chartView, 1);
     leftLayout->addWidget(gainTable, 1);
 
+    // Create rulers
+    m_topRuler = new HRulerWidget(this);
+    m_leftRuler = new VRulerWidget(VRulerWidget::Left, this);
+    m_rightRuler = new VRulerWidget(VRulerWidget::Right, this);
+
+    m_leftRuler->setLabel(QString::fromUtf8("时间标尺(ns)"));
+    m_rightRuler->setLabel(QString::fromUtf8("深度标尺(m)"));
+
+    // Grid layout: rulers + scrollArea
+    QGridLayout *imageGrid = new QGridLayout();
+    imageGrid->setSpacing(0);
+    imageGrid->setContentsMargins(0, 0, 0, 0);
+
+    QWidget *topLeftCorner = new QWidget();
+    topLeftCorner->setFixedSize(60, 40);
+    topLeftCorner->setStyleSheet("background: #f5f5f5;");
+    QWidget *topRightCorner = new QWidget();
+    topRightCorner->setFixedSize(60, 40);
+    topRightCorner->setStyleSheet("background: #f5f5f5;");
+
+    imageGrid->addWidget(topLeftCorner, 0, 0);
+    imageGrid->addWidget(m_topRuler, 0, 1);
+    imageGrid->addWidget(topRightCorner, 0, 2);
+    imageGrid->addWidget(m_leftRuler, 1, 0, Qt::AlignTop);
+    imageGrid->addWidget(scrollArea, 1, 1);
+    imageGrid->addWidget(m_rightRuler, 1, 2, Qt::AlignTop);
+
+    imageGrid->setColumnStretch(1, 1);
+
     contentLayout->addLayout(leftLayout);
-    contentLayout->addWidget(scrollArea);
+    contentLayout->addLayout(imageGrid);
 
     // QQuickWidget 显示浮动球体
     quickWidget = new QQuickWidget(this);
@@ -436,6 +657,8 @@ MainWindow::MainWindow(QWidget *parent)
         m_transformMode = 0;
         refreshImage();
     });
+    connect(scrollArea->horizontalScrollBar(), &QScrollBar::valueChanged,
+            m_topRuler, &HRulerWidget::setOffset);
 }
 
 MainWindow::~MainWindow()
@@ -460,6 +683,7 @@ void MainWindow::onOpenFile()
     }
 
     imageLabel->setImage(image);
+    updateRulers();
     coordinateLabel->setText("点击图片查看坐标");
 }
 
@@ -710,6 +934,27 @@ void MainWindow::refreshImage()
 
     image = image.convertToFormat(QImage::Format_Grayscale8);
     imageLabel->setImage(image);
+}
+
+void MainWindow::updateRulers()
+{
+    if (m_rawData.isEmpty()) return;
+
+    int totalPixels = m_rawData.size() / 4;
+    m_traceCount = totalPixels / m_pixelsPerRow;
+
+    m_timeRange = 20.0;   // 512 samples = 20.0 ns
+    m_depthRange = 1.25;  // 20.0 ns corresponds to 1.25 m
+
+    m_topRuler->setDataRange(m_traceCount);
+
+    m_leftRuler->setRange(0, m_timeRange);
+    m_leftRuler->setImageHeight(m_pixelsPerRow);
+    m_leftRuler->setFixedHeight(m_pixelsPerRow);
+
+    m_rightRuler->setRange(0, m_depthRange);
+    m_rightRuler->setImageHeight(m_pixelsPerRow);
+    m_rightRuler->setFixedHeight(m_pixelsPerRow);
 }
 
 void MainWindow::updateCubeTexture()
