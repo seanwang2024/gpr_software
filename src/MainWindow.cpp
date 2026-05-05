@@ -179,7 +179,7 @@ ImageLabel::ImageLabel(QWidget *parent)
     , m_transformMode(0)
 {
     setAlignment(Qt::AlignCenter);
-    setMinimumSize(400, 400);
+    setMinimumSize(100, 50);
     setText("No image loaded");
     setStyleSheet("border: 1px solid gray;");
     setMouseTracking(true);
@@ -392,7 +392,7 @@ VRulerWidget::VRulerWidget(Direction dir, QWidget *parent)
     : QWidget(parent), m_direction(dir)
 {
     setFixedWidth(60);
-    setMinimumHeight(100);
+    setMinimumHeight(50);
 }
 
 void VRulerWidget::setRange(double minVal, double maxVal)
@@ -421,7 +421,7 @@ void VRulerWidget::paintEvent(QPaintEvent *)
     p.setFont(QFont("Microsoft YaHei", 8));
 
     int w = width();
-    int imgH = m_imageHeight;
+    int imgH = height();
 
     double range = m_maxVal - m_minVal;
     if (range <= 0 || imgH <= 0) return;
@@ -621,11 +621,12 @@ MainWindow::MainWindow(QWidget *parent)
     imageGrid->addWidget(topLeftCorner, 0, 0);
     imageGrid->addWidget(m_topRuler, 0, 1);
     imageGrid->addWidget(topRightCorner, 0, 2);
-    imageGrid->addWidget(m_leftRuler, 1, 0, Qt::AlignTop);
+    imageGrid->addWidget(m_leftRuler, 1, 0);
     imageGrid->addWidget(scrollArea, 1, 1);
-    imageGrid->addWidget(m_rightRuler, 1, 2, Qt::AlignTop);
+    imageGrid->addWidget(m_rightRuler, 1, 2);
 
     imageGrid->setColumnStretch(1, 1);
+    imageGrid->setRowStretch(1, 1);
 
     // Welcome image (replaces the three data controls area)
     welcomeLabel = new QLabel(this);
@@ -1001,10 +1002,8 @@ void MainWindow::resizeImageLabel()
     scrollArea->horizontalScrollBar()->setRange(0, qMax(0, m_traceCount - scrollArea->viewport()->width()));
     scrollArea->horizontalScrollBar()->setPageStep(scrollArea->viewport()->width());
 
-    m_leftRuler->setImageHeight(viewH);
-    m_leftRuler->setFixedHeight(viewH);
-    m_rightRuler->setImageHeight(viewH);
-    m_rightRuler->setFixedHeight(viewH);
+    m_leftRuler->update();
+    m_rightRuler->update();
 }
 
 void MainWindow::resizeEvent(QResizeEvent *event)
