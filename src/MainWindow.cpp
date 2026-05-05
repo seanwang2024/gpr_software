@@ -735,8 +735,11 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     int idx = m_docTabWidget->addTab(tab->page, tabTitle);
     m_docTabWidget->setCurrentIndex(idx);
 
-    updateRulers();
-    resizeImageLabel();
+    // Defer resize until layout is settled (viewport not sized yet during addTab)
+    QTimer::singleShot(0, this, [this]() {
+        updateRulers();
+        resizeImageLabel();
+    });
 
     return tab;
 }
@@ -783,8 +786,13 @@ void MainWindow::switchToTab(int index)
     chartView = tab->chartView;
     chartSeries = tab->chartSeries;
 
-    updateRulers();
-    resizeImageLabel();
+    // Defer resize until the tab page layout is settled
+    QTimer::singleShot(0, this, [this]() {
+        if (m_currentTab) {
+            updateRulers();
+            resizeImageLabel();
+        }
+    });
 }
 
 void MainWindow::closeTab(int index)
