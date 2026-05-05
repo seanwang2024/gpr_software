@@ -909,7 +909,7 @@ qint32 MainWindow::getPixelValue(int x, int y)
 
 QImage MainWindow::loadDZTFile(const QString &filePath)
 {
-    QFile file("D:/gpr_software/specs/1103_010.DZT");
+    QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
         QMessageBox::warning(this, "Error", "open file failed.");
         return QImage();
