@@ -16,7 +16,6 @@
 #include <QLineSeries>
 #include <QValueAxis>
 #include <QTableWidget>
-#include <QQuickWidget>
 #include <QTabWidget>
 #include <QToolButton>
 
@@ -130,7 +129,6 @@ private:
     qint32 getPixelValue(int x, int y);
     void updateChart(int xValue);
     void refreshImage();
-    void updateCubeTexture();
     void createMenuBar();
     void updateRulers();
 
@@ -141,8 +139,10 @@ private:
     CustomChartView *chartView;
     QLineSeries *chartSeries;
     QTableWidget *gainTable;
-    QQuickWidget *quickWidget;
     QTabWidget *ribbonTab;
+    QLabel *welcomeLabel;
+    QWidget *topLeftCorner;
+    QWidget *topRightCorner;
     QByteArray m_rawData;
     qint64 m_dataOffset;
     int m_pixelsPerRow;

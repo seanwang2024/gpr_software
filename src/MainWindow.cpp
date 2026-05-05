@@ -522,14 +522,12 @@ MainWindow::MainWindow(QWidget *parent)
 
     // X轴：像素值（动态更新范围）
     QValueAxis *axisX = new QValueAxis();
-    axisX->setTitleText("Value");
     axisX->setRange(-100, 100);
     axisX->setLabelFormat("%d");
     axisX->setTickCount(5);
 
     // Y轴：Y坐标（反转，0在顶部，511在底部，与图片对齐）
     QValueAxis *axisY = new QValueAxis();
-    axisY->setTitleText("Y");
     axisY->setRange(0, 511);
     axisY->setTickCount(6);
     axisY->setLabelFormat("%d");
@@ -579,12 +577,13 @@ MainWindow::MainWindow(QWidget *parent)
         chartView->setLineCount(count);
     });
 
-    // 左侧垂直布局：chart（上半） + 表格（下半，同高度）
-    QVBoxLayout *leftLayout = new QVBoxLayout();
-    leftLayout->setContentsMargins(0, 0, 0, 0);
-    leftLayout->setSpacing(0);
-    leftLayout->addWidget(chartView, 1);
-    leftLayout->addWidget(gainTable, 1);
+    // 左侧增益表格
+    gainTable->setMaximumWidth(250);
+    gainTable->setMinimumWidth(200);
+
+    // 右侧chart（拉满高度）
+    chartView->setMinimumWidth(200);
+    chartView->setMaximumWidth(300);
 
     // Create rulers
     m_topRuler = new HRulerWidget(this);
@@ -599,10 +598,10 @@ MainWindow::MainWindow(QWidget *parent)
     imageGrid->setSpacing(0);
     imageGrid->setContentsMargins(0, 0, 0, 0);
 
-    QWidget *topLeftCorner = new QWidget();
+    topLeftCorner = new QWidget();
     topLeftCorner->setFixedSize(60, 40);
     topLeftCorner->setStyleSheet("background: #f5f5f5;");
-    QWidget *topRightCorner = new QWidget();
+    topRightCorner = new QWidget();
     topRightCorner->setFixedSize(60, 40);
     topRightCorner->setStyleSheet("background: #f5f5f5;");
 
@@ -615,16 +614,31 @@ MainWindow::MainWindow(QWidget *parent)
 
     imageGrid->setColumnStretch(1, 1);
 
-    contentLayout->addLayout(leftLayout);
+    // Welcome image (replaces the three data controls area)
+    welcomeLabel = new QLabel(this);
+    welcomeLabel->setAlignment(Qt::AlignCenter);
+    welcomeLabel->setStyleSheet("background: #2b2b2b;");
+    QPixmap welcomePix(":/icons/resources/welcome.png");
+    welcomeLabel->setPixmap(welcomePix.scaled(800, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+
+    contentLayout->addWidget(gainTable);
+    contentLayout->addWidget(welcomeLabel, 1);
     contentLayout->addLayout(imageGrid);
+    contentLayout->addWidget(chartView);
 
-    // QQuickWidget 显示浮动球体
-    quickWidget = new QQuickWidget(this);
-    quickWidget->setSource(QUrl::fromLocalFile("D:/gpr_software/qml/Sphere.qml"));
-    quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
-    quickWidget->setFixedWidth(1200);
+    // Initially hide data controls, show welcome
+    gainTable->hide();
+    m_topRuler->hide();
+    m_leftRuler->hide();
+    m_rightRuler->hide();
+    topLeftCorner->hide();
+    topRightCorner->hide();
+    scrollArea->hide();
+    chartView->hide();
 
-    contentLayout->addWidget(quickWidget);
+    welcomeLabel->show();
+
+    // QQuickWidget 已移除，扩大图片显示区域
 
     mainLayout->addLayout(contentLayout);
 
@@ -641,13 +655,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     setCentralWidget(centralWidget);
     setWindowTitle("DZT Image Viewer");
+    resize(1200, 700);
 
     // 创建菜单栏
     createMenuBar();
 
     connect(openButton, &QPushButton::clicked, this, &MainWindow::onOpenFile);
     connect(imageLabel, &ImageLabel::imageClicked, this, &MainWindow::onImageClicked);
-    connect(imageLabel, &ImageLabel::imageChanged, this, &MainWindow::updateCubeTexture);
     connect(imageLabel, &ImageLabel::transformSelected, this, [this](int mode) {
         m_transformMode = mode;
         refreshImage();
@@ -685,6 +699,17 @@ void MainWindow::onOpenFile()
     imageLabel->setImage(image);
     updateRulers();
     coordinateLabel->setText("点击图片查看坐标");
+
+    // Hide welcome, show data controls
+    welcomeLabel->hide();
+    gainTable->show();
+    m_topRuler->show();
+    m_leftRuler->show();
+    m_rightRuler->show();
+    topLeftCorner->show();
+    topRightCorner->show();
+    scrollArea->show();
+    chartView->show();
 }
 
 void MainWindow::onImageClicked(const QPoint &pos)
@@ -745,8 +770,6 @@ void MainWindow::updateChart(int xValue)
     //    qint32 margin = qMax<qint32>(1, (maxVal - minVal) / 10);
         axisX->setRange(-256*256*256/2, 256*256*256/2);
   //  }
-
-    chartView->chart()->setTitle(QString("X = %1").arg(xValue));
 }
 
 qint32 MainWindow::getPixelValue(int x, int y)
@@ -957,23 +980,6 @@ void MainWindow::updateRulers()
     m_rightRuler->setFixedHeight(m_pixelsPerRow);
 }
 
-void MainWindow::updateCubeTexture()
-{
-    QPixmap pix = imageLabel->pixmap();
-    if (pix.isNull()) return;
-
-    static int counter = 0;
-    counter++;
-    QString texPath = QString("D:/gpr_software/build/cube_tex_%1.png").arg(counter);
-    pix.save(texPath, "PNG");
-
-    QQuickItem *root = quickWidget->rootObject();
-    if (root) {
-        root->setProperty("textureSource",
-                           QUrl::fromLocalFile(texPath).toString());
-    }
-}
-
 void MainWindow::createMenuBar()
 {
     ribbonTab = new QTabWidget(this);
@@ -1038,7 +1044,22 @@ void MainWindow::createMenuBar()
     fileBtns->addWidget(btnClose);
 
     connect(btnOpen, &QToolButton::clicked, this, &MainWindow::onOpenFile);
-    connect(btnClose, &QToolButton::clicked, this, &QWidget::close);
+    connect(btnClose, &QToolButton::clicked, this, [this]() {
+        m_rawData.clear();
+        imageLabel->clear();
+        chartSeries->clear();
+        coordinateLabel->setText("点击图片查看坐标");
+
+        welcomeLabel->show();
+        gainTable->hide();
+        m_topRuler->hide();
+        m_leftRuler->hide();
+        m_rightRuler->hide();
+        topLeftCorner->hide();
+        topRightCorner->hide();
+        scrollArea->hide();
+        chartView->hide();
+    });
 
     // 图像缩放 group
     QVBoxLayout *zoomGroup = addGroup(startLayout, "图像缩放");
