@@ -954,6 +954,8 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
 
     float gain = m_gain;
 
+    qDebug() << "gain = " << gain;
+
     int pixelValue_display;
 
     int dataIdx = 0;
@@ -975,8 +977,8 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
                 pixelValue_display = -256*256*256/2 +1 ;
             else
                 pixelValue_display = gain*pixelValue;
-
-            image.setPixel(y, x, qRgb(127 + pixelValue_display/(256*256), 127+ pixelValue_display/(256*256), 127 + pixelValue_display/(256*256)));
+            // 128 = 0x80
+            image.setPixel(y, x, qRgb(128 + pixelValue_display/(256*256), 128+ pixelValue_display/(256*256), 128 + pixelValue_display/(256*256)));
 
             dataIdx += 4;
         }
