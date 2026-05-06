@@ -593,6 +593,7 @@ MainWindow::MainWindow(QWidget *parent)
     resize(1200, 700);
 
     createMenuBar();
+    loadLUT();
 
     connect(openButton, &QPushButton::clicked, this, &MainWindow::onOpenFile);
     connect(m_docTabWidget, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
@@ -948,7 +949,7 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     qDebug() << "dataSize = " << dataSize;
     qDebug() << "row = " << rows;
 
-    QImage image(rows, pixelsPerRow, QImage::Format_Grayscale8);
+    QImage image(rows, pixelsPerRow, QImage::Format_RGB32);
 
     qDebug() << image.format();
 
@@ -977,13 +978,15 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
                 pixelValue_display = -256*256*256/2 +1 ;
             else
                 pixelValue_display = gain*pixelValue;
-            // 128 = 0x80
-            image.setPixel(y, x, qRgb(128 + pixelValue_display/(256*256), 128+ pixelValue_display/(256*256), 128 + pixelValue_display/(256*256)));
+            int lutIdx = pixelValue_display / (256*256) + 128;
+            if (lutIdx < 0) lutIdx = 0;
+            if (lutIdx > 255) lutIdx = 255;
+            image.setPixel(y, x, m_lut[lutIdx]);
 
             dataIdx += 4;
         }
     }
-    image = image.convertToFormat(QImage::Format_Grayscale8);
+    image = image.convertToFormat(QImage::Format_RGB32);
     return image;
 }
 
@@ -995,7 +998,7 @@ void MainWindow::refreshImage()
     int totalPixels = m_rawData.size() / 4;
     int rows = totalPixels / pixelsPerRow;
 
-    QImage image(rows, pixelsPerRow, QImage::Format_Grayscale8);
+    QImage image(rows, pixelsPerRow, QImage::Format_RGB32);
 
     if (m_transformMode == 3) {
         for (int col = 0; col < rows; ++col) {
@@ -1051,15 +1054,16 @@ void MainWindow::refreshImage()
                 else if (m_transformMode == 2)
                     pixelValue_display = -pixelValue_display;
 
-                image.setPixel(y, x, qRgb(127 + pixelValue_display / (256 * 256),
-                                           127 + pixelValue_display / (256 * 256),
-                                           127 + pixelValue_display / (256 * 256)));
+                int lutIdx = pixelValue_display / (256 * 256) + 128;
+                if (lutIdx < 0) lutIdx = 0;
+                if (lutIdx > 255) lutIdx = 255;
+                image.setPixel(y, x, m_lut[lutIdx]);
                 dataIdx += 4;
             }
         }
     }
 
-    image = image.convertToFormat(QImage::Format_Grayscale8);
+    image = image.convertToFormat(QImage::Format_RGB32);
     imageLabel->setImage(image);
 }
 
@@ -1113,6 +1117,29 @@ void MainWindow::resizeEvent(QResizeEvent *event)
 {
     QMainWindow::resizeEvent(event);
     resizeImageLabel();
+}
+
+void MainWindow::loadLUT()
+{
+    // Default: grayscale fallback
+    for (int i = 0; i < 256; ++i)
+        m_lut[i] = qRgb(i, i, i);
+
+    QFile f(":/icons/resources/lut1.txt");
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    int idx = 0;
+    while (!f.atEnd() && idx < 256) {
+        QByteArray line = f.readLine().trimmed();
+        if (line.length() < 6) continue;
+        bool ok = false;
+        uint val = line.toUInt(&ok, 16);
+        if (!ok) continue;
+        int r = (val >> 16) & 0xFF;
+        int g = (val >> 8) & 0xFF;
+        int b = val & 0xFF;
+        m_lut[idx++] = qRgb(r, g, b);
+    }
 }
 
 void MainWindow::createMenuBar()
