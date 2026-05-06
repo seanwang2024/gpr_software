@@ -972,16 +972,22 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
                 (static_cast<quint8>(m_rawData[dataIdx]))
             );
 
-            if(gain*pixelValue>=256*256*256/2)
-                pixelValue_display = 256*256*256/2 -1 ;
-            else if (gain*pixelValue<=-256*256*256/2)
-                pixelValue_display = -256*256*256/2 +1 ;
-            else
+            //if(gain*pixelValue>=256*256*256/2)
+            //    pixelValue_display = 256*256*256/2 -1 ;
+            //else if (gain*pixelValue<=-256*256*256/2)
+            //    pixelValue_display = -256*256*256/2 +1 ;
+            //else
                 pixelValue_display = gain*pixelValue;
             int lutIdx = pixelValue_display / (256*256) + 128;
             if (lutIdx < 0) lutIdx = 0;
             if (lutIdx > 255) lutIdx = 255;
-            image.setPixel(y, x, m_lut[lutIdx]);
+            if(x==0||x==1)
+                image.setPixel(y, x, qRgb(128, 128, 128));   // 所有图片前两行不管数据多少都显示为128 对应值为0
+            else
+                image.setPixel(y, x, m_lut[lutIdx]);
+
+            if(x==1)
+                qDebug() << "row = 0; disp =   " << lutIdx;
 
             dataIdx += 4;
         }
@@ -1042,11 +1048,11 @@ void MainWindow::refreshImage()
                     (static_cast<quint8>(m_rawData[dataIdx]))
                 );
 
-                if (gain * pixelValue >= 256 * 256 * 256 / 2)
-                    pixelValue_display = 256 * 256 * 256 / 2 - 1;
-                else if (gain * pixelValue <= -256 * 256 * 256 / 2)
-                    pixelValue_display = -256 * 256 * 256 / 2 + 1;
-                else
+                //if (gain * pixelValue >= 256 * 256 * 256 / 2)
+                //    pixelValue_display = 256 * 256 * 256 / 2 - 1;
+                //else if (gain * pixelValue <= -256 * 256 * 256 / 2)
+                //    pixelValue_display = -256 * 256 * 256 / 2 + 1;
+                //else
                     pixelValue_display = gain * pixelValue;
 
                 if (m_transformMode == 1)
