@@ -1096,7 +1096,7 @@ void MainWindow::resizeImageLabel()
     if (!m_currentTab || m_rawData.isEmpty()) return;
 
     int viewH = m_currentTab->scrollArea->viewport()->height();
-    if (viewH < m_pixelsPerRow) viewH = m_pixelsPerRow;
+    if (viewH <= 0) viewH = m_pixelsPerRow;
 
     m_currentTab->imageLabel->setFixedSize(m_traceCount, viewH);
 
