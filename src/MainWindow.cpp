@@ -20,6 +20,8 @@
 #include <QHeaderView>
 #include <QSpinBox>
 #include <QMenuBar>
+#include <QActionGroup>
+#include <QWidgetAction>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QFrame>
@@ -28,6 +30,7 @@
 #include <QFontMetrics>
 #include <QTimer>
 #include <QFileInfo>
+#include <functional>
 #include <complex>
 #include <vector>
 
@@ -593,7 +596,7 @@ MainWindow::MainWindow(QWidget *parent)
     resize(1200, 700);
 
     createMenuBar();
-    loadLUT();
+    loadLUT(12);
 
     connect(openButton, &QPushButton::clicked, this, &MainWindow::onOpenFile);
     connect(m_docTabWidget, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
@@ -1136,14 +1139,21 @@ void MainWindow::resizeEvent(QResizeEvent *event)
     resizeImageLabel();
 }
 
-void MainWindow::loadLUT()
+void MainWindow::loadLUT(int index)
 {
+    m_paletteIndex = index;
+
     // Default: grayscale fallback
     for (int i = 0; i < 256; ++i)
         m_lut[i] = qRgb(i, i, i);
 
-    QFile f(":/icons/resources/lut1.txt");
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+    QString path = QString(":/icons/resources/lut%1.txt").arg(index);
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qDebug() << "LUT failed to open:" << path;
+        return;
+    }
+    qDebug() << "LUT loaded:" << path;
 
     int idx = 0;
     while (!f.atEnd() && idx < 256) {
@@ -1236,7 +1246,98 @@ void MainWindow::createMenuBar()
     zoomBtns->addWidget(makeBtn(":/icons/resources/hzoomout.png", "水平缩小"));
     zoomBtns->addWidget(makeBtn(":/icons/resources/restore.png", "图像还原"));
     zoomBtns->addWidget(makeBtn(":/icons/resources/stack.png", "堆积图"));
-    zoomBtns->addWidget(makeBtn(":/icons/resources/palette.png", "调色板"));
+
+    // 调色板 button with dropdown menu
+    {
+        QToolButton *paletteBtn = makeBtn(":/icons/resources/palette.png", "调色板");
+        paletteBtn->setPopupMode(QToolButton::InstantPopup);
+        QMenu *paletteMenu = new QMenu(paletteBtn);
+
+        // 事件过滤器：悬停边框 + 点击选择
+        class PaletteItemFilter : public QObject {
+            int &m_paletteIndex;
+            QVector<QLabel*> &m_numLabels;
+            std::function<void(int)> m_onSelect;
+        public:
+            PaletteItemFilter(int &palIdx, QVector<QLabel*> &labels, std::function<void(int)> onSelect, QObject *parent = nullptr)
+                : QObject(parent), m_paletteIndex(palIdx), m_numLabels(labels), m_onSelect(onSelect) {}
+            bool eventFilter(QObject *watched, QEvent *event) override {
+                QWidget *w = qobject_cast<QWidget*>(watched);
+                if (!w) return QObject::eventFilter(watched, event);
+                if (event->type() == QEvent::Enter) {
+                    w->setStyleSheet("QWidget { background: #E8E8E8; border: 1px solid #888888; border-radius: 2px; }");
+                } else if (event->type() == QEvent::Leave) {
+                    w->setStyleSheet("QWidget { background: transparent; border: none; }");
+                } else if (event->type() == QEvent::MouseButtonPress) {
+                    int idx = w->property("paletteIndex").toInt();
+                    if (idx >= 1 && idx <= 30) {
+                        m_paletteIndex = idx;
+                        for (int j = 1; j <= 30; ++j) {
+                            if (m_numLabels[j]) {
+                                m_numLabels[j]->setStyleSheet(
+                                    j == idx
+                                        ? "background: #4A90D9; color: white; border: 1px solid #3A7BD5; border-radius: 3px; padding: 2px;"
+                                        : "border: 1px solid #AAAAAA; border-radius: 3px; padding: 2px;");
+                            }
+                        }
+                        if (m_onSelect) m_onSelect(idx);
+                    }
+                }
+                return QObject::eventFilter(watched, event);
+            }
+        };
+
+        QVector<QLabel*> *numLabels = new QVector<QLabel*>(31, nullptr);
+        PaletteItemFilter *hoverFilter = new PaletteItemFilter(m_paletteIndex, *numLabels,
+            [this](int idx) {
+                loadLUT(idx);
+                if (m_currentTab) refreshImage();
+            }, paletteMenu);
+
+        for (int i = 1; i <= 30; ++i) {
+            QString iconPath = QString(":/icons/resources/palette_bar%1.png").arg(i);
+            QPixmap pix(iconPath);
+
+            QWidgetAction *wa = new QWidgetAction(paletteMenu);
+            QWidget *itemWidget = new QWidget;
+            itemWidget->setProperty("paletteIndex", i);
+            itemWidget->setMouseTracking(true);
+            itemWidget->installEventFilter(hoverFilter);
+            QHBoxLayout *itemLayout = new QHBoxLayout(itemWidget);
+            itemLayout->setContentsMargins(4, 2, 4, 2);
+            itemLayout->setSpacing(6);
+
+            QLabel *pixLabel = new QLabel;
+            pixLabel->setPixmap(pix.scaled(128, 10, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+            pixLabel->setFixedSize(128, 10);
+            itemLayout->addWidget(pixLabel);
+
+            QLabel *numLabel = new QLabel(QString::number(i));
+            numLabel->setFixedWidth(28);
+            numLabel->setAlignment(Qt::AlignCenter);
+            numLabel->setStyleSheet("border: 1px solid #AAAAAA; border-radius: 3px; padding: 2px;");
+            itemLayout->addWidget(numLabel);
+            (*numLabels)[i] = numLabel;
+
+            wa->setDefaultWidget(itemWidget);
+            paletteMenu->addAction(wa);
+        }
+
+        // 菜单打开时刷新高亮
+        connect(paletteMenu, &QMenu::aboutToShow, this, [numLabels, this]() {
+            for (int j = 1; j <= 30; ++j) {
+                if ((*numLabels)[j]) {
+                    (*numLabels)[j]->setStyleSheet(
+                        j == m_paletteIndex
+                            ? "background: #4A90D9; color: white; border: 1px solid #3A7BD5; border-radius: 3px; padding: 2px;"
+                            : "border: 1px solid #AAAAAA; border-radius: 3px; padding: 2px;");
+                }
+            }
+        });
+
+        paletteBtn->setMenu(paletteMenu);
+        zoomBtns->addWidget(paletteBtn);
+    }
 
     // 简易处理 group
     QVBoxLayout *processGroup = addGroup(startLayout, "简易处理");

@@ -196,7 +196,8 @@ private:
 
     // Color LUT (256 entries, index = pixelValue_display/65536 + 128)
     QRgb m_lut[256];
-    void loadLUT();
+    int m_paletteIndex = 12;
+    void loadLUT(int index = 1);
     int m_traceCount;
     double m_timeRange;
     double m_depthRange;
