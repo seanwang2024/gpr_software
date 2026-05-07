@@ -959,18 +959,29 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
 
     int pixelValue_display;
 
+    qint32 pixelValue;
+
     int dataIdx = 0;
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < pixelsPerRow; ++x) {
             if (dataIdx + 4 > dataSize) {
                 return QImage();
             }
-            qint32 pixelValue = static_cast<qint32>(
-                (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
-                (static_cast<quint8>(m_rawData[dataIdx + 2]) << 16) |
-                (static_cast<quint8>(m_rawData[dataIdx + 1]) << 8) |
-                (static_cast<quint8>(m_rawData[dataIdx]))
-            );
+            // 把前两行的原始数据赋值为0
+            if(x==0||x==1){
+                pixelValue = 0;
+                m_rawData[dataIdx + 3] =0;
+                m_rawData[dataIdx + 2] =0;
+                m_rawData[dataIdx + 1] =0;
+                m_rawData[dataIdx]     =0;
+            }
+            else {
+                pixelValue = static_cast<qint32>(
+                    (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
+                    (static_cast<quint8>(m_rawData[dataIdx + 2]) << 16) |
+                    (static_cast<quint8>(m_rawData[dataIdx + 1]) << 8) |
+                    (static_cast<quint8>(m_rawData[dataIdx]))
+                    );}
 
             //if(gain*pixelValue>=256*256*256/2)
             //    pixelValue_display = 256*256*256/2 -1 ;
@@ -981,9 +992,9 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
             int lutIdx = pixelValue_display / (256*256) + 128;
             if (lutIdx < 0) lutIdx = 0;
             if (lutIdx > 255) lutIdx = 255;
-            if(x==0||x==1)
-                image.setPixel(y, x, qRgb(128, 128, 128));   // 所有图片前两行不管数据多少都显示为128 对应值为0
-            else
+            //if(x==0||x==1)
+            //    image.setPixel(y, x, qRgb(128, 128, 128));   // 所有图片前两行不管数据多少都显示为128 对应值为0
+            // else
                 image.setPixel(y, x, m_lut[lutIdx]);
 
             if(x==1)
