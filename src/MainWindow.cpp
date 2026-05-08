@@ -90,7 +90,9 @@ void CustomChartView::setLineSeries(QLineSeries *series) { m_series = series; }
 
 void CustomChartView::setLineCount(int count)
 {
-    m_lineCount = qBound(0, count, 16);
+    // count=1 → internally 2 handles (top Y=0, bottom Y=511) connected by red line
+    int actual = (count == 1) ? 2 : count;
+    m_lineCount = qBound(0, actual, 16);
     m_lineY.resize(m_lineCount);
     m_handleX.resize(m_lineCount);
     for (int i = 0; i < m_lineCount; ++i) {
@@ -684,6 +686,7 @@ MainWindow::MainWindow(QWidget *parent)
     overallGainSpinBox->setDecimals(2);
     overallGainSpinBox->setSuffix(" dB");
     gainTree->setItemWidget(overallGainItem, 1, overallGainSpinBox);
+    m_gainSpinBoxes[0] = overallGainSpinBox;
 
     // 水平时间常数(固定值，不可编辑)
     QTreeWidgetItem *scanConstItem = new QTreeWidgetItem(channelParamItem, QStringList() << "水平时间常数" << "1");
@@ -769,10 +772,11 @@ MainWindow::MainWindow(QWidget *parent)
             }
             // 自动模式：chart上所有handle同步到同一值
             if (chartView && m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 0) {
-                int count = pointSpinBox->value();
-                for (int j = 0; j < count; ++j)
+                int actual = (pointSpinBox->value() == 1) ? 2 : pointSpinBox->value();
+                for (int j = 0; j < actual; ++j)
                     chartView->setHandleX(j, static_cast<float>(dbValue));
             }
+            updateChart(m_lastChartX);
         });
 
     // 每个增益N输入 → 更新chart中对应handle位置和gain range (仅非自动模式)
@@ -938,14 +942,18 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     connect(tab->chartView, &CustomChartView::gainChanged, this, [this](int idx, float val) {
         bool isAuto = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 0;
         if (isAuto) {
-            // 同步所有spinbox和handle
-            for (int j = 1; j <= 16; ++j) {
-                if (m_gainSpinBoxes[j] && !m_gainSpinBoxes[j]->isHidden()) {
-                    m_gainSpinBoxes[j]->blockSignals(true);
-                    m_gainSpinBoxes[j]->setValue(static_cast<double>(val));
-                    m_gainSpinBoxes[j]->blockSignals(false);
-                }
+            // 同步整体增益spinbox
+            if (m_gainSpinBoxes[0]) {
+                m_gainSpinBoxes[0]->blockSignals(true);
+                m_gainSpinBoxes[0]->setValue(static_cast<double>(val));
+                m_gainSpinBoxes[0]->blockSignals(false);
             }
+            // 同步m_gain
+            float linearGain = std::pow(10.0f, val / 20.0f);
+            m_gain = linearGain;
+            if (m_currentTab)
+                m_currentTab->gain = m_gain;
+            // 同步所有handle
             if (chartView) {
                 for (int j = 0; j < 16; ++j)
                     chartView->setHandleX(j, val);
@@ -957,6 +965,7 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
                 m_gainSpinBoxes[idx + 1]->blockSignals(false);
             }
         }
+        updateChart(m_lastChartX);
     });
 
     // Rulers
@@ -1197,9 +1206,10 @@ void MainWindow::updateChart(int xValue)
 
     for (int y = 0; y < maxPoints; ++y) {
         qint32 pixelValue = getPixelValue(xValue, y);
-        float rowGain = (chartView) ? chartView->interpolatedGain(y) : m_gain;
-        if (rowGain == 0) rowGain = m_gain;
-        qint32 displayValue = static_cast<qint32>(rowGain * pixelValue);
+        float rowGainDb = (chartView) ? chartView->interpolatedGain(y) : m_gain;
+        if (rowGainDb == 0) rowGainDb = m_gain;
+        float rowGainLinear = std::pow(10.0f, rowGainDb / 20.0f);
+        qint32 displayValue = static_cast<qint32>(rowGainLinear * pixelValue);
         chartSeries->append(static_cast<qreal>(displayValue), static_cast<qreal>(y));
         if (y == 0 || displayValue < minVal) minVal = displayValue;
         if (y == 0 || displayValue > maxVal) maxVal = displayValue;
@@ -1266,11 +1276,12 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
 
     qDebug() << "gain = " << gain;
 
-    // Pre-compute per-row gain table
+    // Pre-compute per-row gain table (dB → linear)
     float gainTable[512];
     for (int x = 0; x < 512; ++x) {
-        gainTable[x] = (chartView) ? chartView->interpolatedGain(x) : gain;
-        if (gainTable[x] == 0) gainTable[x] = gain;
+        float dbVal = (chartView) ? chartView->interpolatedGain(x) : gain;
+        if (dbVal == 0) dbVal = gain;
+        gainTable[x] = std::pow(10.0f, dbVal / 20.0f);
     }
 
     int dataIdx = 0;
@@ -1323,8 +1334,9 @@ void MainWindow::applyGain()
 
         float gainTable[512];
         for (int x = 0; x < 512; ++x) {
-            gainTable[x] = (chartView) ? chartView->interpolatedGain(x) : m_gain;
-            if (gainTable[x] == 0) gainTable[x] = m_gain;
+            float dbVal = (chartView) ? chartView->interpolatedGain(x) : m_gain;
+            if (dbVal == 0) dbVal = m_gain;
+            gainTable[x] = std::pow(10.0f, dbVal / 20.0f);
         }
 
         int totalPixels = m_rawData.size() / 4;
@@ -1360,8 +1372,9 @@ void MainWindow::saveProcessedFile()
         m_currentTab->originalRawData = m_rawData;
         float gainTable[512];
         for (int x = 0; x < 512; ++x) {
-            gainTable[x] = (chartView) ? chartView->interpolatedGain(x) : m_gain;
-            if (gainTable[x] == 0) gainTable[x] = m_gain;
+            float dbVal = (chartView) ? chartView->interpolatedGain(x) : m_gain;
+            if (dbVal == 0) dbVal = m_gain;
+            gainTable[x] = std::pow(10.0f, dbVal / 20.0f);
         }
         int totalPixels = m_rawData.size() / 4;
         char *data = m_rawData.data();
@@ -1453,11 +1466,12 @@ void MainWindow::refreshImage()
     } else {
         int dataSize = m_rawData.size();
 
-        // Pre-compute per-row gain table (512 entries, by sample depth x)
+        // Pre-compute per-row gain table (512 entries, by sample depth x, dB→linear)
         float gainTable[512];
         for (int x = 0; x < 512; ++x) {
-            gainTable[x] = (chartView) ? chartView->interpolatedGain(x) : m_gain;
-            if (gainTable[x] == 0) gainTable[x] = m_gain;
+            float dbVal = (chartView) ? chartView->interpolatedGain(x) : m_gain;
+            if (dbVal == 0) dbVal = m_gain;
+            gainTable[x] = std::pow(10.0f, dbVal / 20.0f);
         }
 
         int dataIdx = 0;
