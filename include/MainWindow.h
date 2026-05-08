@@ -15,7 +15,8 @@
 #include <QChartView>
 #include <QLineSeries>
 #include <QValueAxis>
-#include <QTableWidget>
+#include <QTreeWidget>
+#include <QDoubleSpinBox>
 #include <QTabWidget>
 #include <QToolButton>
 
@@ -66,6 +67,13 @@ public:
     CustomChartView(QWidget *parent = nullptr);
     void setLineSeries(QLineSeries *series);
     void setLineCount(int count);
+    void setHandleX(int idx, float val);
+    float handleX(int idx) const;
+    void setGainRange(float minVal, float maxVal);
+    float interpolatedGain(float y) const;
+
+signals:
+    void gainChanged(int idx, float val);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -79,8 +87,10 @@ private:
     QVector<float> m_lineY;
     int m_draggingIdx;
     QLineSeries *m_series;
-    qreal mapChartToWidgetX(float x);
-    float mapWidgetToChartX(qreal widgetX);
+    float m_gainMin = -6.0f;
+    float m_gainMax = 6.0f;
+    qreal mapGainToWidgetX(float gainVal);
+    float mapWidgetToGainX(qreal widgetX);
     qreal mapChartToWidgetY(float y);
 };
 
@@ -174,7 +184,7 @@ private:
     // Shared/global widgets
     QPushButton *openButton;
     QLabel *coordinateLabel;
-    QTableWidget *gainTable;
+    QTreeWidget *gainTree;
     QTabWidget *ribbonTab;
     QLabel *welcomeLabel;
     QTabWidget *m_docTabWidget;
@@ -193,6 +203,10 @@ private:
     int m_pixelsPerRow;
     float m_gain;
     int m_transformMode;
+    int m_lastChartX = 0;
+
+    // Gain spinboxes (shared, created in constructor)
+    QVector<QDoubleSpinBox*> m_gainSpinBoxes;
 
     // Color LUT (256 entries, index = pixelValue_display/65536 + 128)
     QRgb m_lut[256];

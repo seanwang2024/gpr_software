@@ -16,8 +16,10 @@
 #include <QChart>
 #include <QMenu>
 #include <QDialog>
-#include <QTableWidget>
+#include <QTreeWidget>
 #include <QHeaderView>
+#include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QSpinBox>
 #include <QMenuBar>
 #include <QActionGroup>
@@ -31,6 +33,7 @@
 #include <QTimer>
 #include <QFileInfo>
 #include <functional>
+#include <cmath>
 #include <complex>
 #include <vector>
 
@@ -87,7 +90,7 @@ void CustomChartView::setLineSeries(QLineSeries *series) { m_series = series; }
 
 void CustomChartView::setLineCount(int count)
 {
-    m_lineCount = qBound(0, count, 9);
+    m_lineCount = qBound(0, count, 16);
     m_lineY.resize(m_lineCount);
     m_handleX.resize(m_lineCount);
     for (int i = 0; i < m_lineCount; ++i) {
@@ -100,16 +103,67 @@ void CustomChartView::setLineCount(int count)
     update();
 }
 
-qreal CustomChartView::mapChartToWidgetX(float x)
+void CustomChartView::setHandleX(int idx, float val)
 {
-    if (!m_series || !chart()) return 0;
-    return chart()->mapToPosition(QPointF(x, 0), m_series).x();
+    if (idx >= 0 && idx < m_lineCount) {
+        m_handleX[idx] = val;
+        update();
+    }
 }
 
-float CustomChartView::mapWidgetToChartX(qreal widgetX)
+float CustomChartView::handleX(int idx) const
 {
-    if (!m_series || !chart()) return 0;
-    return static_cast<float>(chart()->mapToValue(QPointF(widgetX, 0), m_series).x());
+    if (idx >= 0 && idx < m_lineCount) return m_handleX[idx];
+    return 0;
+}
+
+void CustomChartView::setGainRange(float minVal, float maxVal)
+{
+    m_gainMin = minVal;
+    m_gainMax = maxVal;
+    update();
+}
+
+float CustomChartView::interpolatedGain(float y) const
+{
+    if (m_lineCount == 0) return 1.0f;
+    if (m_lineCount == 1) return static_cast<float>(m_handleX[0]);
+
+    // Find the two handles that bracket y
+    // m_lineY is sorted ascending (0, 511/N, 2*511/N, ..., 511)
+    if (y <= m_lineY[0]) return static_cast<float>(m_handleX[0]);
+    if (y >= m_lineY[m_lineCount - 1]) return static_cast<float>(m_handleX[m_lineCount - 1]);
+
+    for (int i = 0; i < m_lineCount - 1; ++i) {
+        if (y >= m_lineY[i] && y <= m_lineY[i + 1]) {
+            float t = (m_lineY[i + 1] == m_lineY[i]) ? 0.0f :
+                      (y - m_lineY[i]) / (m_lineY[i + 1] - m_lineY[i]);
+            return static_cast<float>(m_handleX[i] + t * (m_handleX[i + 1] - m_handleX[i]));
+        }
+    }
+    return static_cast<float>(m_handleX[m_lineCount - 1]);
+}
+
+// Map gain value to pixel X within plot area
+qreal CustomChartView::mapGainToWidgetX(float gainVal)
+{
+    if (!chart()) return 0;
+    QRectF pa = chart()->plotArea();
+    float range = m_gainMax - m_gainMin;
+    if (range <= 0) return pa.center().x();
+    float t = (gainVal - m_gainMin) / range;
+    return pa.left() + t * pa.width();
+}
+
+// Map pixel X back to gain value
+float CustomChartView::mapWidgetToGainX(qreal widgetX)
+{
+    if (!chart()) return 0;
+    QRectF pa = chart()->plotArea();
+    float range = m_gainMax - m_gainMin;
+    if (range <= 0) return 0;
+    float t = static_cast<float>((widgetX - pa.left()) / pa.width());
+    return m_gainMin + t * range;
 }
 
 qreal CustomChartView::mapChartToWidgetY(float y)
@@ -128,16 +182,40 @@ void CustomChartView::paintEvent(QPaintEvent *event)
     QPainter painter(viewport());
     painter.setRenderHint(QPainter::Antialiasing);
 
+    // Draw gain scale ticks at top of plot
+    QPen tickPen(Qt::gray, 1, Qt::DotLine);
+    painter.setPen(tickPen);
+    QFontMetrics fm(painter.font());
+    int tickCount = static_cast<int>((m_gainMax - m_gainMin) / 6);
+    if (tickCount < 1) tickCount = 1;
+    for (int t = -tickCount; t <= tickCount; ++t) {
+        qreal tx = mapGainToWidgetX(6.0f * t);
+        if (tx >= plotArea.left() && tx <= plotArea.right()) {
+            painter.drawLine(QPointF(tx, plotArea.top()), QPointF(tx, plotArea.bottom()));
+            QString label = QString::number(6 * t);
+            painter.setPen(Qt::black);
+            painter.drawText(QPointF(tx - fm.horizontalAdvance(label) / 2, plotArea.top() - 2), label);
+            painter.setPen(tickPen);
+        }
+    }
+
     for (int i = 0; i < m_lineCount; ++i) {
         qreal wy = mapChartToWidgetY(m_lineY[i]);
-        qreal hx = mapChartToWidgetX(m_handleX[i]);
+        qreal hx = mapGainToWidgetX(m_handleX[i]);
 
         QPen pen(Qt::red, 1);
         painter.setPen(pen);
         painter.drawLine(QPointF(plotArea.left(), wy), QPointF(plotArea.right(), wy));
 
         painter.setBrush(Qt::red);
-        painter.drawRect(QRectF(hx - 3, wy - 3, 6, 6));
+        painter.drawRect(QRectF(hx - 4, wy - 4, 8, 8));
+
+        // Connect handle N to handle N+1
+        if (i > 0) {
+            qreal prevWy = mapChartToWidgetY(m_lineY[i - 1]);
+            qreal prevHx = mapGainToWidgetX(m_handleX[i - 1]);
+            painter.drawLine(QPointF(prevHx, prevWy), QPointF(hx, wy));
+        }
     }
 }
 
@@ -147,7 +225,7 @@ void CustomChartView::mousePressEvent(QMouseEvent *event)
         QPointF pos = event->pos();
         for (int i = 0; i < m_lineCount; ++i) {
             qreal wy = mapChartToWidgetY(m_lineY[i]);
-            qreal hx = mapChartToWidgetX(m_handleX[i]);
+            qreal hx = mapGainToWidgetX(m_handleX[i]);
             if (qAbs(pos.y() - wy) < 6 && qAbs(pos.x() - hx) < 8) {
                 m_draggingIdx = i;
                 break;
@@ -160,8 +238,9 @@ void CustomChartView::mousePressEvent(QMouseEvent *event)
 void CustomChartView::mouseMoveEvent(QMouseEvent *event)
 {
     if (m_draggingIdx >= 0 && m_draggingIdx < m_lineCount) {
-        m_handleX[m_draggingIdx] = mapWidgetToChartX(event->pos().x());
+        m_handleX[m_draggingIdx] = mapWidgetToGainX(event->pos().x());
         update();
+        emit gainChanged(m_draggingIdx, static_cast<float>(m_handleX[m_draggingIdx]));
     }
     QChartView::mouseMoveEvent(event);
 }
@@ -515,41 +594,189 @@ MainWindow::MainWindow(QWidget *parent)
 
     QHBoxLayout *contentLayout = new QHBoxLayout();
 
-    // --- Shared: gain table ---
-    gainTable = new QTableWidget(10, 2);
-    gainTable->horizontalHeader()->hide();
-    gainTable->verticalHeader()->setVisible(false);
-    gainTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    gainTable->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    gainTable->setSelectionMode(QAbstractItemView::NoSelection);
-    gainTable->setMaximumWidth(250);
-    gainTable->setMinimumWidth(200);
-    gainTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    // --- Shared: gain tree ---
+    gainTree = new QTreeWidget();
+    gainTree->setColumnCount(2);
+    gainTree->setHeaderHidden(true);
+    gainTree->setRootIsDecorated(false);
+    gainTree->setIndentation(20);
+    gainTree->setAnimated(true);
+    gainTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    gainTree->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    gainTree->setSelectionMode(QAbstractItemView::NoSelection);
+    gainTree->setMaximumWidth(280);
+    gainTree->setMinimumWidth(220);
+    gainTree->header()->setStretchLastSection(true);
+    gainTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    gainTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    gainTree->setStyleSheet(
+        "QTreeWidget { border: 1px solid #a0a0a0; font-size: 12px; "
+        "  gridline-color: #c0c0c0; show-decoration-selected: 0; }"
+        "QTreeWidget::item { padding: 1px 2px; border-bottom: 1px solid #d0d0d0; }"
+        "QTreeWidget::item:selected { background: transparent; }"
+    );
 
-    for (int i = 1; i <= 9; ++i) {
-        QTableWidgetItem *labelItem = new QTableWidgetItem("");
-        labelItem->setFlags(labelItem->flags() & ~Qt::ItemIsEditable);
-        gainTable->setItem(i, 0, labelItem);
-        gainTable->setItem(i, 1, new QTableWidgetItem(""));
+    // Root: 增益调整
+    QTreeWidgetItem *rootItem = new QTreeWidgetItem(gainTree, QStringList() << "增益调整" << "");
+    rootItem->setFlags(rootItem->flags() & ~Qt::ItemIsEditable);
+    rootItem->setExpanded(true);
+    QFont rootFont = rootItem->font(0);
+    rootFont.setBold(true);
+    rootFont.setPointSize(11);
+    rootItem->setFont(0, rootFont);
+    rootItem->setBackground(0, QBrush(QColor("#e0e0e0")));
+    rootItem->setBackground(1, QBrush(QColor("#e0e0e0")));
+
+    // 通道数量 (固定值，不可编辑)
+    QTreeWidgetItem *channelCountItem = new QTreeWidgetItem(rootItem, QStringList() << "通道数量" << "1");
+    channelCountItem->setFlags(channelCountItem->flags() & ~Qt::ItemIsEditable);
+
+    // 增益类型
+    QTreeWidgetItem *gainTypeItem = new QTreeWidgetItem(rootItem, QStringList() << "增益类型" << "");
+    gainTypeItem->setFlags(gainTypeItem->flags() & ~Qt::ItemIsEditable);
+    QComboBox *gainTypeCombo = new QComboBox();
+    gainTypeCombo->addItems(QStringList() << "自动" << "指数" << "线性" << "智能");
+    gainTypeCombo->setCurrentIndex(2);
+    gainTree->setItemWidget(gainTypeItem, 1, gainTypeCombo);
+
+    // 通道参数 (expandable)
+    QTreeWidgetItem *channelParamItem = new QTreeWidgetItem(rootItem, QStringList() << "通道参数" << "");
+    channelParamItem->setFlags(channelParamItem->flags() & ~Qt::ItemIsEditable);
+    channelParamItem->setExpanded(true);
+    channelParamItem->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
+    QFont groupFont = channelParamItem->font(0);
+    groupFont.setBold(true);
+    channelParamItem->setFont(0, groupFont);
+
+    // 点数
+    QTreeWidgetItem *pointCountItem = new QTreeWidgetItem(channelParamItem, QStringList() << "点数" << "");
+    pointCountItem->setFlags(pointCountItem->flags() & ~Qt::ItemIsEditable);
+    QSpinBox *pointSpinBox = new QSpinBox();
+    pointSpinBox->setRange(1, 16);
+    pointSpinBox->setValue(3);
+    gainTree->setItemWidget(pointCountItem, 1, pointSpinBox);
+
+    // 增益 rows (1-16, dynamic)
+    QVector<QTreeWidgetItem*> gainItems(17);
+    m_gainSpinBoxes.resize(17);
+    for (int i = 1; i <= 16; ++i) {
+        gainItems[i] = new QTreeWidgetItem(channelParamItem, QStringList() << QString("增益%1").arg(i) << "");
+        gainItems[i]->setFlags(gainItems[i]->flags() & ~Qt::ItemIsEditable);
+        gainItems[i]->setHidden(i > 3);
+        QDoubleSpinBox *dsb = new QDoubleSpinBox();
+        dsb->setRange(-20.0, 60.0);
+        dsb->setSingleStep(0.5);
+        dsb->setValue(0.0);
+        dsb->setDecimals(2);
+        dsb->setSuffix(" dB");
+        m_gainSpinBoxes[i] = dsb;
+        gainTree->setItemWidget(gainItems[i], 1, dsb);
     }
 
-    gainTable->setItem(0, 0, new QTableWidgetItem("点数"));
-    QSpinBox *pointSpinBox = new QSpinBox();
-    pointSpinBox->setRange(0, 9);
-    pointSpinBox->setValue(0);
-    gainTable->setCellWidget(0, 1, pointSpinBox);
+    // 整体增益(db)
+    QTreeWidgetItem *overallGainItem = new QTreeWidgetItem(channelParamItem, QStringList() << "整体增益(db)" << "");
+    overallGainItem->setFlags(overallGainItem->flags() & ~Qt::ItemIsEditable);
+    QDoubleSpinBox *overallGainSpinBox = new QDoubleSpinBox();
+    overallGainSpinBox->setRange(-20.0, 60.0);
+    overallGainSpinBox->setSingleStep(0.5);
+    overallGainSpinBox->setValue(0.0);
+    overallGainSpinBox->setDecimals(2);
+    overallGainSpinBox->setSuffix(" dB");
+    gainTree->setItemWidget(overallGainItem, 1, overallGainSpinBox);
 
-    connect(pointSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int count) {
-        for (int i = 1; i <= 9; ++i) {
-            if (i <= count) {
-                gainTable->item(i, 0)->setText(QString("增益%1").arg(i));
-            } else {
-                gainTable->item(i, 0)->setText("");
-                gainTable->item(i, 1)->setText("");
+    // 水平时间常数(固定值，不可编辑)
+    QTreeWidgetItem *scanConstItem = new QTreeWidgetItem(channelParamItem, QStringList() << "水平时间常数" << "1");
+    scanConstItem->setFlags(scanConstItem->flags() & ~Qt::ItemIsEditable);
+
+    // 采样点数 (expandable)
+    QTreeWidgetItem *sampleItem = new QTreeWidgetItem(rootItem, QStringList() << "采样点数" << "");
+    sampleItem->setFlags(sampleItem->flags() & ~Qt::ItemIsEditable);
+    sampleItem->setExpanded(true);
+    sampleItem->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
+    sampleItem->setFont(0, groupFont);
+
+    // 开始 (固定值，不可编辑)
+    QTreeWidgetItem *startItem = new QTreeWidgetItem(sampleItem, QStringList() << "开始" << "0");
+    startItem->setFlags(startItem->flags() & ~Qt::ItemIsEditable);
+
+    // 结束 (固定值，不可编辑)
+    QTreeWidgetItem *endItem = new QTreeWidgetItem(sampleItem, QStringList() << "结束" << "511");
+    endItem->setFlags(endItem->flags() & ~Qt::ItemIsEditable);
+
+    // Helper: compute gain range from spin boxes and apply to chartView
+    auto updateGainRange = [this]() {
+        if (!chartView) return;
+        float maxAbs = 6.0f;
+        for (int i = 1; i <= 16; ++i) {
+            if (m_gainSpinBoxes[i] && !m_gainSpinBoxes[i]->isHidden()) {
+                float val = static_cast<float>(qAbs(m_gainSpinBoxes[i]->value()));
+                if (val > maxAbs) maxAbs = val;
             }
         }
-        if (chartView) chartView->setLineCount(count);
-    });
+        float n = std::ceil(maxAbs / 6.0f);
+        if (n < 1.0f) n = 1.0f;
+        float range = 6.0f * n;
+        chartView->setGainRange(-range, range);
+    };
+
+    // 点数 spinner → show/hide gain rows (only for non-auto mode)
+    connect(pointSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this,
+        [this, gainItems, gainTypeCombo, updateGainRange](int count) {
+            bool isAuto = (gainTypeCombo->currentIndex() == 0);
+            if (!isAuto) {
+                for (int i = 1; i <= 16; ++i)
+                    gainItems[i]->setHidden(i > count);
+            }
+            if (chartView) {
+                chartView->setLineCount(count);
+                updateGainRange();
+            }
+        });
+
+    // 增益类型切换
+    connect(gainTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this, gainItems, overallGainItem, pointSpinBox, updateGainRange](int index) {
+            bool isAuto = (index == 0);
+            overallGainItem->setHidden(!isAuto);
+            if (isAuto) {
+                for (int i = 1; i <= 16; ++i)
+                    gainItems[i]->setHidden(true);
+            } else {
+                int count = pointSpinBox->value();
+                for (int i = 1; i <= 16; ++i)
+                    gainItems[i]->setHidden(i > count);
+            }
+            updateGainRange();
+        });
+
+    // 默认增益类型为"线性"(index 2)，隐藏整体增益
+    overallGainItem->setHidden(true);
+
+    // 整体增益(db) → 实时更新 m_gain 并刷新图像
+    connect(overallGainSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+        [this](double dbValue) {
+            float linearGain = std::pow(10.0f, static_cast<float>(dbValue) / 20.0f);
+            m_gain = linearGain;
+            if (m_currentTab) {
+                m_currentTab->gain = m_gain;
+                refreshImage();
+            }
+        });
+
+    // 每个增益N输入 → 更新chart中对应handle位置、gain range、刷新图片
+    for (int i = 1; i <= 16; ++i) {
+        connect(m_gainSpinBoxes[i], QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            [this, i, updateGainRange](double val) {
+                if (chartView) {
+                    chartView->setHandleX(i - 1, static_cast<float>(val));
+                    updateGainRange();
+                }
+                if (m_currentTab) {
+                    refreshImage();
+                    updateChart(m_lastChartX);
+                }
+            });
+    }
 
     // --- Shared: welcome label ---
     welcomeLabel = new QLabel(this);
@@ -568,12 +795,12 @@ MainWindow::MainWindow(QWidget *parent)
         "QTabBar::tab:selected { background: #ffffff; }"
     );
 
-    contentLayout->addWidget(gainTable);
+    contentLayout->addWidget(gainTree);
     contentLayout->addWidget(welcomeLabel, 1);
     contentLayout->addWidget(m_docTabWidget, 1);
 
     // Initially show welcome, hide others
-    gainTable->hide();
+    gainTree->hide();
     m_docTabWidget->hide();
     welcomeLabel->show();
 
@@ -665,6 +892,20 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     tab->chartView->chart()->setAxisX(axisX, tab->chartSeries);
     tab->chartView->chart()->setAxisY(axisY, tab->chartSeries);
     tab->chartView->chart()->setAnimationOptions(QChart::NoAnimation);
+
+    // Drag handle → update spinbox, refresh image and chart
+    connect(tab->chartView, &CustomChartView::gainChanged, this, [this](int idx, float val) {
+        // idx is 0-based, spinbox is 1-based
+        if (idx >= 0 && idx < 16 && m_gainSpinBoxes[idx + 1]) {
+            m_gainSpinBoxes[idx + 1]->blockSignals(true);
+            m_gainSpinBoxes[idx + 1]->setValue(static_cast<double>(val));
+            m_gainSpinBoxes[idx + 1]->blockSignals(false);
+        }
+        if (m_currentTab) {
+            refreshImage();
+            updateChart(m_lastChartX);
+        }
+    });
 
     // Rulers
     tab->topRuler = new HRulerWidget();
@@ -826,7 +1067,7 @@ void MainWindow::closeTab(int index)
 
 void MainWindow::showWelcome()
 {
-    gainTable->hide();
+    gainTree->hide();
     m_docTabWidget->hide();
     welcomeLabel->show();
 }
@@ -834,7 +1075,7 @@ void MainWindow::showWelcome()
 void MainWindow::hideWelcome()
 {
     welcomeLabel->hide();
-    gainTable->show();
+    gainTree->show();
     m_docTabWidget->show();
 }
 
@@ -887,6 +1128,7 @@ void MainWindow::updateChart(int xValue)
 {
     if (m_rawData.isEmpty() || !chartSeries) return;
 
+    m_lastChartX = xValue;
     chartSeries->clear();
 
     const int maxPoints = 512;
@@ -894,9 +1136,12 @@ void MainWindow::updateChart(int xValue)
 
     for (int y = 0; y < maxPoints; ++y) {
         qint32 pixelValue = getPixelValue(xValue, y);
-        chartSeries->append(static_cast<qreal>(pixelValue), static_cast<qreal>(y));
-        if (y == 0 || pixelValue < minVal) minVal = pixelValue;
-        if (y == 0 || pixelValue > maxVal) maxVal = pixelValue;
+        float rowGain = (chartView) ? chartView->interpolatedGain(y) : m_gain;
+        if (rowGain == 0) rowGain = m_gain;
+        qint32 displayValue = static_cast<qint32>(rowGain * pixelValue);
+        chartSeries->append(static_cast<qreal>(displayValue), static_cast<qreal>(y));
+        if (y == 0 || displayValue < minVal) minVal = displayValue;
+        if (y == 0 || displayValue > maxVal) maxVal = displayValue;
     }
 
     QValueAxis *axisX = qobject_cast<QValueAxis*>(chartView->chart()->axisX(chartSeries));
@@ -960,9 +1205,12 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
 
     qDebug() << "gain = " << gain;
 
-    int pixelValue_display;
-
-    qint32 pixelValue;
+    // Pre-compute per-row gain table
+    float gainTable[512];
+    for (int x = 0; x < 512; ++x) {
+        gainTable[x] = (chartView) ? chartView->interpolatedGain(x) : gain;
+        if (gainTable[x] == 0) gainTable[x] = gain;
+    }
 
     int dataIdx = 0;
     for (int y = 0; y < rows; ++y) {
@@ -970,43 +1218,31 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
             if (dataIdx + 4 > dataSize) {
                 return QImage();
             }
-            // 把前两行的原始数据赋值为0
-            if(x==0||x==1){
+            qint32 pixelValue;
+            if (x == 0 || x == 1) {
                 pixelValue = 0;
-                m_rawData[dataIdx + 3] =0;
-                m_rawData[dataIdx + 2] =0;
-                m_rawData[dataIdx + 1] =0;
-                m_rawData[dataIdx]     =0;
-            }
-            else {
+                m_rawData[dataIdx + 3] = 0;
+                m_rawData[dataIdx + 2] = 0;
+                m_rawData[dataIdx + 1] = 0;
+                m_rawData[dataIdx] = 0;
+            } else {
                 pixelValue = static_cast<qint32>(
                     (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
                     (static_cast<quint8>(m_rawData[dataIdx + 2]) << 16) |
                     (static_cast<quint8>(m_rawData[dataIdx + 1]) << 8) |
                     (static_cast<quint8>(m_rawData[dataIdx]))
-                    );}
+                );
+            }
 
-            //if(gain*pixelValue>=256*256*256/2)
-            //    pixelValue_display = 256*256*256/2 -1 ;
-            //else if (gain*pixelValue<=-256*256*256/2)
-            //    pixelValue_display = -256*256*256/2 +1 ;
-            //else
-                pixelValue_display = gain*pixelValue;
-            int lutIdx = pixelValue_display / (256*256) + 128;
+            int pixelValue_display = static_cast<int>(gainTable[x] * pixelValue);
+            int lutIdx = pixelValue_display / (256 * 256) + 128;
             if (lutIdx < 0) lutIdx = 0;
             if (lutIdx > 255) lutIdx = 255;
-            //if(x==0||x==1)
-            //    image.setPixel(y, x, qRgb(128, 128, 128));   // 所有图片前两行不管数据多少都显示为128 对应值为0
-            // else
-                image.setPixel(y, x, m_lut[lutIdx]);
-
-            if(x==1)
-                qDebug() << "row = 0; disp =   " << lutIdx;
+            image.setPixel(y, x, m_lut[lutIdx]);
 
             dataIdx += 4;
         }
     }
-    image = image.convertToFormat(QImage::Format_RGB32);
     return image;
 }
 
@@ -1048,10 +1284,15 @@ void MainWindow::refreshImage()
         }
     } else {
         int dataSize = m_rawData.size();
-        float gain = m_gain;
-        int pixelValue_display;
-        int dataIdx = 0;
 
+        // Pre-compute per-row gain table (512 entries, by sample depth x)
+        float gainTable[512];
+        for (int x = 0; x < 512; ++x) {
+            gainTable[x] = (chartView) ? chartView->interpolatedGain(x) : m_gain;
+            if (gainTable[x] == 0) gainTable[x] = m_gain;
+        }
+
+        int dataIdx = 0;
         for (int y = 0; y < rows; ++y) {
             for (int x = 0; x < pixelsPerRow; ++x) {
                 if (dataIdx + 4 > dataSize) return;
@@ -1062,12 +1303,7 @@ void MainWindow::refreshImage()
                     (static_cast<quint8>(m_rawData[dataIdx]))
                 );
 
-                //if (gain * pixelValue >= 256 * 256 * 256 / 2)
-                //    pixelValue_display = 256 * 256 * 256 / 2 - 1;
-                //else if (gain * pixelValue <= -256 * 256 * 256 / 2)
-                //    pixelValue_display = -256 * 256 * 256 / 2 + 1;
-                //else
-                    pixelValue_display = gain * pixelValue;
+                int pixelValue_display = static_cast<int>(gainTable[x] * pixelValue);
 
                 if (m_transformMode == 1)
                     pixelValue_display = qAbs(pixelValue_display);
@@ -1249,29 +1485,34 @@ void MainWindow::createMenuBar()
 
     // 调色板 button with dropdown menu
     {
-        QToolButton *paletteBtn = makeBtn(":/icons/resources/palette.png", "调色板");
+        QToolButton *paletteBtn = makeBtn(":/icons/resources/palette.png", "调色板\n▾");
         paletteBtn->setPopupMode(QToolButton::InstantPopup);
+        paletteBtn->setStyleSheet(
+            "QToolButton { border: none; border-radius: 3px; background: transparent; font-size: 11px; }"
+            "QToolButton:hover { background: #dce7f5; }"
+            "QToolButton:pressed { background: #b8d0ea; }"
+            "QToolButton::menu-indicator { image: none; }"
+            "QToolButton::down-arrow { image: none; }"
+        );
         QMenu *paletteMenu = new QMenu(paletteBtn);
 
-        // 事件过滤器：悬停边框 + 点击选择
+        // 事件过滤器：悬停预览 + 点击确认
         class PaletteItemFilter : public QObject {
             int &m_paletteIndex;
+            int &m_hoverIndex;
             QVector<QLabel*> &m_numLabels;
-            std::function<void(int)> m_onSelect;
+            std::function<void(int)> m_onPreview;
         public:
-            PaletteItemFilter(int &palIdx, QVector<QLabel*> &labels, std::function<void(int)> onSelect, QObject *parent = nullptr)
-                : QObject(parent), m_paletteIndex(palIdx), m_numLabels(labels), m_onSelect(onSelect) {}
+            PaletteItemFilter(int &palIdx, int &hoverIdx, QVector<QLabel*> &labels, std::function<void(int)> onPreview, QObject *parent = nullptr)
+                : QObject(parent), m_paletteIndex(palIdx), m_hoverIndex(hoverIdx), m_numLabels(labels), m_onPreview(onPreview) {}
             bool eventFilter(QObject *watched, QEvent *event) override {
                 QWidget *w = qobject_cast<QWidget*>(watched);
                 if (!w) return QObject::eventFilter(watched, event);
+                int idx = w->property("paletteIndex").toInt();
                 if (event->type() == QEvent::Enter) {
                     w->setStyleSheet("QWidget { background: #E8E8E8; border: 1px solid #888888; border-radius: 2px; }");
-                } else if (event->type() == QEvent::Leave) {
-                    w->setStyleSheet("QWidget { background: transparent; border: none; }");
-                } else if (event->type() == QEvent::MouseButtonPress) {
-                    int idx = w->property("paletteIndex").toInt();
                     if (idx >= 1 && idx <= 30) {
-                        m_paletteIndex = idx;
+                        m_hoverIndex = idx;
                         for (int j = 1; j <= 30; ++j) {
                             if (m_numLabels[j]) {
                                 m_numLabels[j]->setStyleSheet(
@@ -1280,15 +1521,23 @@ void MainWindow::createMenuBar()
                                         : "border: 1px solid #AAAAAA; border-radius: 3px; padding: 2px;");
                             }
                         }
-                        if (m_onSelect) m_onSelect(idx);
+                        if (m_onPreview) m_onPreview(idx);
+                    }
+                } else if (event->type() == QEvent::Leave) {
+                    w->setStyleSheet("QWidget { background: transparent; border: none; }");
+                } else if (event->type() == QEvent::MouseButtonPress) {
+                    if (idx >= 1 && idx <= 30) {
+                        m_paletteIndex = idx;
                     }
                 }
                 return QObject::eventFilter(watched, event);
             }
         };
 
+        int *hoverIndex = new int(m_paletteIndex);
+
         QVector<QLabel*> *numLabels = new QVector<QLabel*>(31, nullptr);
-        PaletteItemFilter *hoverFilter = new PaletteItemFilter(m_paletteIndex, *numLabels,
+        PaletteItemFilter *hoverFilter = new PaletteItemFilter(m_paletteIndex, *hoverIndex, *numLabels,
             [this](int idx) {
                 loadLUT(idx);
                 if (m_currentTab) refreshImage();
@@ -1333,6 +1582,12 @@ void MainWindow::createMenuBar()
                             : "border: 1px solid #AAAAAA; border-radius: 3px; padding: 2px;");
                 }
             }
+        });
+
+        // 菜单关闭时恢复为当前已确认的palette
+        connect(paletteMenu, &QMenu::aboutToHide, this, [this]() {
+            loadLUT(m_paletteIndex);
+            if (m_currentTab) refreshImage();
         });
 
         paletteBtn->setMenu(paletteMenu);
