@@ -635,8 +635,9 @@ MainWindow::MainWindow(QWidget *parent)
     QTreeWidgetItem *gainTypeItem = new QTreeWidgetItem(rootItem, QStringList() << "增益类型" << "");
     gainTypeItem->setFlags(gainTypeItem->flags() & ~Qt::ItemIsEditable);
     QComboBox *gainTypeCombo = new QComboBox();
+    m_gainTypeCombo = gainTypeCombo;
     gainTypeCombo->addItems(QStringList() << "自动" << "指数" << "线性" << "智能");
-    gainTypeCombo->setCurrentIndex(2);
+    gainTypeCombo->setCurrentIndex(0);
     gainTree->setItemWidget(gainTypeItem, 1, gainTypeCombo);
 
     // 通道参数 (expandable)
@@ -653,7 +654,7 @@ MainWindow::MainWindow(QWidget *parent)
     pointCountItem->setFlags(pointCountItem->flags() & ~Qt::ItemIsEditable);
     QSpinBox *pointSpinBox = new QSpinBox();
     pointSpinBox->setRange(1, 16);
-    pointSpinBox->setValue(3);
+    pointSpinBox->setValue(1);
     gainTree->setItemWidget(pointCountItem, 1, pointSpinBox);
 
     // 增益 rows (1-16, dynamic)
@@ -719,11 +720,14 @@ MainWindow::MainWindow(QWidget *parent)
         chartView->setGainRange(-range, range);
     };
 
-    // 点数 spinner → show/hide gain rows (only for non-auto mode)
+    // 点数 spinner → show/hide gain rows
     connect(pointSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this,
-        [this, gainItems, gainTypeCombo, updateGainRange](int count) {
-            bool isAuto = (gainTypeCombo->currentIndex() == 0);
-            if (!isAuto) {
+        [this, gainItems, updateGainRange](int count) {
+            bool isAuto = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 0;
+            if (isAuto) {
+                for (int i = 1; i <= 16; ++i)
+                    gainItems[i]->setHidden(true);
+            } else {
                 for (int i = 1; i <= 16; ++i)
                     gainItems[i]->setHidden(i > count);
             }
@@ -739,6 +743,7 @@ MainWindow::MainWindow(QWidget *parent)
             bool isAuto = (index == 0);
             overallGainItem->setHidden(!isAuto);
             if (isAuto) {
+                // 自动模式：隐藏所有增益#行
                 for (int i = 1; i <= 16; ++i)
                     gainItems[i]->setHidden(true);
             } else {
@@ -749,31 +754,34 @@ MainWindow::MainWindow(QWidget *parent)
             updateGainRange();
         });
 
-    // 默认增益类型为"线性"(index 2)，隐藏整体增益
-    overallGainItem->setHidden(true);
+    // 默认增益类型为"自动"(index 0)，显示整体增益，隐藏增益#行
+    overallGainItem->setHidden(false);
+    for (int i = 1; i <= 16; ++i)
+        gainItems[i]->setHidden(true);
 
-    // 整体增益(db) → 实时更新 m_gain 并刷新图像
+    // 整体增益(db) → 自动模式：更新m_gain + chart所有handle同步
     connect(overallGainSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-        [this](double dbValue) {
+        [this, pointSpinBox](double dbValue) {
             float linearGain = std::pow(10.0f, static_cast<float>(dbValue) / 20.0f);
             m_gain = linearGain;
             if (m_currentTab) {
                 m_currentTab->gain = m_gain;
-                refreshImage();
+            }
+            // 自动模式：chart上所有handle同步到同一值
+            if (chartView && m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 0) {
+                int count = pointSpinBox->value();
+                for (int j = 0; j < count; ++j)
+                    chartView->setHandleX(j, static_cast<float>(dbValue));
             }
         });
 
-    // 每个增益N输入 → 更新chart中对应handle位置、gain range、刷新图片
+    // 每个增益N输入 → 更新chart中对应handle位置和gain range (仅非自动模式)
     for (int i = 1; i <= 16; ++i) {
         connect(m_gainSpinBoxes[i], QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
             [this, i, updateGainRange](double val) {
                 if (chartView) {
                     chartView->setHandleX(i - 1, static_cast<float>(val));
                     updateGainRange();
-                }
-                if (m_currentTab) {
-                    refreshImage();
-                    updateChart(m_lastChartX);
                 }
             });
     }
@@ -795,12 +803,45 @@ MainWindow::MainWindow(QWidget *parent)
         "QTabBar::tab:selected { background: #ffffff; }"
     );
 
-    contentLayout->addWidget(gainTree);
+    // Left panel: gain tree + buttons
+    m_leftPanel = new QWidget;
+    QVBoxLayout *leftLayout = new QVBoxLayout(m_leftPanel);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(4);
+    leftLayout->addWidget(gainTree);
+
+    // Buttons row
+    QHBoxLayout *gainBtnLayout = new QHBoxLayout;
+    m_btnApply = new QPushButton("应用");
+    m_btnOK = new QPushButton("确定");
+    m_btnCancel = new QPushButton("取消");
+    m_btnApply->setEnabled(false);
+    m_btnOK->setEnabled(false);
+    m_btnCancel->setEnabled(false);
+    gainBtnLayout->addWidget(m_btnApply);
+    gainBtnLayout->addWidget(m_btnOK);
+    gainBtnLayout->addWidget(m_btnCancel);
+    leftLayout->addLayout(gainBtnLayout);
+
+    connect(m_btnApply, &QPushButton::clicked, this, &MainWindow::applyGain);
+    connect(m_btnOK, &QPushButton::clicked, this, &MainWindow::saveProcessedFile);
+    connect(m_btnCancel, &QPushButton::clicked, this, [this]() {
+        if (m_currentTab && m_currentTab->gainApplied) {
+            m_rawData = m_currentTab->originalRawData;
+            m_currentTab->rawData = m_rawData;
+            m_currentTab->gainApplied = false;
+            m_btnApply->setText("应用");
+            refreshImage();
+            updateChart(m_lastChartX);
+        }
+    });
+
+    contentLayout->addWidget(m_leftPanel);
     contentLayout->addWidget(welcomeLabel, 1);
     contentLayout->addWidget(m_docTabWidget, 1);
 
     // Initially show welcome, hide others
-    gainTree->hide();
+    m_leftPanel->hide();
     m_docTabWidget->hide();
     welcomeLabel->show();
 
@@ -893,17 +934,28 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     tab->chartView->chart()->setAxisY(axisY, tab->chartSeries);
     tab->chartView->chart()->setAnimationOptions(QChart::NoAnimation);
 
-    // Drag handle → update spinbox, refresh image and chart
+    // Drag handle → update spinbox (auto mode: sync all handles)
     connect(tab->chartView, &CustomChartView::gainChanged, this, [this](int idx, float val) {
-        // idx is 0-based, spinbox is 1-based
-        if (idx >= 0 && idx < 16 && m_gainSpinBoxes[idx + 1]) {
-            m_gainSpinBoxes[idx + 1]->blockSignals(true);
-            m_gainSpinBoxes[idx + 1]->setValue(static_cast<double>(val));
-            m_gainSpinBoxes[idx + 1]->blockSignals(false);
-        }
-        if (m_currentTab) {
-            refreshImage();
-            updateChart(m_lastChartX);
+        bool isAuto = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 0;
+        if (isAuto) {
+            // 同步所有spinbox和handle
+            for (int j = 1; j <= 16; ++j) {
+                if (m_gainSpinBoxes[j] && !m_gainSpinBoxes[j]->isHidden()) {
+                    m_gainSpinBoxes[j]->blockSignals(true);
+                    m_gainSpinBoxes[j]->setValue(static_cast<double>(val));
+                    m_gainSpinBoxes[j]->blockSignals(false);
+                }
+            }
+            if (chartView) {
+                for (int j = 0; j < 16; ++j)
+                    chartView->setHandleX(j, val);
+            }
+        } else {
+            if (idx >= 0 && idx < 16 && m_gainSpinBoxes[idx + 1]) {
+                m_gainSpinBoxes[idx + 1]->blockSignals(true);
+                m_gainSpinBoxes[idx + 1]->setValue(static_cast<double>(val));
+                m_gainSpinBoxes[idx + 1]->blockSignals(false);
+            }
         }
     });
 
@@ -1034,6 +1086,12 @@ void MainWindow::switchToTab(int index)
     chartView = tab->chartView;
     chartSeries = tab->chartSeries;
 
+    // Sync button state
+    m_btnApply->setText(tab->gainApplied ? "撤销" : "应用");
+    m_btnApply->setEnabled(true);
+    m_btnOK->setEnabled(true);
+    m_btnCancel->setEnabled(true);
+
     // Defer resize until the tab page layout is settled
     QTimer::singleShot(0, this, [this]() {
         if (m_currentTab) {
@@ -1067,15 +1125,18 @@ void MainWindow::closeTab(int index)
 
 void MainWindow::showWelcome()
 {
-    gainTree->hide();
+    m_leftPanel->hide();
     m_docTabWidget->hide();
     welcomeLabel->show();
+    m_btnApply->setEnabled(false);
+    m_btnOK->setEnabled(false);
+    m_btnCancel->setEnabled(false);
 }
 
 void MainWindow::hideWelcome()
 {
     welcomeLabel->hide();
-    gainTree->show();
+    m_leftPanel->show();
     m_docTabWidget->show();
 }
 
@@ -1244,6 +1305,113 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
         }
     }
     return image;
+}
+
+void MainWindow::applyGain()
+{
+    if (!m_currentTab) return;
+
+    if (m_currentTab->gainApplied) {
+        // 撤销：恢复原始数据
+        m_rawData = m_currentTab->originalRawData;
+        m_currentTab->rawData = m_rawData;
+        m_currentTab->gainApplied = false;
+        m_btnApply->setText("应用");
+    } else {
+        // 应用：备份原始数据，将增益乘入rawData
+        m_currentTab->originalRawData = m_rawData;
+
+        float gainTable[512];
+        for (int x = 0; x < 512; ++x) {
+            gainTable[x] = (chartView) ? chartView->interpolatedGain(x) : m_gain;
+            if (gainTable[x] == 0) gainTable[x] = m_gain;
+        }
+
+        int totalPixels = m_rawData.size() / 4;
+        char *data = m_rawData.data();
+        for (int i = 0; i < totalPixels; ++i) {
+            int idx = i * 4;
+            qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
+                         (static_cast<quint8>(data[idx+2]) << 16) |
+                         (static_cast<quint8>(data[idx+1]) << 8) |
+                         (static_cast<quint8>(data[idx]));
+            val = static_cast<qint32>(gainTable[i % 512] * static_cast<float>(val));
+            data[idx]   = val & 0xFF;
+            data[idx+1] = (val >> 8) & 0xFF;
+            data[idx+2] = (val >> 16) & 0xFF;
+            data[idx+3] = (val >> 24) & 0xFF;
+        }
+        m_currentTab->rawData = m_rawData;
+        m_currentTab->gainApplied = true;
+        m_btnApply->setText("撤销");
+    }
+
+    refreshImage();
+    updateChart(m_lastChartX);
+}
+
+void MainWindow::saveProcessedFile()
+{
+    if (!m_currentTab) return;
+
+    // 确保增益已应用
+    if (!m_currentTab->gainApplied) {
+        // 先应用增益
+        m_currentTab->originalRawData = m_rawData;
+        float gainTable[512];
+        for (int x = 0; x < 512; ++x) {
+            gainTable[x] = (chartView) ? chartView->interpolatedGain(x) : m_gain;
+            if (gainTable[x] == 0) gainTable[x] = m_gain;
+        }
+        int totalPixels = m_rawData.size() / 4;
+        char *data = m_rawData.data();
+        for (int i = 0; i < totalPixels; ++i) {
+            int idx = i * 4;
+            qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
+                         (static_cast<quint8>(data[idx+2]) << 16) |
+                         (static_cast<quint8>(data[idx+1]) << 8) |
+                         (static_cast<quint8>(data[idx]));
+            val = static_cast<qint32>(gainTable[i % 512] * static_cast<float>(val));
+            data[idx]   = val & 0xFF;
+            data[idx+1] = (val >> 8) & 0xFF;
+            data[idx+2] = (val >> 16) & 0xFF;
+            data[idx+3] = (val >> 24) & 0xFF;
+        }
+        m_currentTab->rawData = m_rawData;
+        m_currentTab->gainApplied = true;
+        m_btnApply->setText("撤销");
+    }
+
+    // 创建 proc 目录
+    QFileInfo fi(m_currentTab->filePath);
+    QString procDir = fi.absolutePath() + "/proc";
+    QDir().mkpath(procDir);
+
+    // 找到可用的文件名 P_N.DZT
+    int N = 1;
+    QString outPath;
+    do {
+        outPath = procDir + QString("/P_%1.DZT").arg(N++);
+    } while (QFile::exists(outPath));
+
+    // 写文件：0x20000 头部 + 处理后的数据
+    QFile srcFile(m_currentTab->filePath);
+    QFile outFile(outPath);
+    if (!srcFile.open(QIODevice::ReadOnly) || !outFile.open(QIODevice::WriteOnly)) {
+        QMessageBox::warning(this, "Error", "Failed to save processed file.");
+        return;
+    }
+    QByteArray header = srcFile.read(m_currentTab->dataOffset);
+    outFile.write(header);
+    srcFile.close();
+    outFile.write(m_rawData);
+    outFile.close();
+
+    // 打开新文件作为新 tab
+    QImage image = loadDZTFile(outPath);
+    if (!image.isNull()) {
+        createTab(outPath, image);
+    }
 }
 
 void MainWindow::refreshImage()

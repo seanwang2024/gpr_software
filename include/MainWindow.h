@@ -17,6 +17,7 @@
 #include <QValueAxis>
 #include <QTreeWidget>
 #include <QDoubleSpinBox>
+#include <QComboBox>
 #include <QTabWidget>
 #include <QToolButton>
 
@@ -128,6 +129,7 @@ private:
 struct TabData {
     QString filePath;
     QByteArray rawData;
+    QByteArray originalRawData;
     qint64 dataOffset = 0;
     int pixelsPerRow = 512;
     float gain = 1.0f;
@@ -135,6 +137,7 @@ struct TabData {
     int traceCount = 0;
     double timeRange = 20.0;
     double depthRange = 1.25;
+    bool gainApplied = false;
 
     QWidget *page = nullptr;
     QScrollArea *scrollArea = nullptr;
@@ -178,6 +181,8 @@ private:
     TabData* createTab(const QString &filePath, const QImage &image);
     void closeTab(int index);
     void switchToTab(int index);
+    void applyGain();
+    void saveProcessedFile();
     void showWelcome();
     void hideWelcome();
 
@@ -185,6 +190,11 @@ private:
     QPushButton *openButton;
     QLabel *coordinateLabel;
     QTreeWidget *gainTree;
+    QWidget *m_leftPanel;
+    QComboBox *m_gainTypeCombo;
+    QPushButton *m_btnApply;
+    QPushButton *m_btnOK;
+    QPushButton *m_btnCancel;
     QTabWidget *ribbonTab;
     QLabel *welcomeLabel;
     QTabWidget *m_docTabWidget;
