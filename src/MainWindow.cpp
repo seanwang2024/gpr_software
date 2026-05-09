@@ -965,18 +965,29 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
                 for (int j = 0; j < 16; ++j)
                     chartView->setHandleX(j, val);
             }
-            // Auto-expand gain range: N = ceil(|val|/6), range = ±6*N
-            if (chartView) {
-                float n = std::ceil(std::fabs(val) / 6.0f);
-                if (n < 1.0f) n = 1.0f;
-                chartView->setGainRange(-6.0f * n, 6.0f * n);
-            }
         } else {
             if (idx >= 0 && idx < 16 && m_gainSpinBoxes[idx + 1]) {
                 m_gainSpinBoxes[idx + 1]->blockSignals(true);
                 m_gainSpinBoxes[idx + 1]->setValue(static_cast<double>(val));
                 m_gainSpinBoxes[idx + 1]->blockSignals(false);
             }
+        }
+        // Auto-expand gain range from ALL spinbox max value
+        if (chartView) {
+            float maxAbs = 6.0f;
+            if (m_gainSpinBoxes[0]) {
+                float v = static_cast<float>(qAbs(m_gainSpinBoxes[0]->value()));
+                if (v > maxAbs) maxAbs = v;
+            }
+            for (int i = 1; i <= 16; ++i) {
+                if (m_gainSpinBoxes[i] && !m_gainSpinBoxes[i]->isHidden()) {
+                    float v = static_cast<float>(qAbs(m_gainSpinBoxes[i]->value()));
+                    if (v > maxAbs) maxAbs = v;
+                }
+            }
+            float n = std::ceil(maxAbs / 6.0f);
+            if (n < 1.0f) n = 1.0f;
+            chartView->setGainRange(-6.0f * n, 6.0f * n);
         }
         updateChart(m_lastChartX);
     });
