@@ -1393,7 +1393,6 @@ void MainWindow::applyGain()
     }
 
     refreshImage();
-    updateChart(m_lastChartX);
 }
 
 void MainWindow::saveProcessedFile()
