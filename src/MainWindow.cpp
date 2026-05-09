@@ -1363,21 +1363,6 @@ void MainWindow::applyGain()
         m_currentTab->rawData = m_rawData;
         m_currentTab->gainApplied = false;
         m_btnApply->setText(QString::fromUtf8("应用"));
-        // 重置chart手柄到0 dB
-        if (chartView) {
-            int actual = 16;
-            for (int j = 0; j < actual; ++j)
-                chartView->setHandleX(j, 0.0f);
-            chartView->setGainRange(-6.0f, 6.0f);
-        }
-        // 重置整体增益spinbox到0 dB
-        if (m_gainSpinBoxes[0]) {
-            m_gainSpinBoxes[0]->blockSignals(true);
-            m_gainSpinBoxes[0]->setValue(0.0);
-            m_gainSpinBoxes[0]->blockSignals(false);
-        }
-        m_gain = 1.0f;
-        m_currentTab->gain = 1.0f;
     } else {
         // 应用：备份原始数据，将增益乘入rawData
         m_currentTab->originalRawData = m_rawData;
