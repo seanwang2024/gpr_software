@@ -1312,13 +1312,6 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
 
     qDebug() << "gain = " << gain;
 
-    // Pre-compute per-row gain table (dB → linear)
-    float gainTable[512];
-    for (int x = 0; x < 512; ++x) {
-        float dbVal = (chartView) ? chartView->interpolatedGain(x) : gain;
-        gainTable[x] = std::pow(10.0f, dbVal / 20.0f);
-    }
-
     int dataIdx = 0;
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < pixelsPerRow; ++x) {
@@ -1341,7 +1334,7 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
                 );
             }
 
-            int pixelValue_display = static_cast<int>(gainTable[x] * pixelValue);
+            int pixelValue_display = pixelValue;
             int lutIdx = pixelValue_display / (256 * 256) + 128;
             if (lutIdx < 0) lutIdx = 0;
             if (lutIdx > 255) lutIdx = 255;
@@ -1498,13 +1491,6 @@ void MainWindow::refreshImage()
     } else {
         int dataSize = m_rawData.size();
 
-        // Pre-compute per-row gain table (512 entries, by sample depth x, dB→linear)
-        float gainTable[512];
-        for (int x = 0; x < 512; ++x) {
-            float dbVal = (chartView) ? chartView->interpolatedGain(x) : m_gain;
-            gainTable[x] = std::pow(10.0f, dbVal / 20.0f);
-        }
-
         int dataIdx = 0;
         for (int y = 0; y < rows; ++y) {
             for (int x = 0; x < pixelsPerRow; ++x) {
@@ -1516,7 +1502,7 @@ void MainWindow::refreshImage()
                     (static_cast<quint8>(m_rawData[dataIdx]))
                 );
 
-                int pixelValue_display = static_cast<int>(gainTable[x] * pixelValue);
+                int pixelValue_display = pixelValue;
 
                 if (m_transformMode == 1)
                     pixelValue_display = qAbs(pixelValue_display);
