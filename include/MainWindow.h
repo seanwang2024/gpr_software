@@ -68,9 +68,12 @@ public:
     CustomChartView(QWidget *parent = nullptr);
     void setLineSeries(QLineSeries *series);
     void setLineCount(int count);
+    int lineCount() const;
     void setHandleX(int idx, float val);
     float handleX(int idx) const;
     void setGainRange(float minVal, float maxVal);
+    float gainMin() const;
+    float gainMax() const;
     float interpolatedGain(float y) const;
 
 signals:

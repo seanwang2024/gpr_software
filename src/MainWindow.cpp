@@ -105,6 +105,8 @@ void CustomChartView::setLineCount(int count)
     update();
 }
 
+int CustomChartView::lineCount() const { return m_lineCount; }
+
 void CustomChartView::setHandleX(int idx, float val)
 {
     if (idx >= 0 && idx < m_lineCount) {
@@ -125,6 +127,9 @@ void CustomChartView::setGainRange(float minVal, float maxVal)
     m_gainMax = maxVal;
     update();
 }
+
+float CustomChartView::gainMin() const { return m_gainMin; }
+float CustomChartView::gainMax() const { return m_gainMax; }
 
 float CustomChartView::interpolatedGain(float y) const
 {
@@ -184,21 +189,31 @@ void CustomChartView::paintEvent(QPaintEvent *event)
     QPainter painter(viewport());
     painter.setRenderHint(QPainter::Antialiasing);
 
-    // Draw gain scale ticks at top of plot
+    // Draw gain scale ticks and labels at top of plot
     QPen tickPen(Qt::gray, 1, Qt::DotLine);
     painter.setPen(tickPen);
     QFontMetrics fm(painter.font());
-    int tickCount = static_cast<int>((m_gainMax - m_gainMin) / 6);
-    if (tickCount < 1) tickCount = 1;
-    for (int t = -tickCount; t <= tickCount; ++t) {
-        qreal tx = mapGainToWidgetX(6.0f * t);
-        if (tx >= plotArea.left() && tx <= plotArea.right()) {
-            painter.drawLine(QPointF(tx, plotArea.top()), QPointF(tx, plotArea.bottom()));
-            QString label = QString::number(6 * t);
-            painter.setPen(Qt::black);
-            painter.drawText(QPointF(tx - fm.horizontalAdvance(label) / 2, plotArea.top() - 2), label);
+
+    // Determine tick step based on gain range
+    float rangeSpan = m_gainMax - m_gainMin;
+    float step = 6.0f;
+    if (rangeSpan > 0 && rangeSpan <= 20.0f)
+        step = rangeSpan / 2.0f;  // 2 ticks for small range (e.g., 0~10 → step=5)
+    else if (rangeSpan > 20.0f)
+        step = 6.0f;
+
+    int tickIdx = 0;
+    for (float v = m_gainMin; v <= m_gainMax + 0.001f; v += step) {
+        qreal tx = mapGainToWidgetX(v);
+        if (tx >= plotArea.left() - 1 && tx <= plotArea.right() + 1) {
             painter.setPen(tickPen);
+            painter.drawLine(QPointF(tx, plotArea.top()), QPointF(tx, plotArea.bottom()));
+            QString label = QString::number(static_cast<int>(v));
+            painter.setPen(Qt::black);
+            painter.drawText(QPointF(tx - fm.horizontalAdvance(label) / 2.0,
+                                     plotArea.top() - 3), label);
         }
+        if (++tickIdx > 20) break;  // safety
     }
 
     for (int i = 0; i < m_lineCount; ++i) {
@@ -240,7 +255,10 @@ void CustomChartView::mousePressEvent(QMouseEvent *event)
 void CustomChartView::mouseMoveEvent(QMouseEvent *event)
 {
     if (m_draggingIdx >= 0 && m_draggingIdx < m_lineCount) {
-        m_handleX[m_draggingIdx] = mapWidgetToGainX(event->pos().x());
+        float val = mapWidgetToGainX(event->pos().x());
+        // Clamp minimum only (max expands via 10*N)
+        if (val < m_gainMin) val = m_gainMin;
+        m_handleX[m_draggingIdx] = val;
         update();
         emit gainChanged(m_draggingIdx, static_cast<float>(m_handleX[m_draggingIdx]));
     }
@@ -710,23 +728,29 @@ MainWindow::MainWindow(QWidget *parent)
     // Helper: compute gain range from spin boxes and apply to chartView
     auto updateGainRange = [this]() {
         if (!chartView) return;
-        float maxAbs = 6.0f;
-        // Check overall gain spinbox (index 0)
+        bool isLinear = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
+
+        float maxAbs = isLinear ? 10.0f : 6.0f;
+        float baseStep = isLinear ? 10.0f : 6.0f;
+
         if (m_gainSpinBoxes[0]) {
             float val = static_cast<float>(qAbs(m_gainSpinBoxes[0]->value()));
             if (val > maxAbs) maxAbs = val;
         }
-        // Check individual gain spinboxes (index 1..16)
         for (int i = 1; i <= 16; ++i) {
             if (m_gainSpinBoxes[i] && !m_gainSpinBoxes[i]->isHidden()) {
                 float val = static_cast<float>(qAbs(m_gainSpinBoxes[i]->value()));
                 if (val > maxAbs) maxAbs = val;
             }
         }
-        float n = std::ceil(maxAbs / 6.0f);
+        float n = std::ceil(maxAbs / baseStep);
         if (n < 1.0f) n = 1.0f;
-        float range = 6.0f * n;
-        chartView->setGainRange(-range, range);
+        float range = baseStep * n;
+
+        if (isLinear)
+            chartView->setGainRange(0.0f, range);
+        else
+            chartView->setGainRange(-range, range);
     };
 
     // 点数 spinner → show/hide gain rows
@@ -750,9 +774,9 @@ MainWindow::MainWindow(QWidget *parent)
     connect(gainTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
         [this, gainItems, overallGainItem, pointSpinBox, updateGainRange](int index) {
             bool isAuto = (index == 0);
+            bool isLinear = (index == 2);
             overallGainItem->setHidden(!isAuto);
             if (isAuto) {
-                // 自动模式：隐藏所有增益#行
                 for (int i = 1; i <= 16; ++i)
                     gainItems[i]->setHidden(true);
             } else {
@@ -760,6 +784,61 @@ MainWindow::MainWindow(QWidget *parent)
                 for (int i = 1; i <= 16; ++i)
                     gainItems[i]->setHidden(i > count);
             }
+
+            // 线性模式：转换 dB → linear，改 suffix 和 range
+            if (isLinear) {
+                for (int i = 1; i <= 16; ++i) {
+                    if (m_gainSpinBoxes[i]) {
+                        m_gainSpinBoxes[i]->blockSignals(true);
+                        double dbVal = m_gainSpinBoxes[i]->value();
+                        double linearVal = std::pow(10.0, dbVal / 20.0);
+                        m_gainSpinBoxes[i]->setRange(0.0, 1000.0);
+                        m_gainSpinBoxes[i]->setValue(linearVal);
+                        m_gainSpinBoxes[i]->setSuffix("");
+                        m_gainSpinBoxes[i]->setSingleStep(0.1);
+                        m_gainSpinBoxes[i]->blockSignals(false);
+                    }
+                }
+                if (m_gainSpinBoxes[0]) {
+                    m_gainSpinBoxes[0]->blockSignals(true);
+                    double dbVal = m_gainSpinBoxes[0]->value();
+                    double linearVal = std::pow(10.0, dbVal / 20.0);
+                    m_gainSpinBoxes[0]->setRange(0.0, 1000.0);
+                    m_gainSpinBoxes[0]->setValue(linearVal);
+                    m_gainSpinBoxes[0]->setSuffix("");
+                    m_gainSpinBoxes[0]->setSingleStep(0.1);
+                    m_gainSpinBoxes[0]->blockSignals(false);
+                }
+                // 同步chart手柄到转换后的值
+                if (chartView) {
+                    int actual = (pointSpinBox->value() == 1) ? 2 : pointSpinBox->value();
+                    for (int i = 0; i < actual; ++i) {
+                        float val = (i < 16 && m_gainSpinBoxes[i + 1])
+                                    ? static_cast<float>(m_gainSpinBoxes[i + 1]->value())
+                                    : 1.0f;
+                        chartView->setHandleX(i, val);
+                    }
+                }
+            } else {
+                // 非线性模式：恢复 dB suffix 和 range
+                for (int i = 1; i <= 16; ++i) {
+                    if (m_gainSpinBoxes[i]) {
+                        m_gainSpinBoxes[i]->blockSignals(true);
+                        m_gainSpinBoxes[i]->setRange(-20.0, 60.0);
+                        m_gainSpinBoxes[i]->setSuffix(" dB");
+                        m_gainSpinBoxes[i]->setSingleStep(0.5);
+                        m_gainSpinBoxes[i]->blockSignals(false);
+                    }
+                }
+                if (m_gainSpinBoxes[0]) {
+                    m_gainSpinBoxes[0]->blockSignals(true);
+                    m_gainSpinBoxes[0]->setRange(-20.0, 60.0);
+                    m_gainSpinBoxes[0]->setSuffix(" dB");
+                    m_gainSpinBoxes[0]->setSingleStep(0.5);
+                    m_gainSpinBoxes[0]->blockSignals(false);
+                }
+            }
+
             updateGainRange();
         });
 
@@ -829,9 +908,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_btnApply->setEnabled(false);
     m_btnOK->setEnabled(false);
     m_btnCancel->setEnabled(false);
-    gainBtnLayout->addWidget(m_btnApply);
     gainBtnLayout->addWidget(m_btnOK);
     gainBtnLayout->addWidget(m_btnCancel);
+    gainBtnLayout->addWidget(m_btnApply);
     leftLayout->addLayout(gainBtnLayout);
 
     connect(m_btnApply, &QPushButton::clicked, this, &MainWindow::applyGain);
@@ -946,8 +1025,11 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     tab->chartView->chart()->setAnimationOptions(QChart::NoAnimation);
 
     // Drag handle → update spinbox (auto mode: sync all handles)
-    connect(tab->chartView, &CustomChartView::gainChanged, this, [this](int idx, float val) {
+    connect(tab->chartView, &CustomChartView::gainChanged, this, [this, tab](int idx, float val) {
         bool isAuto = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 0;
+        // pointCount=1 → internally 2 handles, always sync both
+        bool isSinglePoint = (tab->chartView && tab->chartView->lineCount() == 2);
+
         if (isAuto) {
             // 同步整体增益spinbox
             if (m_gainSpinBoxes[0]) {
@@ -965,6 +1047,17 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
                 for (int j = 0; j < 16; ++j)
                     chartView->setHandleX(j, val);
             }
+        } else if (isSinglePoint) {
+            // 点数为1：同步两个handle
+            if (idx >= 0 && idx < 16 && m_gainSpinBoxes[idx + 1]) {
+                m_gainSpinBoxes[idx + 1]->blockSignals(true);
+                m_gainSpinBoxes[idx + 1]->setValue(static_cast<double>(val));
+                m_gainSpinBoxes[idx + 1]->blockSignals(false);
+            }
+            if (chartView) {
+                chartView->setHandleX(0, val);
+                chartView->setHandleX(1, val);
+            }
         } else {
             if (idx >= 0 && idx < 16 && m_gainSpinBoxes[idx + 1]) {
                 m_gainSpinBoxes[idx + 1]->blockSignals(true);
@@ -974,7 +1067,9 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
         }
         // Auto-expand gain range from ALL spinbox max value
         if (chartView) {
-            float maxAbs = 6.0f;
+            bool isLinear = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
+            float baseStep = isLinear ? 10.0f : 6.0f;
+            float maxAbs = baseStep;
             if (m_gainSpinBoxes[0]) {
                 float v = static_cast<float>(qAbs(m_gainSpinBoxes[0]->value()));
                 if (v > maxAbs) maxAbs = v;
@@ -985,9 +1080,13 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
                     if (v > maxAbs) maxAbs = v;
                 }
             }
-            float n = std::ceil(maxAbs / 6.0f);
+            float n = std::ceil(maxAbs / baseStep);
             if (n < 1.0f) n = 1.0f;
-            chartView->setGainRange(-6.0f * n, 6.0f * n);
+            float range = baseStep * n;
+            if (isLinear)
+                chartView->setGainRange(0.0f, range);
+            else
+                chartView->setGainRange(-range, range);
         }
         updateChart(m_lastChartX);
     });
@@ -1068,10 +1167,9 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     int idx = m_docTabWidget->addTab(tab->page, tabTitle);
     m_docTabWidget->setCurrentIndex(idx);
 
-    // Initialize chart handles with current point count
+    // Initialize chart handles with current point count and gain mode
     if (tab->chartView) {
-        // pointSpinBox is local to constructor; read current setting from gainTree
-        int pointCount = 1;  // default
+        int pointCount = 1;
         QTreeWidgetItem *root = gainTree->invisibleRootItem()->child(0);
         if (root) {
             for (int c = 0; c < root->childCount(); ++c) {
@@ -1086,10 +1184,15 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
         }
         int actual = (pointCount == 1) ? 2 : pointCount;
         tab->chartView->setLineCount(pointCount);
-        float range = 6.0f * pointCount;
-        tab->chartView->setGainRange(-range, range);
+
+        bool isLinear = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
+        float initVal = isLinear ? 1.0f : 0.0f;
+        if (isLinear)
+            tab->chartView->setGainRange(0.0f, 10.0f);
+        else
+            tab->chartView->setGainRange(-6.0f, 6.0f);
         for (int i = 0; i < actual; ++i)
-            tab->chartView->setHandleX(i, 0.0f);
+            tab->chartView->setHandleX(i, initVal);
     }
 
     // Defer resize until layout is settled (viewport not sized yet during addTab)
@@ -1252,10 +1355,12 @@ void MainWindow::updateChart(int xValue)
     const int maxPoints = 512;
     qint32 minVal = 0, maxVal = 0;
 
+    bool isLinear = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
+
     for (int y = 0; y < maxPoints; ++y) {
         qint32 pixelValue = getPixelValue(xValue, y);
-        float rowGainDb = (chartView) ? chartView->interpolatedGain(y) : m_gain;
-        float rowGainLinear = std::pow(10.0f, rowGainDb / 20.0f);
+        float rawGain = (chartView) ? chartView->interpolatedGain(y) : m_gain;
+        float rowGainLinear = isLinear ? rawGain : std::pow(10.0f, rawGain / 20.0f);
         qint32 displayValue = static_cast<qint32>(rowGainLinear * pixelValue);
         chartSeries->append(static_cast<qreal>(displayValue), static_cast<qreal>(y));
         if (y == 0 || displayValue < minVal) minVal = displayValue;
@@ -1371,10 +1476,11 @@ void MainWindow::applyGain()
         // 应用：备份原始数据，将增益乘入rawData
         m_currentTab->originalRawData = m_rawData;
 
+        bool isLinear = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
         float gainTable[512];
         for (int x = 0; x < 512; ++x) {
-            float dbVal = (chartView) ? chartView->interpolatedGain(x) : m_gain;
-            gainTable[x] = std::pow(10.0f, dbVal / 20.0f);
+            float rawGain = (chartView) ? chartView->interpolatedGain(x) : m_gain;
+            gainTable[x] = isLinear ? rawGain : std::pow(10.0f, rawGain / 20.0f);
         }
 
         int totalPixels = m_rawData.size() / 4;
@@ -1407,10 +1513,11 @@ void MainWindow::saveProcessedFile()
     if (!m_currentTab->gainApplied) {
         // 先应用增益
         m_currentTab->originalRawData = m_rawData;
+        bool isLinear2 = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
         float gainTable[512];
         for (int x = 0; x < 512; ++x) {
-            float dbVal = (chartView) ? chartView->interpolatedGain(x) : m_gain;
-            gainTable[x] = std::pow(10.0f, dbVal / 20.0f);
+            float rawGain = (chartView) ? chartView->interpolatedGain(x) : m_gain;
+            gainTable[x] = isLinear2 ? rawGain : std::pow(10.0f, rawGain / 20.0f);
         }
         int totalPixels = m_rawData.size() / 4;
         char *data = m_rawData.data();
@@ -1820,6 +1927,108 @@ void MainWindow::createMenuBar()
 
     // --- Tab: 数据处理 ---
     QWidget *dataPage = new QWidget();
+    QHBoxLayout *dataLayout = new QHBoxLayout(dataPage);
+    dataLayout->setContentsMargins(4, 2, 4, 2);
+    dataLayout->setSpacing(8);
+
+    // Text-only button maker (no icons yet)
+    auto makeTextBtn = [](const QString &text) -> QToolButton* {
+        QToolButton *btn = new QToolButton();
+        btn->setText(text);
+        btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        btn->setFixedSize(56, 50);
+        btn->setStyleSheet(
+            "QToolButton { border: none; border-radius: 3px; background: transparent; font-size: 11px; }"
+            "QToolButton:hover { background: #dce7f5; }"
+            "QToolButton:pressed { background: #b8d0ea; }"
+        );
+        return btn;
+    };
+
+    // Group 1: 零点调节
+    QVBoxLayout *g1 = addGroup(dataLayout, "零点调节");
+    QHBoxLayout *g1btns = qobject_cast<QHBoxLayout*>(g1->itemAt(0)->layout());
+    g1btns->addWidget(makeTextBtn("调节零点"));
+    g1btns->addWidget(makeTextBtn("寻找地面"));
+    g1btns->addWidget(makeTextBtn("校平地面"));
+
+    // Group 2: 滤波
+    QVBoxLayout *g2 = addGroup(dataLayout, "滤波");
+    QHBoxLayout *g2row1 = qobject_cast<QHBoxLayout*>(g2->itemAt(0)->layout());
+    g2row1->addWidget(makeTextBtn("调节增益"));
+    g2row1->addWidget(makeTextBtn("校正零偏"));
+    g2row1->addWidget(makeTextBtn("背景消除"));
+    QHBoxLayout *g2row2 = new QHBoxLayout();
+    g2row2->setSpacing(2);
+    g2row2->addWidget(makeTextBtn("数字滤波"));
+    g2row2->addWidget(makeTextBtn("滑动平均"));
+    g2row2->addWidget(makeTextBtn("道间均衡"));
+    g2->insertLayout(1, g2row2);
+
+    // Group 3: 其他处理
+    QVBoxLayout *g3 = addGroup(dataLayout, "其他处理");
+    QHBoxLayout *g3row1 = qobject_cast<QHBoxLayout*>(g3->itemAt(0)->layout());
+    g3row1->addWidget(makeTextBtn("数字运算"));
+    g3row1->addWidget(makeTextBtn("反褶积"));
+    g3row1->addWidget(makeTextBtn("希尔伯特"));
+    QHBoxLayout *g3row2 = new QHBoxLayout();
+    g3row2->setSpacing(2);
+    g3row2->addWidget(makeTextBtn("克西霍夫"));
+    g3row2->addWidget(makeTextBtn("一键处理"));
+    g3row2->addWidget(makeTextBtn("批处理"));
+    g3->insertLayout(1, g3row2);
+
+    // Group 4: 处理范围 (labels + spinboxes)
+    QFrame *rangeFrame = new QFrame();
+    rangeFrame->setFrameShape(QFrame::StyledPanel);
+    rangeFrame->setFrameShadow(QFrame::Plain);
+    rangeFrame->setStyleSheet("QFrame { border: 1px solid #d0d0d0; border-radius: 3px; background: #fafafa; }");
+    QVBoxLayout *rangeLayout = new QVBoxLayout(rangeFrame);
+    rangeLayout->setContentsMargins(4, 2, 4, 2);
+    rangeLayout->setSpacing(4);
+
+    QLabel *rangeLabel = new QLabel("处理范围");
+    rangeLabel->setAlignment(Qt::AlignCenter);
+    rangeLabel->setStyleSheet("color: #666; font-size: 10px; border: none;");
+
+    // Row 1: 起始道 / 终止道
+    QHBoxLayout *rangeRow1 = new QHBoxLayout();
+    rangeRow1->setSpacing(4);
+    rangeRow1->addWidget(new QLabel("起始道"));
+    QSpinBox *startTraceSpin = new QSpinBox();
+    startTraceSpin->setRange(0, 99999);
+    startTraceSpin->setValue(0);
+    startTraceSpin->setFixedWidth(70);
+    rangeRow1->addWidget(startTraceSpin);
+    rangeRow1->addWidget(new QLabel("终止道"));
+    QSpinBox *endTraceSpin = new QSpinBox();
+    endTraceSpin->setRange(0, 99999);
+    endTraceSpin->setValue(99999);
+    endTraceSpin->setFixedWidth(70);
+    rangeRow1->addWidget(endTraceSpin);
+
+    // Row 2: 起始点 / 终止点
+    QHBoxLayout *rangeRow2 = new QHBoxLayout();
+    rangeRow2->setSpacing(4);
+    rangeRow2->addWidget(new QLabel("起始点"));
+    QSpinBox *startPointSpin = new QSpinBox();
+    startPointSpin->setRange(0, 511);
+    startPointSpin->setValue(0);
+    startPointSpin->setFixedWidth(70);
+    rangeRow2->addWidget(startPointSpin);
+    rangeRow2->addWidget(new QLabel("终止点"));
+    QSpinBox *endPointSpin = new QSpinBox();
+    endPointSpin->setRange(0, 511);
+    endPointSpin->setValue(511);
+    endPointSpin->setFixedWidth(70);
+    rangeRow2->addWidget(endPointSpin);
+
+    rangeLayout->addWidget(rangeLabel);
+    rangeLayout->addLayout(rangeRow1);
+    rangeLayout->addLayout(rangeRow2);
+    dataLayout->addWidget(rangeFrame);
+
+    dataLayout->addStretch();
     ribbonTab->addTab(dataPage, "数据处理");
 
     qobject_cast<QVBoxLayout*>(centralWidget()->layout())->insertWidget(0, ribbonTab);
