@@ -526,15 +526,36 @@ void VRulerWidget::paintEvent(QPaintEvent *)
     double range = m_maxVal - m_minVal;
     if (range <= 0 || imgH <= 0) return;
 
+    // Draw label: each character horizontal, arranged vertically, "(ns)" "(m)" as one unit
     p.save();
-    if (m_direction == Left) {
-        p.translate(12, imgH / 2);
-        p.rotate(-90);
-    } else {
-        p.translate(w - 12, imgH / 2);
-        p.rotate(90);
+    QFontMetrics fm(p.font());
+    // Split label into display units: each char except "(...)" stays together
+    QStringList units;
+    int li = 0;
+    while (li < m_label.length()) {
+        if (m_label[li] == '(') {
+            int j = m_label.indexOf(')', li);
+            if (j >= 0) {
+                units.append(m_label.mid(li, j - li + 1));
+                li = j + 1;
+            } else {
+                units.append(m_label.mid(li, 1));
+                li++;
+            }
+        } else {
+            units.append(m_label.mid(li, 1));
+            li++;
+        }
     }
-    p.drawText(QRect(-150, -8, 300, 16), Qt::AlignCenter, m_label);
+    int lineH = fm.height();
+    int totalTextH = units.size() * lineH;
+    int startY = (imgH - totalTextH) / 2 + fm.ascent();
+    int offset = (m_direction == Left) ? -fm.horizontalAdvance(QString::fromUtf8("时")) : fm.horizontalAdvance(QString::fromUtf8("深"));
+    for (int i = 0; i < units.size(); ++i) {
+        int cw = fm.horizontalAdvance(units[i]);
+        int cx = (w - cw) / 2 + offset;
+        p.drawText(cx, startY + i * lineH, units[i]);
+    }
     p.restore();
 
     if (m_direction == Left)
@@ -922,8 +943,8 @@ MainWindow::MainWindow(QWidget *parent)
             m_currentTab->gainApplied = false;
             m_btnApply->setText("应用");
             refreshImage();
-            updateChart(m_lastChartX);
         }
+        m_leftPanel->hide();
     });
 
     contentLayout->addWidget(m_leftPanel);
@@ -1296,7 +1317,6 @@ void MainWindow::showWelcome()
 void MainWindow::hideWelcome()
 {
     welcomeLabel->hide();
-    m_leftPanel->show();
     m_docTabWidget->show();
 }
 
@@ -1918,7 +1938,12 @@ void MainWindow::createMenuBar()
     processBtns->addWidget(makeBtn(":/icons/resources/adjustzero.png", "调节零点"));
     processBtns->addWidget(makeBtn(":/icons/resources/correctoffset.png", "校正零偏"));
     processBtns->addWidget(makeBtn(":/icons/resources/bgremove.png", "背景消除"));
-    processBtns->addWidget(makeBtn(":/icons/resources/adjustgain.png", "调节增益"));
+    QToolButton *btnAdjGainStart = makeBtn(":/icons/resources/adjustgain.png", "调节增益");
+    connect(btnAdjGainStart, &QToolButton::clicked, this, [this]() {
+        if (m_tabs.isEmpty()) return;
+        m_leftPanel->setVisible(!m_leftPanel->isVisible());
+    });
+    processBtns->addWidget(btnAdjGainStart);
     processBtns->addWidget(makeBtn(":/icons/resources/filter.png", "数字滤波"));
     processBtns->addWidget(makeBtn(":/icons/resources/batch.png", "批处理"));
 
@@ -1955,7 +1980,12 @@ void MainWindow::createMenuBar()
     // Group 2: 滤波
     QVBoxLayout *g2 = addGroup(dataLayout, "滤波");
     QHBoxLayout *g2row1 = qobject_cast<QHBoxLayout*>(g2->itemAt(0)->layout());
-    g2row1->addWidget(makeTextBtn("调节增益"));
+    QToolButton *btnAdjGain = makeTextBtn("调节增益");
+    connect(btnAdjGain, &QToolButton::clicked, this, [this]() {
+        if (m_tabs.isEmpty()) return;
+        m_leftPanel->setVisible(!m_leftPanel->isVisible());
+    });
+    g2row1->addWidget(btnAdjGain);
     g2row1->addWidget(makeTextBtn("校正零偏"));
     g2row1->addWidget(makeTextBtn("背景消除"));
     QHBoxLayout *g2row2 = new QHBoxLayout();
