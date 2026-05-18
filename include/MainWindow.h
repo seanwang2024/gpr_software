@@ -20,6 +20,7 @@
 #include <QComboBox>
 #include <QTabWidget>
 #include <QToolButton>
+#include <QStackedWidget>
 
 QT_BEGIN_NAMESPACE
 class QChart;
@@ -194,6 +195,9 @@ private:
     QLabel *coordinateLabel;
     QTreeWidget *gainTree;
     QWidget *m_leftPanel;
+    QStackedWidget *m_leftStack;
+    QWidget *m_gainPage;
+    QWidget *m_zeroPage;
     QComboBox *m_gainTypeCombo;
     QPushButton *m_btnApply;
     QPushButton *m_btnOK;

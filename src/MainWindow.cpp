@@ -641,6 +641,8 @@ MainWindow::MainWindow(QWidget *parent)
     gainTree->setHeaderHidden(true);
     gainTree->setRootIsDecorated(false);
     gainTree->setIndentation(20);
+    gainTree->setColumnWidth(0, 174);
+    gainTree->setColumnWidth(1, 80);
     gainTree->setAnimated(true);
     gainTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     gainTree->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -914,14 +916,21 @@ MainWindow::MainWindow(QWidget *parent)
         "QTabBar::tab:selected { background: #ffffff; }"
     );
 
-    // Left panel: gain tree + buttons
+    // Left panel: stacked gain / zero-point pages
     m_leftPanel = new QWidget;
-    QVBoxLayout *leftLayout = new QVBoxLayout(m_leftPanel);
-    leftLayout->setContentsMargins(0, 0, 0, 0);
-    leftLayout->setSpacing(4);
-    leftLayout->addWidget(gainTree);
+    QVBoxLayout *leftOuterLayout = new QVBoxLayout(m_leftPanel);
+    leftOuterLayout->setContentsMargins(0, 0, 0, 0);
+    leftOuterLayout->setSpacing(0);
 
-    // Buttons row
+    m_leftStack = new QStackedWidget;
+
+    // --- Gain page ---
+    m_gainPage = new QWidget;
+    QVBoxLayout *gainPageLayout = new QVBoxLayout(m_gainPage);
+    gainPageLayout->setContentsMargins(0, 0, 0, 0);
+    gainPageLayout->setSpacing(4);
+    gainPageLayout->addWidget(gainTree);
+
     QHBoxLayout *gainBtnLayout = new QHBoxLayout;
     m_btnApply = new QPushButton("应用");
     m_btnOK = new QPushButton("确定");
@@ -932,7 +941,7 @@ MainWindow::MainWindow(QWidget *parent)
     gainBtnLayout->addWidget(m_btnOK);
     gainBtnLayout->addWidget(m_btnCancel);
     gainBtnLayout->addWidget(m_btnApply);
-    leftLayout->addLayout(gainBtnLayout);
+    gainPageLayout->addLayout(gainBtnLayout);
 
     connect(m_btnApply, &QPushButton::clicked, this, &MainWindow::applyGain);
     connect(m_btnOK, &QPushButton::clicked, this, &MainWindow::saveProcessedFile);
@@ -947,7 +956,123 @@ MainWindow::MainWindow(QWidget *parent)
         m_leftPanel->hide();
     });
 
-    contentLayout->addWidget(m_leftPanel);
+    m_leftStack->addWidget(m_gainPage);
+
+    // --- Zero-point page ---
+    m_zeroPage = new QWidget;
+    QVBoxLayout *zeroPageLayout = new QVBoxLayout(m_zeroPage);
+    zeroPageLayout->setContentsMargins(0, 0, 0, 0);
+    zeroPageLayout->setSpacing(4);
+
+    QTreeWidget *zeroTree = new QTreeWidget();
+    zeroTree->setHeaderHidden(true);
+    zeroTree->setColumnCount(2);
+    zeroTree->setRootIsDecorated(false);
+    zeroTree->setIndentation(20);
+    zeroTree->setAnimated(true);
+    zeroTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    zeroTree->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    zeroTree->setSelectionMode(QAbstractItemView::NoSelection);
+    zeroTree->setMaximumWidth(280);
+    zeroTree->setMinimumWidth(220);
+    zeroTree->header()->setStretchLastSection(true);
+    zeroTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    zeroTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    zeroTree->setStyleSheet(
+        "QTreeWidget { border: 1px solid #a0a0a0; font-size: 12px; "
+        "  gridline-color: #c0c0c0; show-decoration-selected: 0; }"
+        "QTreeWidget::item { padding: 1px 2px; border-bottom: 1px solid #d0d0d0; }"
+        "QTreeWidget::item:selected { background: transparent; }"
+    );
+
+    QTreeWidgetItem *zeroRoot = new QTreeWidgetItem(zeroTree, QStringList() << "时间零点" << "");
+    zeroRoot->setFlags(zeroRoot->flags() & ~Qt::ItemIsEditable);
+    zeroRoot->setExpanded(true);
+    zeroRoot->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
+    QFont zeroRootFont = zeroRoot->font(0);
+    zeroRootFont.setBold(true);
+    zeroRoot->setFont(0, zeroRootFont);
+
+    // 时间通道
+    QTreeWidgetItem *timeChItem = new QTreeWidgetItem(zeroRoot, QStringList() << "时间通道" << "");
+    timeChItem->setFlags(timeChItem->flags() & ~Qt::ItemIsEditable);
+    QSpinBox *timeChSpin = new QSpinBox();
+    timeChSpin->setRange(1, 16);
+    timeChSpin->setValue(1);
+    zeroTree->setItemWidget(timeChItem, 1, timeChSpin);
+
+    // 方法
+    QTreeWidgetItem *methodItem = new QTreeWidgetItem(zeroRoot, QStringList() << "方法" << "");
+    methodItem->setFlags(methodItem->flags() & ~Qt::ItemIsEditable);
+    QComboBox *methodCombo = new QComboBox();
+    methodCombo->addItems(QStringList() << "手动" << "自动");
+    zeroTree->setItemWidget(methodItem, 1, methodCombo);
+
+    // 通道参数
+    QTreeWidgetItem *chParamItem = new QTreeWidgetItem(zeroRoot, QStringList() << "通道参数" << "");
+    chParamItem->setFlags(chParamItem->flags() & ~Qt::ItemIsEditable);
+    chParamItem->setExpanded(true);
+    chParamItem->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
+    QFont chParamFont = chParamItem->font(0);
+    chParamFont.setBold(true);
+    chParamItem->setFont(0, chParamFont);
+
+    // 显示通道
+    QTreeWidgetItem *showChItem = new QTreeWidgetItem(chParamItem, QStringList() << "显示通道" << "");
+    showChItem->setFlags(showChItem->flags() & ~Qt::ItemIsEditable);
+    QComboBox *showChCombo = new QComboBox();
+    showChCombo->addItems(QStringList() << "Yes" << "No");
+    zeroTree->setItemWidget(showChItem, 1, showChCombo);
+
+    // 偏移量(ns)
+    QTreeWidgetItem *offsetItem = new QTreeWidgetItem(chParamItem, QStringList() << "偏移量(ns)" << "");
+    offsetItem->setFlags(offsetItem->flags() & ~Qt::ItemIsEditable);
+    QDoubleSpinBox *offsetSpin = new QDoubleSpinBox();
+    offsetSpin->setRange(-1000.0, 1000.0);
+    offsetSpin->setValue(2.0);
+    offsetSpin->setDecimals(1);
+    zeroTree->setItemWidget(offsetItem, 1, offsetSpin);
+
+    // 时间位置零点(ns)
+    QTreeWidgetItem *zeroPosItem = new QTreeWidgetItem(chParamItem, QStringList() << "时间位置零点(ns)" << "");
+    zeroPosItem->setFlags(zeroPosItem->flags() & ~Qt::ItemIsEditable);
+    QDoubleSpinBox *zeroPosSpin = new QDoubleSpinBox();
+    zeroPosSpin->setRange(-1000.0, 1000.0);
+    zeroPosSpin->setValue(0.0);
+    zeroPosSpin->setDecimals(1);
+    zeroTree->setItemWidget(zeroPosItem, 1, zeroPosSpin);
+
+    // 位置范围百分点
+    QTreeWidgetItem *rangePctItem = new QTreeWidgetItem(chParamItem, QStringList() << "位置范围百分点" << "");
+    rangePctItem->setFlags(rangePctItem->flags() & ~Qt::ItemIsEditable);
+    QDoubleSpinBox *rangePctSpin = new QDoubleSpinBox();
+    rangePctSpin->setRange(0.0, 100.0);
+    rangePctSpin->setValue(0.0);
+    rangePctSpin->setDecimals(1);
+    zeroTree->setItemWidget(rangePctItem, 1, rangePctSpin);
+
+    zeroTree->expandAll();
+    zeroPageLayout->addWidget(zeroTree);
+
+    // Zero-point buttons (same style as gain buttons)
+    QHBoxLayout *zeroBtnLayout = new QHBoxLayout;
+    QPushButton *zeroBtnOK = new QPushButton("确定");
+    QPushButton *zeroBtnCancel = new QPushButton("取消");
+    QPushButton *zeroBtnApply = new QPushButton("应用");
+    zeroBtnLayout->addWidget(zeroBtnOK);
+    zeroBtnLayout->addWidget(zeroBtnCancel);
+    zeroBtnLayout->addWidget(zeroBtnApply);
+    zeroPageLayout->addLayout(zeroBtnLayout);
+
+    connect(zeroBtnCancel, &QPushButton::clicked, this, [this]() {
+        m_leftPanel->hide();
+    });
+
+    m_leftStack->addWidget(m_zeroPage);
+
+    leftOuterLayout->addWidget(m_leftStack);
+    m_leftStack->setCurrentIndex(0);
+    m_leftPanel->setMinimumWidth(260);
     contentLayout->addWidget(welcomeLabel, 1);
     contentLayout->addWidget(m_docTabWidget, 1);
 
@@ -1935,12 +2060,19 @@ void MainWindow::createMenuBar()
     QVBoxLayout *processGroup = addGroup(startLayout, "简易处理");
     QHBoxLayout *processBtns = qobject_cast<QHBoxLayout*>(processGroup->itemAt(0)->layout());
     processBtns->addWidget(makeBtn(":/icons/resources/autoprocess.png", "一键处理"));
-    processBtns->addWidget(makeBtn(":/icons/resources/adjustzero.png", "调节零点"));
+    QToolButton *btnAdjZero = makeBtn(":/icons/resources/adjustzero.png", "调节零点");
+    connect(btnAdjZero, &QToolButton::clicked, this, [this]() {
+        if (m_tabs.isEmpty()) return;
+        m_leftStack->setCurrentWidget(m_zeroPage);
+        m_leftPanel->show();
+    });
+    processBtns->addWidget(btnAdjZero);
     processBtns->addWidget(makeBtn(":/icons/resources/correctoffset.png", "校正零偏"));
     processBtns->addWidget(makeBtn(":/icons/resources/bgremove.png", "背景消除"));
     QToolButton *btnAdjGainStart = makeBtn(":/icons/resources/adjustgain.png", "调节增益");
     connect(btnAdjGainStart, &QToolButton::clicked, this, [this]() {
         if (m_tabs.isEmpty()) return;
+        m_leftStack->setCurrentWidget(m_gainPage);
         m_leftPanel->setVisible(!m_leftPanel->isVisible());
     });
     processBtns->addWidget(btnAdjGainStart);
@@ -1973,7 +2105,13 @@ void MainWindow::createMenuBar()
     // Group 1: 零点调节
     QVBoxLayout *g1 = addGroup(dataLayout, "零点调节");
     QHBoxLayout *g1btns = qobject_cast<QHBoxLayout*>(g1->itemAt(0)->layout());
-    g1btns->addWidget(makeTextBtn("调节零点"));
+    QToolButton *btnAdjZero2 = makeTextBtn("调节零点");
+    connect(btnAdjZero2, &QToolButton::clicked, this, [this]() {
+        if (m_tabs.isEmpty()) return;
+        m_leftStack->setCurrentWidget(m_zeroPage);
+        m_leftPanel->show();
+    });
+    g1btns->addWidget(btnAdjZero2);
     g1btns->addWidget(makeTextBtn("寻找地面"));
     g1btns->addWidget(makeTextBtn("校平地面"));
 
@@ -1983,6 +2121,7 @@ void MainWindow::createMenuBar()
     QToolButton *btnAdjGain = makeTextBtn("调节增益");
     connect(btnAdjGain, &QToolButton::clicked, this, [this]() {
         if (m_tabs.isEmpty()) return;
+        m_leftStack->setCurrentWidget(m_gainPage);
         m_leftPanel->setVisible(!m_leftPanel->isVisible());
     });
     g2row1->addWidget(btnAdjGain);
