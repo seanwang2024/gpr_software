@@ -1523,9 +1523,14 @@ void MainWindow::showFileHeader()
 
     // Parse header fields
     QString fileName = QString::fromLatin1(hdr.mid(114, 12)).trimmed();
+    fileName = fileName.left(fileName.indexOf(QLatin1Char('\0')));
     QString createDate = rdDate(32);
     QString modDate = rdDate(36);
-    int systemCode = static_cast<quint8>(hdr[113]) & 0x1F;
+    // Byte 113 bitfield: [rh_version:3 | rh_system:5] — high 5 bits = system code
+    // DZT rh_system control unit table (from RADAN DZT File Format spec):
+    //   2=SIR 2000, 3=SIR 3000, 4=TerraVision, 6=SIR 20,
+    //   7=SS Mini, 8=SIR 4000, 9=SIR 30, 12=UtilityScan DF
+    int systemCode = (static_cast<quint8>(hdr[113]) >> 3) & 0x1F;
     QString systemName;
     switch (systemCode) {
         case 2: systemName = "SIR-2000"; break;
@@ -1536,7 +1541,7 @@ void MainWindow::showFileHeader()
         case 8: systemName = "SIR-4000"; break;
         case 9: systemName = "SIR-30"; break;
         case 12: systemName = "UtilityScan DF"; break;
-        default: systemName = QString::number(systemCode); break;
+        default: systemName = QString("Unknown(%1)").arg(systemCode); break;
     }
     int nchan = rdShort(52);
     float sps = rdFloat(10);
@@ -1546,6 +1551,7 @@ void MainWindow::showFileHeader()
     int bits = rdShort(6);
     float epsr = rdFloat(54);
     QString antName = QString::fromLatin1(hdr.mid(98, 14)).trimmed();
+    antName = antName.left(antName.indexOf(QLatin1Char('\0')));
     float position = rdFloat(22);
     float range = rdFloat(26);
     float top = rdFloat(58);
@@ -1553,17 +1559,21 @@ void MainWindow::showFileHeader()
     int repeatsSample = rdShort(8);
     int npass = rdShort(30);
 
-    // Processing history: time-zero offset from rh_proc area
-    QString zeroOffset = "";
+    // Processing history: {short typeCode, float value} records, 6 bytes each
+    // typeCode: low byte = processing type (0x4D=77), high byte = record index
+    QVector<QPair<int, float>> procRecords;  // (index, value)
     qint16 procOff = rdShort(48);
     qint16 procSize = rdShort(50);
     if (procOff > 0 && procSize > 0 && procOff + procSize <= hdr.size()) {
-        // Scan for time-zero record
-        QByteArray procData = hdr.mid(procOff, procSize);
-        // Try reading as text or binary; for now show raw offset info
-        zeroOffset = QString::fromLatin1(procData).trimmed();
-        if (zeroOffset.isEmpty())
-            zeroOffset = QString("<%1 bytes>").arg(procSize);
+        int nRec = procSize / 6;
+        for (int r = 0; r < nRec; ++r) {
+            int off = procOff + r * 6;
+            quint16 typeCode = static_cast<quint16>(rdShort(off));
+            int recIdx = typeCode >> 8;  // high byte = record index
+            float val;
+            memcpy(&val, hdr.constData() + off + 2, 4);
+            procRecords.append({recIdx, val});
+        }
     }
 
     // --- Build dialog ---
@@ -1635,8 +1645,10 @@ void MainWindow::showFileHeader()
 
     // 处理记录
     QTreeWidgetItem *procRoot = new QTreeWidgetItem(tree, QStringList() << "处理记录" << "");
-    QTreeWidgetItem *zeroRoot = new QTreeWidgetItem(procRoot, QStringList() << "时间零点" << "");
-    addRow(zeroRoot, "偏移量 (nS)", zeroOffset);
+    for (const auto &rec : procRecords) {
+        addRow(procRoot, QString("处理记录%1#").arg(rec.first),
+               QString::number(rec.second, 'f', 2));
+    }
 
     tree->expandAll();
     layout->addWidget(tree);
