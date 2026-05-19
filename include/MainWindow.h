@@ -79,6 +79,7 @@ public:
     void setGainVisible(bool visible);
     void setYScale(float scale);
     float yScale() const;
+    void setZeroOffset(float offset);
 
 signals:
     void gainChanged(int idx, float val);
@@ -99,6 +100,7 @@ private:
     float m_gainMax = 6.0f;
     bool m_gainVisible = true;
     float m_yScale = 1.0f;
+    float m_zeroOffset = 0.0f;  // time-zero offset for negative-Y shading
     qreal mapGainToWidgetX(float gainVal);
     float mapWidgetToGainX(qreal widgetX);
     qreal mapChartToWidgetY(float y);
@@ -147,6 +149,9 @@ struct TabData {
     double timeRange = 20.0;
     double depthRange = 1.25;
     bool gainApplied = false;
+    bool zeroApplied = false;
+    int zeroSkipRows = 0;
+    float signalPosition = 0.0f;  // rhf_position from offset 22
 
     QWidget *page = nullptr;
     QScrollArea *scrollArea = nullptr;
@@ -238,9 +243,12 @@ private:
     int m_traceCount;
     double m_timeRange;
     double m_depthRange;
+    float m_signalPos = 0.0f;  // rhf_position from current file
 
-    // Zero-point offset spinbox
+    // Zero-point spinboxes & button
     QDoubleSpinBox *m_zeroOffsetSpin = nullptr;
+    QDoubleSpinBox *m_zeroRangePctSpin = nullptr;
+    QPushButton *m_zeroBtnApply = nullptr;
 };
 
 #endif

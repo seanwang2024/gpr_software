@@ -32,6 +32,7 @@
 #include <QFontMetrics>
 #include <QTimer>
 #include <QFileInfo>
+#include <QDateTime>
 #include <functional>
 #include <cmath>
 #include <complex>
@@ -145,6 +146,12 @@ void CustomChartView::setYScale(float scale)
 
 float CustomChartView::yScale() const { return m_yScale; }
 
+void CustomChartView::setZeroOffset(float offset)
+{
+    m_zeroOffset = offset;
+    update();
+}
+
 float CustomChartView::interpolatedGain(float y) const
 {
     if (m_lineCount == 0) return 1.0f;
@@ -247,6 +254,15 @@ void CustomChartView::paintEvent(QPaintEvent *event)
                 painter.drawLine(QPointF(prevHx, prevWy), QPointF(hx, wy));
             }
         }
+    } else if (m_yScale != 1.0f && m_zeroOffset < 0.0f) {
+        // Zero-point mode: draw shaded rectangle for negative-Y region
+        // bottom-left: (X min, Y=0), top-right: (X max, Y=zeroOffset)
+        qreal wyTop = mapChartToWidgetY(m_zeroOffset);
+        qreal wyBottom = mapChartToWidgetY(0.0f);
+        QRectF negRect(plotArea.left(), wyTop, plotArea.width(), wyBottom - wyTop);
+        painter.setPen(QPen(Qt::gray, 1, Qt::DashLine));
+        painter.setBrush(QColor(200, 200, 200, 80));
+        painter.drawRect(negRect);
     }
 }
 
@@ -1043,7 +1059,7 @@ MainWindow::MainWindow(QWidget *parent)
     offsetItem->setFlags(offsetItem->flags() & ~Qt::ItemIsEditable);
     QDoubleSpinBox *offsetSpin = new QDoubleSpinBox();
     offsetSpin->setRange(-1000.0, 1000.0);
-    offsetSpin->setValue(2.0);
+    offsetSpin->setValue(0.0);
     offsetSpin->setDecimals(1);
     zeroTree->setItemWidget(offsetItem, 1, offsetSpin);
     m_zeroOffsetSpin = offsetSpin;
@@ -1060,24 +1076,33 @@ MainWindow::MainWindow(QWidget *parent)
     rangePctItem->setFlags(rangePctItem->flags() & ~Qt::ItemIsEditable);
     QDoubleSpinBox *rangePctSpin = new QDoubleSpinBox();
     rangePctSpin->setRange(0.0, 100.0);
-    rangePctSpin->setValue(0.0);
+    rangePctSpin->setValue(10.0);
     rangePctSpin->setDecimals(1);
     zeroTree->setItemWidget(rangePctItem, 1, rangePctSpin);
+    m_zeroRangePctSpin = rangePctSpin;
 
-    // 位置范围百分点变化 → 更新时间位置零点
+    // Initial display
+    zeroPosLabel->setText(QString::number(-rangePctSpin->value() * 0.2, 'f', 1));
+
+    // 位置范围百分比变化 → 更新时间位置零点 + 刷新chart
     connect(rangePctSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-        [zeroPosLabel](double val) {
-            zeroPosLabel->setText(QString::number(val * 0.2, 'f', 1));
+        [this, zeroPosLabel](double val) {
+            zeroPosLabel->setText(QString::number(-val * 0.2, 'f', 1));
+            if (chartView && chartView->yScale() != 1.0f) {
+                chartView->setZeroOffset(static_cast<float>(-val * 0.2));
+                updateChart(m_lastChartX);
+            }
         });
 
-    // 偏移量变化 → 刷新chart
+    zeroTree->expandAll();
+
+    // 偏移量变化 → 刷新chart (insert zeros into data)
     connect(offsetSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
         [this](double) {
             if (chartView && chartView->yScale() != 1.0f)
                 updateChart(m_lastChartX);
         });
 
-    zeroTree->expandAll();
     zeroPageLayout->addWidget(zeroTree);
 
     // Zero-point buttons (same style as gain buttons)
@@ -1085,6 +1110,7 @@ MainWindow::MainWindow(QWidget *parent)
     QPushButton *zeroBtnOK = new QPushButton("确定");
     QPushButton *zeroBtnCancel = new QPushButton("取消");
     QPushButton *zeroBtnApply = new QPushButton("应用");
+    m_zeroBtnApply = zeroBtnApply;
     zeroBtnLayout->addWidget(zeroBtnOK);
     zeroBtnLayout->addWidget(zeroBtnCancel);
     zeroBtnLayout->addWidget(zeroBtnApply);
@@ -1092,6 +1118,104 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(zeroBtnCancel, &QPushButton::clicked, this, [this]() {
         m_leftPanel->hide();
+    });
+
+    connect(zeroBtnOK, &QPushButton::clicked, this, [this]() {
+        if (!m_currentTab) return;
+
+        // 创建 proc 目录
+        QFileInfo fi(m_currentTab->filePath);
+        QString baseName = fi.completeBaseName();  // e.g. "1103_010"
+        QString procDir = fi.absolutePath() + "/proc";
+        QDir().mkpath(procDir);
+
+        // 找到可用的文件名  P_#.DZT
+        int N = 1;
+        QString outPath;
+        do {
+            outPath = procDir + QString("/%1 P_%2.DZT").arg(baseName).arg(N++);
+        } while (QFile::exists(outPath));
+
+        // 复制原文件到新文件
+        QFile srcFile(m_currentTab->filePath);
+        QFile outFile(outPath);
+        if (!srcFile.open(QIODevice::ReadOnly) || !outFile.open(QIODevice::ReadWrite)) {
+            QMessageBox::warning(this, "Error", "Failed to save file.");
+            return;
+        }
+        outFile.write(srcFile.readAll());
+        srcFile.close();
+
+        // 0. 写入编辑时间到 offset 36 (rhb_mdt, tagRFDate 4 bytes)
+        // tagRFDate bitfield: sec2[4:0] min[10:5] hour[15:11] day[20:16] month[24:21] year[31:25]
+        QDateTime now = QDateTime::currentDateTime();
+        QDate d = now.date();
+        QTime t = now.time();
+        quint32 mdt = 0;
+        mdt |= (t.second() / 2) & 0x1F;                    // sec2
+        mdt |= (t.minute() & 0x3F) << 5;                   // min
+        mdt |= (t.hour() & 0x1F) << 11;                    // hour
+        mdt |= (d.day() & 0x1F) << 16;                     // day
+        mdt |= (d.month() & 0xF) << 21;                    // month
+        mdt |= ((d.year() - 1980) & 0x7F) << 25;           // year-1980
+        outFile.seek(36);
+        outFile.write(reinterpret_cast<const char*>(&mdt), 4);
+
+        // 1. 写入时间位置零点到 offset 22 (rhf_position, 信号位置 ns)
+        float zeroPosVal = m_zeroRangePctSpin ? static_cast<float>(-m_zeroRangePctSpin->value() * 0.2) : 0.0f;
+        outFile.seek(22);
+        outFile.write(reinterpret_cast<const char*>(&zeroPosVal), 4);
+
+        // 2. 追加偏移量作为处理记录到 offset 128 尾部
+        // 格式: {short typeCode, float value} 每条6字节
+        outFile.seek(50);  // rh_nproc
+        qint16 procSize;
+        outFile.read(reinterpret_cast<char*>(&procSize), 2);
+        quint16 nextIdx = 0;
+        if (procSize > 0)
+            nextIdx = procSize / 6;
+        int writeOff = 128 + procSize;
+        quint16 typeCode = (nextIdx << 8) | 0x4D;
+        float offsetVal = m_zeroOffsetSpin ? static_cast<float>(m_zeroOffsetSpin->value()) : 0.0f;
+        outFile.seek(writeOff);
+        outFile.write(reinterpret_cast<const char*>(&typeCode), 2);
+        outFile.write(reinterpret_cast<const char*>(&offsetVal), 4);
+
+        // 更新 rh_nproc
+        qint16 newSize = procSize + 6;
+        outFile.seek(50);
+        outFile.write(reinterpret_cast<const char*>(&newSize), 2);
+
+        outFile.close();
+
+        // 打开新文件作为新 tab
+        QImage image = loadDZTFile(outPath);
+        if (!image.isNull()) {
+            createTab(outPath, image);
+        }
+    });
+
+    connect(zeroBtnApply, &QPushButton::clicked, this, [this]() {
+        if (!m_currentTab) return;
+        if (m_currentTab->zeroApplied) {
+            // 重设: restore original image, keep spinbox values
+            m_currentTab->zeroApplied = false;
+            m_currentTab->zeroSkipRows = 0;
+            m_zeroBtnApply->setText("应用");
+            refreshImage();
+            updateRulers();
+        } else {
+            // 应用: skip first N rows based on 时间位置零点
+            double rangePct = m_zeroRangePctSpin ? m_zeroRangePctSpin->value() : 0.0;
+            double zeroOff = -rangePct * 0.2;  // e.g. -2.0
+            int skip = qRound(512 * (-zeroOff) / 20.0);  // e.g. 512*2/20=51
+            if (skip <= 0) return;
+            m_currentTab->zeroApplied = true;
+            m_currentTab->zeroSkipRows = skip;
+            m_zeroBtnApply->setText("重设");
+            refreshImage();
+            updateRulers();
+        }
     });
 
     m_leftStack->addWidget(m_zeroPage);
@@ -1152,6 +1276,7 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     tab->traceCount = m_traceCount;
     tab->timeRange = m_timeRange;
     tab->depthRange = m_depthRange;
+    tab->signalPosition = m_signalPos;
 
     // Page widget
     tab->page = new QWidget();
@@ -1191,6 +1316,12 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     axisY->setTickCount(6);
     axisY->setLabelFormat("%d");
     axisY->setReverse(true);
+
+    // If signalPosition < 0, set axis range only (data offset handled in updateChart)
+    if (m_signalPos < 0.0f) {
+        axisY->setRange(0, 20.0 + m_signalPos);
+        axisY->setLabelFormat("%.1f");
+    }
 
     tab->chartView->chart()->setAxisX(axisX, tab->chartSeries);
     tab->chartView->chart()->setAxisY(axisY, tab->chartSeries);
@@ -1723,27 +1854,35 @@ void MainWindow::updateChart(int xValue)
     bool isLinear = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
     bool isZeroMode = (yscale != 1.0f);
 
-    // Zero-point mode: shift data down by N samples, keep 512 total
-    double offset = 0.0;
+    // Signal position offset from file header (e.g., -2.79)
+    float sigPos = m_currentTab ? m_currentTab->signalPosition : 0.0f;
+    int sigPad = (sigPos < 0.0f) ? qRound(maxPoints * (-sigPos) / 20.0f) : 0;
+
+    // Zero-point manual overrides
+    double zeroOff = 0.0;
     int zeroPad = 0;
-    if (isZeroMode && m_zeroOffsetSpin) {
-        offset = m_zeroOffsetSpin->value();
-        if (offset > 0)
-            zeroPad = qRound(maxPoints * offset / 20.0);
+    if (isZeroMode) {
+        if (m_zeroRangePctSpin)
+            zeroOff = -m_zeroRangePctSpin->value() * 0.2;
+        if (m_zeroOffsetSpin && m_zeroOffsetSpin->value() > 0)
+            zeroPad = qRound(maxPoints * m_zeroOffsetSpin->value() / 20.0);
     }
+
+    int totalOff = sigPad + zeroPad;
+    double displayRange = isZeroMode ? 20.0 : (20.0 + sigPos);
 
     for (int i = 0; i < maxPoints; ++i) {
         qint32 displayValue = 0;
-        if (i >= zeroPad) {
-            int srcY = i - zeroPad;
+        int srcY = totalOff + i;
+        if (srcY < maxPoints) {
             qint32 pixelValue = getPixelValue(xValue, srcY);
             float rawGain = (chartView) ? chartView->interpolatedGain(srcY) : m_gain;
             float rowGainLinear = isLinear ? rawGain : std::pow(10.0f, rawGain / 20.0f);
             displayValue = static_cast<qint32>(rowGainLinear * pixelValue);
         }
         qreal yCoord = isZeroMode
-            ? (-offset + static_cast<qreal>(i) * (20.0 / 511.0))
-            : static_cast<qreal>(i);
+            ? (zeroOff + static_cast<qreal>(i) * (20.0 / 511.0))
+            : static_cast<qreal>(i) * (displayRange / 511.0);
         chartSeries->append(static_cast<qreal>(displayValue), yCoord);
         if (i == 0 || displayValue < minVal) minVal = displayValue;
         if (i == 0 || displayValue > maxVal) maxVal = displayValue;
@@ -1752,11 +1891,14 @@ void MainWindow::updateChart(int xValue)
     QValueAxis *axisX = qobject_cast<QValueAxis*>(chartView->chart()->axisX(chartSeries));
     axisX->setRange(-256*256*256/2, 256*256*256/2);
 
-    // In zero-point mode, shift Y axis: (-offset, 20-offset)
-    if (isZeroMode) {
-        QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
-        if (axisY) {
-            axisY->setRange(-offset, 20.0 - offset);
+    // Set Y axis range
+    QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
+    if (axisY) {
+        if (isZeroMode) {
+            axisY->setRange(zeroOff, 20.0 + zeroOff);
+            axisY->setLabelFormat("%.1f");
+        } else if (sigPos < 0.0f) {
+            axisY->setRange(0, 20.0 + sigPos);
             axisY->setLabelFormat("%.1f");
         }
     }
@@ -1799,6 +1941,12 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     m_dataOffset = dataOffset;
     m_pixelsPerRow = pixelsPerRow;
 
+    // Read signal position (rhf_position) at offset 22
+    file.seek(22);
+    m_signalPos = 0.0f;
+    file.read(reinterpret_cast<char*>(&m_signalPos), 4);
+    qDebug() << "loadDZTFile: signalPos=" << m_signalPos;
+
     if (!file.seek(dataOffset)) {
         QMessageBox::warning(this, "Error", "open file failed.");
         return QImage();
@@ -1808,30 +1956,21 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     int dataSize = m_rawData.size();
     int totalPixels = dataSize / bytesPerPixel;
     int rows = totalPixels / pixelsPerRow;
-    qDebug() << "dataSize = " << dataSize;
-    qDebug() << "row = " << rows;
+    int sigPad = (m_signalPos < 0.0f) ? qRound(pixelsPerRow * (-m_signalPos) / 20.0f) : 0;
+    int drawRows = pixelsPerRow - sigPad;
+    qDebug() << "dataSize = " << dataSize << "rows = " << rows << "sigPad = " << sigPad << "drawRows = " << drawRows;
 
-    QImage image(rows, pixelsPerRow, QImage::Format_RGB32);
+    QImage image(rows, drawRows, QImage::Format_RGB32);
 
-    qDebug() << image.format();
-
-    float gain = m_gain;
-
-    qDebug() << "gain = " << gain;
-
-    int dataIdx = 0;
     for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < pixelsPerRow; ++x) {
-            if (dataIdx + 4 > dataSize) {
-                return QImage();
-            }
+        for (int x = 0; x < drawRows; ++x) {
+            int srcX = x + sigPad;
+            int dataIdx = (y * pixelsPerRow + srcX) * bytesPerPixel;
+            if (dataIdx + 4 > dataSize) continue;
+
             qint32 pixelValue;
-            if (x == 0 || x == 1) {
+            if (srcX == 0 || srcX == 1) {
                 pixelValue = 0;
-                m_rawData[dataIdx + 3] = 0;
-                m_rawData[dataIdx + 2] = 0;
-                m_rawData[dataIdx + 1] = 0;
-                m_rawData[dataIdx] = 0;
             } else {
                 pixelValue = static_cast<qint32>(
                     (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
@@ -1841,13 +1980,10 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
                 );
             }
 
-            int pixelValue_display = pixelValue;
-            int lutIdx = pixelValue_display / (256 * 256) + 128;
+            int lutIdx = pixelValue / (256 * 256) + 128;
             if (lutIdx < 0) lutIdx = 0;
             if (lutIdx > 255) lutIdx = 255;
             image.setPixel(y, x, m_lut[lutIdx]);
-
-            dataIdx += 4;
         }
     }
     return image;
@@ -1968,8 +2104,12 @@ void MainWindow::refreshImage()
     const int pixelsPerRow = m_pixelsPerRow;
     int totalPixels = m_rawData.size() / 4;
     int rows = totalPixels / pixelsPerRow;
+    int sigPad = (m_currentTab->signalPosition < 0.0f)
+        ? qRound(pixelsPerRow * (-m_currentTab->signalPosition) / 20.0f) : 0;
+    int skipRows = sigPad + (m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0);
+    int drawRows = pixelsPerRow - skipRows;
 
-    QImage image(rows, pixelsPerRow, QImage::Format_RGB32);
+    QImage image(rows, drawRows, QImage::Format_RGB32);
 
     if (m_transformMode == 3) {
         for (int col = 0; col < rows; ++col) {
@@ -1999,11 +2139,13 @@ void MainWindow::refreshImage()
         }
     } else {
         int dataSize = m_rawData.size();
+        int bytesPerPixel = 4;
 
-        int dataIdx = 0;
         for (int y = 0; y < rows; ++y) {
-            for (int x = 0; x < pixelsPerRow; ++x) {
-                if (dataIdx + 4 > dataSize) return;
+            for (int x = 0; x < drawRows; ++x) {
+                int srcX = x + skipRows;
+                int dataIdx = (y * pixelsPerRow + srcX) * bytesPerPixel;
+                if (dataIdx + 4 > dataSize) continue;
                 qint32 pixelValue = static_cast<qint32>(
                     (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
                     (static_cast<quint8>(m_rawData[dataIdx + 2]) << 16) |
@@ -2022,7 +2164,6 @@ void MainWindow::refreshImage()
                 if (lutIdx < 0) lutIdx = 0;
                 if (lutIdx > 255) lutIdx = 255;
                 image.setPixel(y, x, m_lut[lutIdx]);
-                dataIdx += 4;
             }
         }
     }
@@ -2039,22 +2180,33 @@ void MainWindow::updateRulers()
     m_traceCount = totalPixels / m_pixelsPerRow;
     m_currentTab->traceCount = m_traceCount;
 
-    m_timeRange = 20.0;
-    m_depthRange = 1.25;
+    // Time range based on signal position
+    float sigPos = m_currentTab->signalPosition;
+    m_timeRange = 20.0 + sigPos;  // e.g. 20 + (-2.79) = 17.21
+    m_depthRange = 1.25 * m_timeRange / 20.0;
     m_currentTab->timeRange = m_timeRange;
     m_currentTab->depthRange = m_depthRange;
 
+    int sigPad = (sigPos < 0.0f) ? qRound(m_pixelsPerRow * (-sigPos) / 20.0f) : 0;
+    int skipRows = sigPad + (m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0);
+    int drawRows = m_pixelsPerRow - skipRows;
     m_currentTab->topRuler->setDataRange(m_traceCount);
     m_currentTab->leftRuler->setRange(0, m_timeRange);
     m_currentTab->rightRuler->setRange(0, m_depthRange);
+    m_currentTab->leftRuler->setImageHeight(drawRows);
+    m_currentTab->rightRuler->setImageHeight(drawRows);
 }
 
 void MainWindow::resizeImageLabel()
 {
     if (!m_currentTab || m_rawData.isEmpty()) return;
 
+    int sigPad = (m_currentTab->signalPosition < 0.0f)
+        ? qRound(m_pixelsPerRow * (-m_currentTab->signalPosition) / 20.0f) : 0;
+    int skipRows = sigPad + (m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0);
+    int drawRows = m_pixelsPerRow - skipRows;
     int viewH = m_currentTab->scrollArea->viewport()->height();
-    if (viewH <= 0) viewH = m_pixelsPerRow;
+    if (viewH <= 0) viewH = drawRows;
 
     m_currentTab->imageLabel->setFixedSize(m_traceCount, viewH);
 
@@ -2317,11 +2469,8 @@ void MainWindow::createMenuBar()
         if (chartView) {
             chartView->setGainVisible(false);
             chartView->setYScale(20.0f / 511.0f);
-            QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
-            if (axisY) {
-                axisY->setRange(0, 20);
-                axisY->setLabelFormat("%.1f");
-            }
+            float zeroOff = m_zeroRangePctSpin ? -m_zeroRangePctSpin->value() * 0.2f : 0.0f;
+            chartView->setZeroOffset(zeroOff);
             updateChart(m_lastChartX);
         }
     });
@@ -2382,11 +2531,8 @@ void MainWindow::createMenuBar()
         if (chartView) {
             chartView->setGainVisible(false);
             chartView->setYScale(20.0f / 511.0f);
-            QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
-            if (axisY) {
-                axisY->setRange(0, 20);
-                axisY->setLabelFormat("%.1f");
-            }
+            float zeroOff = m_zeroRangePctSpin ? -m_zeroRangePctSpin->value() * 0.2f : 0.0f;
+            chartView->setZeroOffset(zeroOff);
             updateChart(m_lastChartX);
         }
     });

@@ -5,7 +5,8 @@
       "Bash(git commit *)",
       "Bash(mkdir -p build)",
       "Bash(cmake .. -DCMAKE_PREFIX_PATH=\"C:/Qt/6.8.3/mingw_64/lib/cmake\")",
-      "Bash(cmake --build .)"
+      "Bash(cmake --build .)",
+      "Bash(mingw32-make -j8)"
     ]
   }
 }
