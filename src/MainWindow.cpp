@@ -131,6 +131,20 @@ void CustomChartView::setGainRange(float minVal, float maxVal)
 float CustomChartView::gainMin() const { return m_gainMin; }
 float CustomChartView::gainMax() const { return m_gainMax; }
 
+void CustomChartView::setGainVisible(bool visible)
+{
+    m_gainVisible = visible;
+    update();
+}
+
+void CustomChartView::setYScale(float scale)
+{
+    m_yScale = scale;
+    update();
+}
+
+float CustomChartView::yScale() const { return m_yScale; }
+
 float CustomChartView::interpolatedGain(float y) const
 {
     if (m_lineCount == 0) return 1.0f;
@@ -189,49 +203,49 @@ void CustomChartView::paintEvent(QPaintEvent *event)
     QPainter painter(viewport());
     painter.setRenderHint(QPainter::Antialiasing);
 
-    // Draw gain scale ticks and labels at top of plot
-    QPen tickPen(Qt::gray, 1, Qt::DotLine);
-    painter.setPen(tickPen);
-    QFontMetrics fm(painter.font());
+    if (m_gainVisible) {
+        // Draw gain scale ticks and labels at top of plot
+        QPen tickPen(Qt::gray, 1, Qt::DotLine);
+        painter.setPen(tickPen);
+        QFontMetrics fm(painter.font());
 
-    // Determine tick step based on gain range
-    float rangeSpan = m_gainMax - m_gainMin;
-    float step = 6.0f;
-    if (rangeSpan > 0 && rangeSpan <= 20.0f)
-        step = rangeSpan / 2.0f;  // 2 ticks for small range (e.g., 0~10 → step=5)
-    else if (rangeSpan > 20.0f)
-        step = 6.0f;
+        float rangeSpan = m_gainMax - m_gainMin;
+        float step = 6.0f;
+        if (rangeSpan > 0 && rangeSpan <= 20.0f)
+            step = rangeSpan / 2.0f;
+        else if (rangeSpan > 20.0f)
+            step = 6.0f;
 
-    int tickIdx = 0;
-    for (float v = m_gainMin; v <= m_gainMax + 0.001f; v += step) {
-        qreal tx = mapGainToWidgetX(v);
-        if (tx >= plotArea.left() - 1 && tx <= plotArea.right() + 1) {
-            painter.setPen(tickPen);
-            painter.drawLine(QPointF(tx, plotArea.top()), QPointF(tx, plotArea.bottom()));
-            QString label = QString::number(static_cast<int>(v));
-            painter.setPen(Qt::black);
-            painter.drawText(QPointF(tx - fm.horizontalAdvance(label) / 2.0,
-                                     plotArea.top() - 3), label);
+        int tickIdx = 0;
+        for (float v = m_gainMin; v <= m_gainMax + 0.001f; v += step) {
+            qreal tx = mapGainToWidgetX(v);
+            if (tx >= plotArea.left() - 1 && tx <= plotArea.right() + 1) {
+                painter.setPen(tickPen);
+                painter.drawLine(QPointF(tx, plotArea.top()), QPointF(tx, plotArea.bottom()));
+                QString label = QString::number(static_cast<int>(v));
+                painter.setPen(Qt::black);
+                painter.drawText(QPointF(tx - fm.horizontalAdvance(label) / 2.0,
+                                         plotArea.top() - 3), label);
+            }
+            if (++tickIdx > 20) break;
         }
-        if (++tickIdx > 20) break;  // safety
-    }
 
-    for (int i = 0; i < m_lineCount; ++i) {
-        qreal wy = mapChartToWidgetY(m_lineY[i]);
-        qreal hx = mapGainToWidgetX(m_handleX[i]);
+        for (int i = 0; i < m_lineCount; ++i) {
+            qreal wy = mapChartToWidgetY(m_lineY[i] * m_yScale);
+            qreal hx = mapGainToWidgetX(m_handleX[i]);
 
-        QPen pen(Qt::red, 1);
-        painter.setPen(pen);
-        painter.drawLine(QPointF(plotArea.left(), wy), QPointF(plotArea.right(), wy));
+            QPen pen(Qt::red, 1);
+            painter.setPen(pen);
+            painter.drawLine(QPointF(plotArea.left(), wy), QPointF(plotArea.right(), wy));
 
-        painter.setBrush(Qt::red);
-        painter.drawRect(QRectF(hx - 4, wy - 4, 8, 8));
+            painter.setBrush(Qt::red);
+            painter.drawRect(QRectF(hx - 4, wy - 4, 8, 8));
 
-        // Connect handle N to handle N+1
-        if (i > 0) {
-            qreal prevWy = mapChartToWidgetY(m_lineY[i - 1]);
-            qreal prevHx = mapGainToWidgetX(m_handleX[i - 1]);
-            painter.drawLine(QPointF(prevHx, prevWy), QPointF(hx, wy));
+            if (i > 0) {
+                qreal prevWy = mapChartToWidgetY(m_lineY[i - 1] * m_yScale);
+                qreal prevHx = mapGainToWidgetX(m_handleX[i - 1]);
+                painter.drawLine(QPointF(prevHx, prevWy), QPointF(hx, wy));
+            }
         }
     }
 }
@@ -241,7 +255,7 @@ void CustomChartView::mousePressEvent(QMouseEvent *event)
     if (event->button() == Qt::LeftButton) {
         QPointF pos = event->pos();
         for (int i = 0; i < m_lineCount; ++i) {
-            qreal wy = mapChartToWidgetY(m_lineY[i]);
+            qreal wy = mapChartToWidgetY(m_lineY[i] * m_yScale);
             qreal hx = mapGainToWidgetX(m_handleX[i]);
             if (qAbs(pos.y() - wy) < 6 && qAbs(pos.x() - hx) < 8) {
                 m_draggingIdx = i;
@@ -1032,15 +1046,14 @@ MainWindow::MainWindow(QWidget *parent)
     offsetSpin->setValue(2.0);
     offsetSpin->setDecimals(1);
     zeroTree->setItemWidget(offsetItem, 1, offsetSpin);
+    m_zeroOffsetSpin = offsetSpin;
 
-    // 时间位置零点(ns)
+    // 时间位置零点(ns) — computed: 位置范围百分点 * 20
     QTreeWidgetItem *zeroPosItem = new QTreeWidgetItem(chParamItem, QStringList() << "时间位置零点(ns)" << "");
     zeroPosItem->setFlags(zeroPosItem->flags() & ~Qt::ItemIsEditable);
-    QDoubleSpinBox *zeroPosSpin = new QDoubleSpinBox();
-    zeroPosSpin->setRange(-1000.0, 1000.0);
-    zeroPosSpin->setValue(0.0);
-    zeroPosSpin->setDecimals(1);
-    zeroTree->setItemWidget(zeroPosItem, 1, zeroPosSpin);
+    QLabel *zeroPosLabel = new QLabel("0.0");
+    zeroPosLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    zeroTree->setItemWidget(zeroPosItem, 1, zeroPosLabel);
 
     // 位置范围百分点
     QTreeWidgetItem *rangePctItem = new QTreeWidgetItem(chParamItem, QStringList() << "位置范围百分点" << "");
@@ -1050,6 +1063,19 @@ MainWindow::MainWindow(QWidget *parent)
     rangePctSpin->setValue(0.0);
     rangePctSpin->setDecimals(1);
     zeroTree->setItemWidget(rangePctItem, 1, rangePctSpin);
+
+    // 位置范围百分点变化 → 更新时间位置零点
+    connect(rangePctSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+        [zeroPosLabel](double val) {
+            zeroPosLabel->setText(QString::number(val * 0.2, 'f', 1));
+        });
+
+    // 偏移量变化 → 刷新chart
+    connect(offsetSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+        [this](double) {
+            if (chartView && chartView->yScale() != 1.0f)
+                updateChart(m_lastChartX);
+        });
 
     zeroTree->expandAll();
     zeroPageLayout->addWidget(zeroTree);
@@ -1445,6 +1471,187 @@ void MainWindow::hideWelcome()
     m_docTabWidget->show();
 }
 
+void MainWindow::showFileHeader()
+{
+    if (!m_currentTab) return;
+
+    // Read header from DZT file
+    QFile file(m_currentTab->filePath);
+    if (!file.open(QIODevice::ReadOnly)) return;
+    QByteArray hdr = file.read(1024);
+    file.close();
+
+    if (hdr.size() < 128) return;
+
+    // Helper: read little-endian short at offset
+    auto rdShort = [&hdr](int off) -> qint16 {
+        return static_cast<qint16>(
+            (static_cast<quint8>(hdr[off+1]) << 8) |
+            static_cast<quint8>(hdr[off]));
+    };
+    // Helper: read little-endian float at offset
+    auto rdFloat = [&hdr](int off) -> float {
+        float val;
+        memcpy(&val, hdr.constData() + off, 4);
+        return val;
+    };
+    // Helper: decode tagRFDate (4 bytes at offset) → "Mon,DD YYYY,HH:MM:SS"
+    auto rdDate = [&hdr](int off) -> QString {
+        const char *months[] = {
+            "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+        };
+        quint32 val = static_cast<quint8>(hdr[off])
+                    | (static_cast<quint8>(hdr[off+1]) << 8)
+                    | (static_cast<quint8>(hdr[off+2]) << 16)
+                    | (static_cast<quint8>(hdr[off+3]) << 24);
+        int sec2  = val & 0x1F;
+        int min   = (val >> 5) & 0x3F;
+        int hour  = (val >> 11) & 0x1F;
+        int day   = (val >> 16) & 0x1F;
+        int month = (val >> 21) & 0xF;
+        int year  = ((val >> 25) & 0x7F) + 1980;
+        QString monStr = (month >= 1 && month <= 12) ? months[month] : "???";
+        return QString("%1,%2 %3,%4:%5:%6")
+            .arg(monStr)
+            .arg(day, 2, 10, QChar('0'))
+            .arg(year)
+            .arg(hour, 2, 10, QChar('0'))
+            .arg(min, 2, 10, QChar('0'))
+            .arg(sec2 * 2, 2, 10, QChar('0'));
+    };
+
+    // Parse header fields
+    QString fileName = QString::fromLatin1(hdr.mid(114, 12)).trimmed();
+    QString createDate = rdDate(32);
+    QString modDate = rdDate(36);
+    int systemCode = static_cast<quint8>(hdr[113]) & 0x1F;
+    QString systemName;
+    switch (systemCode) {
+        case 2: systemName = "SIR-2000"; break;
+        case 3: systemName = "SIR-3000"; break;
+        case 4: systemName = "TerraVision"; break;
+        case 6: systemName = "SIR-20"; break;
+        case 7: systemName = "SS Mini"; break;
+        case 8: systemName = "SIR-4000"; break;
+        case 9: systemName = "SIR-30"; break;
+        case 12: systemName = "UtilityScan DF"; break;
+        default: systemName = QString::number(systemCode); break;
+    }
+    int nchan = rdShort(52);
+    float sps = rdFloat(10);
+    float spm = rdFloat(14);
+    float mpm = rdFloat(18);
+    int nsamp = rdShort(4);
+    int bits = rdShort(6);
+    float epsr = rdFloat(54);
+    QString antName = QString::fromLatin1(hdr.mid(98, 14)).trimmed();
+    float position = rdFloat(22);
+    float range = rdFloat(26);
+    float top = rdFloat(58);
+    float depth = rdFloat(62);
+    int repeatsSample = rdShort(8);
+    int npass = rdShort(30);
+
+    // Processing history: time-zero offset from rh_proc area
+    QString zeroOffset = "";
+    qint16 procOff = rdShort(48);
+    qint16 procSize = rdShort(50);
+    if (procOff > 0 && procSize > 0 && procOff + procSize <= hdr.size()) {
+        // Scan for time-zero record
+        QByteArray procData = hdr.mid(procOff, procSize);
+        // Try reading as text or binary; for now show raw offset info
+        zeroOffset = QString::fromLatin1(procData).trimmed();
+        if (zeroOffset.isEmpty())
+            zeroOffset = QString("<%1 bytes>").arg(procSize);
+    }
+
+    // --- Build dialog ---
+    QDialog dlg(this);
+    dlg.setWindowTitle("文件头信息 - " + QFileInfo(m_currentTab->filePath).fileName());
+    dlg.setMinimumSize(420, 560);
+    dlg.resize(420, 560);
+
+    QVBoxLayout *layout = new QVBoxLayout(&dlg);
+
+    QTreeWidget *tree = new QTreeWidget();
+    tree->setHeaderHidden(true);
+    tree->setColumnCount(2);
+    tree->setRootIsDecorated(true);
+    tree->setIndentation(20);
+    tree->setAnimated(true);
+    tree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    tree->setSelectionMode(QAbstractItemView::NoSelection);
+    tree->setFocusPolicy(Qt::NoFocus);
+    tree->header()->setStretchLastSection(true);
+    tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    tree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    tree->setStyleSheet(
+        "QTreeWidget { border: none; font-size: 12px; }"
+        "QTreeWidget::item { padding: 2px 0; }"
+        "QTreeWidget::item:selected { background: transparent; color: inherit; }"
+    );
+
+    auto addRow = [&tree](QTreeWidgetItem *parent, const QString &label, const QString &value) {
+        QTreeWidgetItem *item = new QTreeWidgetItem(parent, QStringList() << label << "");
+        item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+        QLabel *valLabel = new QLabel(value);
+        valLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        tree->setItemWidget(item, 1, valLabel);
+        return item;
+    };
+
+    // 头文件参数
+    QTreeWidgetItem *headerRoot = new QTreeWidgetItem(tree, QStringList() << "头文件参数" << "");
+    addRow(headerRoot, "文件原始名称", fileName);
+    addRow(headerRoot, "创建", createDate);
+    addRow(headerRoot, "编辑时间", modDate);
+    addRow(headerRoot, "地质雷达系统", systemName);
+    addRow(headerRoot, "通道数", QString::number(nchan));
+
+    // 水平参数
+    QTreeWidgetItem *horiRoot = new QTreeWidgetItem(tree, QStringList() << "水平参数" << "");
+    addRow(horiRoot, "扫描/秒", QString::number(sps, 'f', 2));
+    addRow(horiRoot, "扫描/单位(cm)", QString::number(spm * 100.0, 'f', 3));
+    addRow(horiRoot, "单位/标记(m)", QString::number(mpm, 'f', 3));
+
+    // 垂直参数
+    QTreeWidgetItem *vertRoot = new QTreeWidgetItem(tree, QStringList() << "垂直参数" << "");
+    addRow(vertRoot, "采样点数/扫描", QString::number(nsamp));
+    addRow(vertRoot, "位/采样", QString::number(bits));
+    addRow(vertRoot, "介电常数", QString::number(epsr, 'f', 2));
+
+    // 通道信息
+    QTreeWidgetItem *chanRoot = new QTreeWidgetItem(tree, QStringList() << "通道信息" << "");
+    addRow(chanRoot, "通道", QString::number(nchan));
+    addRow(chanRoot, "天线类型", antName);
+    addRow(chanRoot, "天线序列号", "0");
+    addRow(chanRoot, "信号位置 (ns)", QString::number(position, 'f', 2));
+    addRow(chanRoot, "记录长度(ns)", QString::number(range, 'f', 2));
+    addRow(chanRoot, "顶面(cm)", QString::number(top * 100.0, 'f', 2));
+    addRow(chanRoot, "深度(cm)", QString::number(depth * 100.0, 'f', 2));
+    addRow(chanRoot, "# 采样叠加", QString::number(repeatsSample));
+    addRow(chanRoot, "# 扫描叠加", QString::number(npass));
+
+    // 处理记录
+    QTreeWidgetItem *procRoot = new QTreeWidgetItem(tree, QStringList() << "处理记录" << "");
+    QTreeWidgetItem *zeroRoot = new QTreeWidgetItem(procRoot, QStringList() << "时间零点" << "");
+    addRow(zeroRoot, "偏移量 (nS)", zeroOffset);
+
+    tree->expandAll();
+    layout->addWidget(tree);
+
+    QPushButton *btnOK = new QPushButton("确定");
+    btnOK->setFixedWidth(80);
+    connect(btnOK, &QPushButton::clicked, &dlg, &QDialog::accept);
+    QHBoxLayout *btnLayout = new QHBoxLayout;
+    btnLayout->addStretch();
+    btnLayout->addWidget(btnOK);
+    layout->addLayout(btnLayout);
+
+    dlg.exec();
+}
+
 // --- File operations ---
 
 void MainWindow::onOpenFile()
@@ -1499,21 +1706,48 @@ void MainWindow::updateChart(int xValue)
 
     const int maxPoints = 512;
     qint32 minVal = 0, maxVal = 0;
+    float yscale = chartView ? chartView->yScale() : 1.0f;
 
     bool isLinear = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
+    bool isZeroMode = (yscale != 1.0f);
 
-    for (int y = 0; y < maxPoints; ++y) {
-        qint32 pixelValue = getPixelValue(xValue, y);
-        float rawGain = (chartView) ? chartView->interpolatedGain(y) : m_gain;
-        float rowGainLinear = isLinear ? rawGain : std::pow(10.0f, rawGain / 20.0f);
-        qint32 displayValue = static_cast<qint32>(rowGainLinear * pixelValue);
-        chartSeries->append(static_cast<qreal>(displayValue), static_cast<qreal>(y));
-        if (y == 0 || displayValue < minVal) minVal = displayValue;
-        if (y == 0 || displayValue > maxVal) maxVal = displayValue;
+    // Zero-point mode: shift data down by N samples, keep 512 total
+    double offset = 0.0;
+    int zeroPad = 0;
+    if (isZeroMode && m_zeroOffsetSpin) {
+        offset = m_zeroOffsetSpin->value();
+        if (offset > 0)
+            zeroPad = qRound(maxPoints * offset / 20.0);
+    }
+
+    for (int i = 0; i < maxPoints; ++i) {
+        qint32 displayValue = 0;
+        if (i >= zeroPad) {
+            int srcY = i - zeroPad;
+            qint32 pixelValue = getPixelValue(xValue, srcY);
+            float rawGain = (chartView) ? chartView->interpolatedGain(srcY) : m_gain;
+            float rowGainLinear = isLinear ? rawGain : std::pow(10.0f, rawGain / 20.0f);
+            displayValue = static_cast<qint32>(rowGainLinear * pixelValue);
+        }
+        qreal yCoord = isZeroMode
+            ? (-offset + static_cast<qreal>(i) * (20.0 / 511.0))
+            : static_cast<qreal>(i);
+        chartSeries->append(static_cast<qreal>(displayValue), yCoord);
+        if (i == 0 || displayValue < minVal) minVal = displayValue;
+        if (i == 0 || displayValue > maxVal) maxVal = displayValue;
     }
 
     QValueAxis *axisX = qobject_cast<QValueAxis*>(chartView->chart()->axisX(chartSeries));
     axisX->setRange(-256*256*256/2, 256*256*256/2);
+
+    // In zero-point mode, shift Y axis: (-offset, 20-offset)
+    if (isZeroMode) {
+        QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
+        if (axisY) {
+            axisY->setRange(-offset, 20.0 - offset);
+            axisY->setLabelFormat("%.1f");
+        }
+    }
 }
 
 qint32 MainWindow::getPixelValue(int x, int y)
@@ -1925,11 +2159,14 @@ void MainWindow::createMenuBar()
     QToolButton *btnOpen = makeBtn(":/icons/resources/open.png", "打开");
     QToolButton *btnSave = makeBtn(":/icons/resources/save.png", "保存");
     QToolButton *btnClose = makeBtn(":/icons/resources/close.png", "关闭");
+    QToolButton *btnHeader = makeBtn("", "文件头");
     fileBtns->addWidget(btnOpen);
     fileBtns->addWidget(btnSave);
     fileBtns->addWidget(btnClose);
+    fileBtns->addWidget(btnHeader);
 
     connect(btnOpen, &QToolButton::clicked, this, &MainWindow::onOpenFile);
+    connect(btnHeader, &QToolButton::clicked, this, &MainWindow::showFileHeader);
     connect(btnClose, &QToolButton::clicked, this, [this]() {
         if (!m_tabs.isEmpty()) {
             int idx = m_docTabWidget->currentIndex();
@@ -2065,6 +2302,16 @@ void MainWindow::createMenuBar()
         if (m_tabs.isEmpty()) return;
         m_leftStack->setCurrentWidget(m_zeroPage);
         m_leftPanel->show();
+        if (chartView) {
+            chartView->setGainVisible(false);
+            chartView->setYScale(20.0f / 511.0f);
+            QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
+            if (axisY) {
+                axisY->setRange(0, 20);
+                axisY->setLabelFormat("%.1f");
+            }
+            updateChart(m_lastChartX);
+        }
     });
     processBtns->addWidget(btnAdjZero);
     processBtns->addWidget(makeBtn(":/icons/resources/correctoffset.png", "校正零偏"));
@@ -2074,6 +2321,16 @@ void MainWindow::createMenuBar()
         if (m_tabs.isEmpty()) return;
         m_leftStack->setCurrentWidget(m_gainPage);
         m_leftPanel->setVisible(!m_leftPanel->isVisible());
+        if (m_leftPanel->isVisible() && chartView) {
+            chartView->setGainVisible(true);
+            chartView->setYScale(1.0f);
+            QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
+            if (axisY) {
+                axisY->setRange(0, 511);
+                axisY->setLabelFormat("%d");
+            }
+            updateChart(m_lastChartX);
+        }
     });
     processBtns->addWidget(btnAdjGainStart);
     processBtns->addWidget(makeBtn(":/icons/resources/filter.png", "数字滤波"));
@@ -2110,6 +2367,16 @@ void MainWindow::createMenuBar()
         if (m_tabs.isEmpty()) return;
         m_leftStack->setCurrentWidget(m_zeroPage);
         m_leftPanel->show();
+        if (chartView) {
+            chartView->setGainVisible(false);
+            chartView->setYScale(20.0f / 511.0f);
+            QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
+            if (axisY) {
+                axisY->setRange(0, 20);
+                axisY->setLabelFormat("%.1f");
+            }
+            updateChart(m_lastChartX);
+        }
     });
     g1btns->addWidget(btnAdjZero2);
     g1btns->addWidget(makeTextBtn("寻找地面"));
@@ -2123,6 +2390,16 @@ void MainWindow::createMenuBar()
         if (m_tabs.isEmpty()) return;
         m_leftStack->setCurrentWidget(m_gainPage);
         m_leftPanel->setVisible(!m_leftPanel->isVisible());
+        if (m_leftPanel->isVisible() && chartView) {
+            chartView->setGainVisible(true);
+            chartView->setYScale(1.0f);
+            QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
+            if (axisY) {
+                axisY->setRange(0, 511);
+                axisY->setLabelFormat("%d");
+            }
+            updateChart(m_lastChartX);
+        }
     });
     g2row1->addWidget(btnAdjGain);
     g2row1->addWidget(makeTextBtn("校正零偏"));

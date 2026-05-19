@@ -76,6 +76,9 @@ public:
     float gainMin() const;
     float gainMax() const;
     float interpolatedGain(float y) const;
+    void setGainVisible(bool visible);
+    void setYScale(float scale);
+    float yScale() const;
 
 signals:
     void gainChanged(int idx, float val);
@@ -94,6 +97,8 @@ private:
     QLineSeries *m_series;
     float m_gainMin = -6.0f;
     float m_gainMax = 6.0f;
+    bool m_gainVisible = true;
+    float m_yScale = 1.0f;
     qreal mapGainToWidgetX(float gainVal);
     float mapWidgetToGainX(qreal widgetX);
     qreal mapChartToWidgetY(float y);
@@ -189,6 +194,7 @@ private:
     void saveProcessedFile();
     void showWelcome();
     void hideWelcome();
+    void showFileHeader();
 
     // Shared/global widgets
     QPushButton *openButton;
@@ -232,6 +238,9 @@ private:
     int m_traceCount;
     double m_timeRange;
     double m_depthRange;
+
+    // Zero-point offset spinbox
+    QDoubleSpinBox *m_zeroOffsetSpin = nullptr;
 };
 
 #endif
