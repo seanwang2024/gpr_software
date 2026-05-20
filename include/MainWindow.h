@@ -250,6 +250,30 @@ private:
     QDoubleSpinBox *m_zeroOffsetSpin = nullptr;
     QDoubleSpinBox *m_zeroRangePctSpin = nullptr;
     QPushButton *m_zeroBtnApply = nullptr;
+
+    // Digital filter dialog pointers (non-modal)
+    QDialog *m_filterDlg = nullptr;
+    QLineSeries *m_filterSeriesBefore = nullptr;
+    QLineSeries *m_filterSeriesAfter = nullptr;
+    QValueAxis *m_filterAxisXBefore = nullptr;
+    QValueAxis *m_filterAxisXAfter = nullptr;
+    QValueAxis *m_filterAxisYBefore = nullptr;
+    QValueAxis *m_filterAxisYAfter = nullptr;
+    QChart *m_filterChartAfter = nullptr;
+    QChart *m_filterChartBefore = nullptr;
+    QChartView *m_filterChartViewBefore = nullptr;
+    QLineSeries *m_filterLowMarker = nullptr;
+    QLineSeries *m_filterHighMarker = nullptr;
+    QDoubleSpinBox *m_filterSpinLow = nullptr;
+    QDoubleSpinBox *m_filterSpinHigh = nullptr;
+    QButtonGroup *m_filterBandGroup = nullptr;
+    QButtonGroup *m_filterTypeGroup = nullptr;
+    QPushButton *m_filterBtnApply = nullptr;
+    bool m_filterApplied = false;
+    void updateFilterSpectrum(int traceIdx);
+    void updateFilterSpectrumFiltered(int traceIdx);
+    void computeFilteredSpectrumPreview();
+    void updateFilterMarkerLine(QLineSeries *marker, double freq);
 };
 
 #endif
