@@ -28,6 +28,8 @@
 #include <QToolButton>
 #include <QFrame>
 #include <QGridLayout>
+#include <QRadioButton>
+#include <QButtonGroup>
 #include <QScrollBar>
 #include <QFontMetrics>
 #include <QTimer>
@@ -1880,9 +1882,13 @@ void MainWindow::updateChart(int xValue)
             float rowGainLinear = isLinear ? rawGain : std::pow(10.0f, rawGain / 20.0f);
             displayValue = static_cast<qint32>(rowGainLinear * pixelValue);
         }
-        qreal yCoord = isZeroMode
-            ? (zeroOff + static_cast<qreal>(i) * (20.0 / 511.0))
-            : static_cast<qreal>(i) * (displayRange / 511.0);
+        qreal yCoord;
+        if (isZeroMode)
+            yCoord = zeroOff + static_cast<qreal>(i) * (20.0 / 511.0);
+        else if (sigPad > 0)
+            yCoord = static_cast<qreal>(i) * (displayRange / 511.0);
+        else
+            yCoord = static_cast<qreal>(i);
         chartSeries->append(static_cast<qreal>(displayValue), yCoord);
         if (i == 0 || displayValue < minVal) minVal = displayValue;
         if (i == 0 || displayValue > maxVal) maxVal = displayValue;
@@ -2564,7 +2570,9 @@ void MainWindow::createMenuBar()
     g2row1->addWidget(makeTextBtn("背景消除"));
     QHBoxLayout *g2row2 = new QHBoxLayout();
     g2row2->setSpacing(2);
-    g2row2->addWidget(makeTextBtn("数字滤波"));
+    QToolButton *btnDigFilter = makeTextBtn("数字滤波");
+    g2row2->addWidget(btnDigFilter);
+    connect(btnDigFilter, &QToolButton::clicked, this, &MainWindow::showDigitalFilter);
     g2row2->addWidget(makeTextBtn("滑动平均"));
     g2row2->addWidget(makeTextBtn("道间均衡"));
     g2->insertLayout(1, g2row2);
@@ -2636,4 +2644,260 @@ void MainWindow::createMenuBar()
     ribbonTab->addTab(dataPage, "数据处理");
 
     qobject_cast<QVBoxLayout*>(centralWidget()->layout())->insertWidget(0, ribbonTab);
+}
+
+void MainWindow::showDigitalFilter()
+{
+    if (!m_currentTab) return;
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("数字滤波");
+    dlg.setMinimumSize(900, 700);
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(&dlg);
+
+    // --- Top: Two charts side by side ---
+    QHBoxLayout *chartLayout = new QHBoxLayout();
+
+    // Left chart: 处理前 (Before)
+    QChart *chartBefore = new QChart();
+    chartBefore->setTitle("处理前");
+    chartBefore->setTitleFont(QFont("Microsoft YaHei", 10, QFont::Bold));
+    QLineSeries *seriesBefore = new QLineSeries();
+    seriesBefore->setColor(Qt::black);
+    QValueAxis *axisXBefore = new QValueAxis();
+    axisXBefore->setTitleText("频率(MHz)");
+    axisXBefore->setRange(0, 6000);
+    QValueAxis *axisYBefore = new QValueAxis();
+    axisYBefore->setTitleText("幅度(dB)");
+    axisYBefore->setRange(-500, 0);
+    chartBefore->addSeries(seriesBefore);
+    chartBefore->addAxis(axisXBefore, Qt::AlignBottom);
+    chartBefore->addAxis(axisYBefore, Qt::AlignLeft);
+    seriesBefore->attachAxis(axisXBefore);
+    seriesBefore->attachAxis(axisYBefore);
+    chartBefore->legend()->hide();
+    QChartView *chartViewBefore = new QChartView(chartBefore);
+    chartViewBefore->setRenderHint(QPainter::Antialiasing);
+
+    // Right chart: 处理后 (After)
+    QChart *chartAfter = new QChart();
+    chartAfter->setTitle("处理后");
+    chartAfter->setTitleFont(QFont("Microsoft YaHei", 10, QFont::Bold));
+    QLineSeries *seriesAfter = new QLineSeries();
+    seriesAfter->setColor(Qt::black);
+    QValueAxis *axisXAfter = new QValueAxis();
+    axisXAfter->setTitleText("频率(MHz)");
+    axisXAfter->setRange(0, 6000);
+    QValueAxis *axisYAfter = new QValueAxis();
+    axisYAfter->setTitleText("幅度(dB)");
+    axisYAfter->setRange(-500, 0);
+    chartAfter->addSeries(seriesAfter);
+    chartAfter->addAxis(axisXAfter, Qt::AlignBottom);
+    chartAfter->addAxis(axisYAfter, Qt::AlignLeft);
+    seriesAfter->attachAxis(axisXAfter);
+    seriesAfter->attachAxis(axisYAfter);
+    chartAfter->legend()->hide();
+    QChartView *chartViewAfter = new QChartView(chartAfter);
+    chartViewAfter->setRenderHint(QPainter::Antialiasing);
+
+    chartLayout->addWidget(chartViewBefore);
+    chartLayout->addWidget(chartViewAfter);
+    mainLayout->addLayout(chartLayout, 3);
+
+    // --- Bottom: Controls ---
+    QHBoxLayout *ctrlLayout = new QHBoxLayout();
+
+    // Left: Filter type radio buttons
+    QVBoxLayout *typeLayout = new QVBoxLayout();
+    QButtonGroup *filterTypeGroup = new QButtonGroup(&dlg);
+    QRadioButton *rbFIR = new QRadioButton("FIR滤波");
+    QRadioButton *rbIIR = new QRadioButton("IIR滤波");
+    rbFIR->setChecked(true);
+    filterTypeGroup->addButton(rbFIR, 0);
+    filterTypeGroup->addButton(rbIIR, 1);
+    QHBoxLayout *typeRow = new QHBoxLayout();
+    typeRow->addWidget(rbFIR);
+    typeRow->addWidget(rbIIR);
+    typeLayout->addLayout(typeRow);
+
+    QButtonGroup *bandTypeGroup = new QButtonGroup(&dlg);
+    QRadioButton *rbLowPass  = new QRadioButton("低通");
+    QRadioButton *rbHighPass = new QRadioButton("高通");
+    QRadioButton *rbBandPass = new QRadioButton("带通");
+    QRadioButton *rbBandStop = new QRadioButton("带阻");
+    rbLowPass->setChecked(true);
+    bandTypeGroup->addButton(rbLowPass, 0);
+    bandTypeGroup->addButton(rbHighPass, 1);
+    bandTypeGroup->addButton(rbBandPass, 2);
+    bandTypeGroup->addButton(rbBandStop, 3);
+    QHBoxLayout *bandRow = new QHBoxLayout();
+    bandRow->addWidget(rbLowPass);
+    bandRow->addWidget(rbHighPass);
+    bandRow->addWidget(rbBandPass);
+    bandRow->addWidget(rbBandStop);
+    typeLayout->addLayout(bandRow);
+    ctrlLayout->addLayout(typeLayout);
+
+    // Middle: Frequency parameters
+    QVBoxLayout *freqLayout = new QVBoxLayout();
+    QHBoxLayout *lowFreqRow = new QHBoxLayout();
+    lowFreqRow->addWidget(new QLabel("低频:"));
+    QDoubleSpinBox *spinLowFreq = new QDoubleSpinBox();
+    spinLowFreq->setRange(0, 9999);
+    spinLowFreq->setValue(200);
+    spinLowFreq->setSuffix(" MHz");
+    lowFreqRow->addWidget(spinLowFreq);
+    freqLayout->addLayout(lowFreqRow);
+
+    QHBoxLayout *highFreqRow = new QHBoxLayout();
+    highFreqRow->addWidget(new QLabel("高频:"));
+    QDoubleSpinBox *spinHighFreq = new QDoubleSpinBox();
+    spinHighFreq->setRange(0, 9999);
+    spinHighFreq->setValue(600);
+    spinHighFreq->setSuffix(" MHz");
+    highFreqRow->addWidget(spinHighFreq);
+    freqLayout->addLayout(highFreqRow);
+    ctrlLayout->addLayout(freqLayout);
+
+    // Right: Action buttons
+    QVBoxLayout *btnLayout = new QVBoxLayout();
+    QHBoxLayout *zoomRow = new QHBoxLayout();
+    QPushButton *btnZoomIn  = new QPushButton("放大");
+    QPushButton *btnZoomOut = new QPushButton("缩小");
+    QPushButton *btnReset   = new QPushButton("还原");
+    zoomRow->addWidget(btnZoomIn);
+    zoomRow->addWidget(btnZoomOut);
+    zoomRow->addWidget(btnReset);
+    btnLayout->addLayout(zoomRow);
+
+    QHBoxLayout *actionRow = new QHBoxLayout();
+    QPushButton *btnApply  = new QPushButton("应用");
+    QPushButton *btnOK     = new QPushButton("确定");
+    QPushButton *btnCancel = new QPushButton("取消");
+    btnApply->setStyleSheet("QPushButton { background-color: #0078d7; color: white; padding: 4px 12px; }");
+    btnOK->setStyleSheet("QPushButton { background-color: #0078d7; color: white; padding: 4px 12px; }");
+    actionRow->addWidget(btnApply);
+    actionRow->addWidget(btnOK);
+    actionRow->addWidget(btnCancel);
+    btnLayout->addLayout(actionRow);
+    ctrlLayout->addLayout(btnLayout);
+
+    mainLayout->addLayout(ctrlLayout, 1);
+
+    // --- Compute frequency spectrum from current trace data ---
+    const QByteArray &rawData = m_currentTab->rawData;
+    int pixelsPerRow = m_currentTab->pixelsPerRow;
+    int traceCount = rawData.size() / (pixelsPerRow * 4);
+
+    auto computeSpectrum = [&](int traceIdx, QLineSeries *series) {
+        series->clear();
+        if (traceIdx < 0 || traceIdx >= traceCount) return;
+
+        int N = pixelsPerRow;
+        // Next power of 2 for FFT
+        int fftN = 1;
+        while (fftN < N) fftN <<= 1;
+
+        std::vector<std::complex<double>> x(fftN, 0.0);
+        for (int i = 0; i < N; ++i) {
+            int idx = (traceIdx * pixelsPerRow + i) * 4;
+            qint32 val = static_cast<quint8>(rawData[idx])
+                       | (static_cast<quint8>(rawData[idx+1]) << 8)
+                       | (static_cast<quint8>(rawData[idx+2]) << 16)
+                       | (static_cast<quint8>(rawData[idx+3]) << 24);
+            x[i] = std::complex<double>(val, 0.0);
+        }
+        fft(x);
+
+        // Sampling frequency: assume timeRange=20ns, fs = 512/20e-9 = 25.6 GHz
+        double fs = N / (m_currentTab->timeRange * 1e-9);
+        double freqStep = fs / fftN / 1e6; // MHz
+
+        for (int i = 0; i < fftN / 2; ++i) {
+            double mag = std::abs(x[i]);
+            double db = (mag > 0) ? 20.0 * log10(mag) : -500.0;
+            if (db < -500.0) db = -500.0;
+            series->append(i * freqStep, db);
+        }
+    };
+
+    // Show spectrum for the last clicked trace
+    computeSpectrum(m_lastChartX, seriesBefore);
+
+    // --- Filter application ---
+    auto applyFilter = [&](QLineSeries *srcSeries, QLineSeries *dstSeries,
+                           double lowFreqMHz, double highFreqMHz, int bandType) {
+        dstSeries->clear();
+        double maxDb = 0;
+        for (const QPointF &p : srcSeries->points()) {
+            if (p.y() > maxDb) maxDb = p.y();
+        }
+        for (const QPointF &p : srcSeries->points()) {
+            double f = p.x(); // MHz
+            bool pass = false;
+            switch (bandType) {
+            case 0: pass = (f <= lowFreqMHz); break;                        // 低通
+            case 1: pass = (f >= lowFreqMHz); break;                        // 高通
+            case 2: pass = (f >= lowFreqMHz && f <= highFreqMHz); break;    // 带通
+            case 3: pass = (f <= lowFreqMHz || f >= highFreqMHz); break;    // 带阻
+            }
+            double db = pass ? p.y() : -500.0;
+            dstSeries->append(f, db);
+        }
+    };
+
+    bool filterApplied = false;
+
+    // Update filtered chart on parameter change
+    auto updateFiltered = [&]() {
+        if (!filterApplied) return;
+        applyFilter(seriesBefore, seriesAfter,
+                    spinLowFreq->value(), spinHighFreq->value(),
+                    bandTypeGroup->checkedId());
+        // Re-add series if cleared
+        if (chartAfter->series().isEmpty()) {
+            chartAfter->addSeries(seriesAfter);
+            seriesAfter->attachAxis(axisXAfter);
+            seriesAfter->attachAxis(axisYAfter);
+        }
+    };
+
+    // Connections
+    connect(btnApply, &QPushButton::clicked, [&]() {
+        filterApplied = true;
+        updateFiltered();
+    });
+
+    connect(btnOK, &QPushButton::clicked, [&]() {
+        filterApplied = true;
+        updateFiltered();
+        // TODO: apply filter to rawData and refresh
+        dlg.accept();
+    });
+
+    connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+
+    connect(btnZoomIn, &QPushButton::clicked, [&]() {
+        double midX = (axisXBefore->min() + axisXBefore->max()) / 2.0;
+        double rangeX = (axisXBefore->max() - axisXBefore->min()) / 2.0;
+        double newRange = rangeX * 0.7;
+        axisXBefore->setRange(midX - newRange, midX + newRange);
+        axisXAfter->setRange(midX - newRange, midX + newRange);
+    });
+    connect(btnZoomOut, &QPushButton::clicked, [&]() {
+        double midX = (axisXBefore->min() + axisXBefore->max()) / 2.0;
+        double rangeX = (axisXBefore->max() - axisXBefore->min()) / 2.0;
+        double newRange = rangeX * 1.5;
+        axisXBefore->setRange(qMax(0.0, midX - newRange), midX + newRange);
+        axisXAfter->setRange(qMax(0.0, midX - newRange), midX + newRange);
+    });
+    connect(btnReset, &QPushButton::clicked, [&]() {
+        axisXBefore->setRange(0, 6000);
+        axisXAfter->setRange(0, 6000);
+        axisYBefore->setRange(-500, 0);
+        axisYAfter->setRange(-500, 0);
+    });
+
+    dlg.exec();
 }

@@ -200,6 +200,7 @@ private:
     void showWelcome();
     void hideWelcome();
     void showFileHeader();
+    void showDigitalFilter();
 
     // Shared/global widgets
     QPushButton *openButton;
