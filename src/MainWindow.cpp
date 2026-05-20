@@ -3100,11 +3100,13 @@ void MainWindow::showDigitalFilter()
             }
 
             // Apply IIR filter (cascaded biquads, per trace)
+            // Forward-backward filtering for zero phase (eliminates group delay)
             for (int t = 0; t < traceCount; ++t) {
                 double buf[512];
                 const qint32 *s32 = reinterpret_cast<const qint32*>(src + t * N * 4);
                 for (int i = 0; i < N; ++i) buf[i] = s32[i];
 
+                // Forward pass
                 for (int s = 0; s < nSos; ++s) {
                     double w1m = 0, w2m = 0;
                     for (int i = 0; i < N; ++i) {
@@ -3113,6 +3115,31 @@ void MainWindow::showDigitalFilter()
                         w2m = w1m;
                         w1m = w0;
                     }
+                }
+
+                // Reverse
+                for (int i = 0; i < N / 2; ++i) {
+                    double tmp = buf[i];
+                    buf[i] = buf[N - 1 - i];
+                    buf[N - 1 - i] = tmp;
+                }
+
+                // Backward pass (same filter)
+                for (int s = 0; s < nSos; ++s) {
+                    double w1m = 0, w2m = 0;
+                    for (int i = 0; i < N; ++i) {
+                        double w0 = buf[i] - sos[s].a1 * w1m - sos[s].a2 * w2m;
+                        buf[i] = sos[s].b0 * w0 + sos[s].b1 * w1m + sos[s].b2 * w2m;
+                        w2m = w1m;
+                        w1m = w0;
+                    }
+                }
+
+                // Reverse back
+                for (int i = 0; i < N / 2; ++i) {
+                    double tmp = buf[i];
+                    buf[i] = buf[N - 1 - i];
+                    buf[N - 1 - i] = tmp;
                 }
 
                 qint32 *d32 = reinterpret_cast<qint32*>(dst + t * N * 4);
