@@ -274,6 +274,15 @@ private:
     void updateFilterSpectrumFiltered(int traceIdx);
     void computeFilteredSpectrumPreview();
     void updateFilterMarkerLine(QLineSeries *marker, double freq);
+
+    // Background removal dialog pointers (non-modal)
+    QDialog *m_bgRemovalDlg = nullptr;
+    QComboBox *m_bgRemovalMethodCombo = nullptr;
+    QSpinBox *m_bgRemovalWindowSpin = nullptr;
+    QPushButton *m_bgRemovalBtnApply = nullptr;
+    bool m_bgRemovalApplied = false;
+    void showBackgroundRemoval();
+    void applyBackgroundRemoval();
 };
 
 #endif

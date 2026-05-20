@@ -2589,7 +2589,9 @@ void MainWindow::createMenuBar()
     });
     processBtns->addWidget(btnAdjZero);
     processBtns->addWidget(makeBtn(":/icons/resources/correctoffset.png", "校正零偏"));
-    processBtns->addWidget(makeBtn(":/icons/resources/bgremove.png", "背景消除"));
+    QToolButton *btnBgRemoveStart = makeBtn(":/icons/resources/bgremove.png", "背景消除");
+    connect(btnBgRemoveStart, &QToolButton::clicked, this, &MainWindow::showBackgroundRemoval);
+    processBtns->addWidget(btnBgRemoveStart);
     QToolButton *btnAdjGainStart = makeBtn(":/icons/resources/adjustgain.png", "调节增益");
     connect(btnAdjGainStart, &QToolButton::clicked, this, [this]() {
         if (m_tabs.isEmpty()) return;
@@ -2676,7 +2678,9 @@ void MainWindow::createMenuBar()
     });
     g2row1->addWidget(btnAdjGain);
     g2row1->addWidget(makeTextBtn("校正零偏"));
-    g2row1->addWidget(makeTextBtn("背景消除"));
+    QToolButton *btnBgRemove = makeTextBtn("背景消除");
+    connect(btnBgRemove, &QToolButton::clicked, this, &MainWindow::showBackgroundRemoval);
+    g2row1->addWidget(btnBgRemove);
     QHBoxLayout *g2row2 = new QHBoxLayout();
     g2row2->setSpacing(2);
     QToolButton *btnDigFilter = makeTextBtn("数字滤波");
@@ -3472,4 +3476,244 @@ void MainWindow::updateFilterMarkerLine(QLineSeries *marker, double freq)
     double yMax = m_filterAxisYBefore->max();
     marker->replace(0, QPointF(freq, yMin));
     marker->replace(1, QPointF(freq, yMax));
+}
+
+void MainWindow::showBackgroundRemoval()
+{
+    if (!m_currentTab) return;
+
+    if (m_bgRemovalDlg) {
+        m_bgRemovalDlg->raise();
+        m_bgRemovalDlg->activateWindow();
+        return;
+    }
+
+    m_bgRemovalDlg = new QDialog(this);
+    m_bgRemovalDlg->setAttribute(Qt::WA_DeleteOnClose);
+    m_bgRemovalDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
+
+    QFileInfo fi(m_currentTab->filePath);
+    m_bgRemovalDlg->setWindowTitle(QString("背景消除 - %1").arg(fi.fileName()));
+
+    connect(m_bgRemovalDlg, &QDialog::finished, this, [this]() {
+        m_bgRemovalDlg = nullptr;
+        m_bgRemovalMethodCombo = nullptr;
+        m_bgRemovalWindowSpin = nullptr;
+        m_bgRemovalBtnApply = nullptr;
+        m_bgRemovalApplied = false;
+    });
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(m_bgRemovalDlg);
+
+    // Row 1: 处理方式
+    QHBoxLayout *row1 = new QHBoxLayout();
+    row1->addWidget(new QLabel("处理方式："));
+    m_bgRemovalMethodCombo = new QComboBox();
+    m_bgRemovalMethodCombo->addItem("整体法");
+    m_bgRemovalMethodCombo->addItem("扫描范围");
+    m_bgRemovalMethodCombo->addItem("全部通过");
+    m_bgRemovalMethodCombo->addItem("自适应");
+    m_bgRemovalMethodCombo->addItem("无");
+    row1->addWidget(m_bgRemovalMethodCombo);
+    row1->addStretch();
+    mainLayout->addLayout(row1);
+
+    // Row 2: 滑动窗口
+    QHBoxLayout *row2 = new QHBoxLayout();
+    row2->addWidget(new QLabel("滑动窗口："));
+    m_bgRemovalWindowSpin = new QSpinBox();
+    m_bgRemovalWindowSpin->setRange(1, 9999);
+    m_bgRemovalWindowSpin->setValue(10);
+    row2->addWidget(m_bgRemovalWindowSpin);
+    row2->addStretch();
+    mainLayout->addLayout(row2);
+
+    // Enable/disable window spin based on method
+    connect(m_bgRemovalMethodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
+        // Only enable window spin for "扫描范围" (index 1)
+        m_bgRemovalWindowSpin->setEnabled(idx == 1);
+    });
+    m_bgRemovalWindowSpin->setEnabled(false); // default "整体法" disables it
+
+    // Buttons
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    m_bgRemovalBtnApply = new QPushButton("应用");
+    QPushButton *btnOK = new QPushButton("确定");
+    QPushButton *btnCancel = new QPushButton("取消");
+    btnLayout->addWidget(m_bgRemovalBtnApply);
+    btnLayout->addWidget(btnOK);
+    btnLayout->addWidget(btnCancel);
+    mainLayout->addLayout(btnLayout);
+
+    // Apply button: toggle apply/undo
+    connect(m_bgRemovalBtnApply, &QPushButton::clicked, this, [this]() {
+        applyBackgroundRemoval();
+    });
+
+    // OK button: apply then save
+    connect(btnOK, &QPushButton::clicked, this, [this]() {
+        if (!m_bgRemovalApplied)
+            applyBackgroundRemoval();
+        if (m_bgRemovalApplied)
+            saveProcessedFile();
+        if (m_bgRemovalDlg)
+            m_bgRemovalDlg->close();
+    });
+
+    // Cancel button: undo if applied, then close
+    connect(btnCancel, &QPushButton::clicked, this, [this]() {
+        if (m_bgRemovalApplied) {
+            // Undo: restore original data
+            m_rawData = m_currentTab->originalRawData;
+            m_currentTab->rawData = m_rawData;
+            m_currentTab->gainApplied = false;
+            m_bgRemovalApplied = false;
+            refreshImage();
+            updateChart(m_lastChartX);
+        }
+        if (m_bgRemovalDlg)
+            m_bgRemovalDlg->close();
+    });
+
+    m_bgRemovalDlg->show();
+}
+
+void MainWindow::applyBackgroundRemoval()
+{
+    if (!m_currentTab) return;
+
+    if (m_bgRemovalApplied) {
+        // Undo
+        m_rawData = m_currentTab->originalRawData;
+        m_currentTab->rawData = m_rawData;
+        m_currentTab->gainApplied = false;
+        m_bgRemovalApplied = false;
+        m_bgRemovalBtnApply->setText("应用");
+        refreshImage();
+        updateChart(m_lastChartX);
+        return;
+    }
+
+    int methodIdx = m_bgRemovalMethodCombo ? m_bgRemovalMethodCombo->currentIndex() : 0;
+
+    // "无" means no processing
+    if (methodIdx == 4) return;
+
+    // Backup original data
+    m_currentTab->originalRawData = m_rawData;
+
+    int samplesPerTrace = m_pixelsPerRow;
+    int totalPixels = m_rawData.size() / 4;
+    int numTraces = totalPixels / samplesPerTrace;
+    if (numTraces == 0 || samplesPerTrace == 0) return;
+
+    // Parse raw data into 2D array of qint32
+    const char *srcData = m_rawData.constData();
+    std::vector<qint32> samples(totalPixels);
+    for (int i = 0; i < totalPixels; ++i) {
+        int idx = i * 4;
+        samples[i] = (static_cast<quint8>(srcData[idx+3]) << 24) |
+                     (static_cast<quint8>(srcData[idx+2]) << 16) |
+                     (static_cast<quint8>(srcData[idx+1]) << 8) |
+                     (static_cast<quint8>(srcData[idx]));
+    }
+
+    if (methodIdx == 0) {
+        // 整体法: compute global average of all traces, subtract from each
+        std::vector<double> avg(samplesPerTrace, 0.0);
+        for (int t = 0; t < numTraces; ++t) {
+            for (int s = 0; s < samplesPerTrace; ++s) {
+                avg[s] += samples[t * samplesPerTrace + s];
+            }
+        }
+        for (int s = 0; s < samplesPerTrace; ++s) {
+            avg[s] /= numTraces;
+        }
+        for (int t = 0; t < numTraces; ++t) {
+            for (int s = 0; s < samplesPerTrace; ++s) {
+                samples[t * samplesPerTrace + s] -= static_cast<qint32>(avg[s]);
+            }
+        }
+    } else if (methodIdx == 1) {
+        // 扫描范围: sliding window of N traces
+        int winSize = m_bgRemovalWindowSpin ? m_bgRemovalWindowSpin->value() : 10;
+        if (winSize < 1) winSize = 1;
+        int halfWin = winSize / 2;
+
+        for (int t = 0; t < numTraces; ++t) {
+            int start = qMax(0, t - halfWin);
+            int end = qMin(numTraces - 1, t + halfWin);
+            int count = end - start + 1;
+
+            for (int s = 0; s < samplesPerTrace; ++s) {
+                double sum = 0.0;
+                for (int tt = start; tt <= end; ++tt) {
+                    sum += samples[tt * samplesPerTrace + s];
+                }
+                double avg = sum / count;
+                samples[t * samplesPerTrace + s] -= static_cast<qint32>(avg);
+            }
+        }
+    } else if (methodIdx == 2) {
+        // 全部通过: same as 整体法 (global average subtracted)
+        std::vector<double> avg(samplesPerTrace, 0.0);
+        for (int t = 0; t < numTraces; ++t) {
+            for (int s = 0; s < samplesPerTrace; ++s) {
+                avg[s] += samples[t * samplesPerTrace + s];
+            }
+        }
+        for (int s = 0; s < samplesPerTrace; ++s) {
+            avg[s] /= numTraces;
+        }
+        for (int t = 0; t < numTraces; ++t) {
+            for (int s = 0; s < samplesPerTrace; ++s) {
+                samples[t * samplesPerTrace + s] -= static_cast<qint32>(avg[s]);
+            }
+        }
+    } else if (methodIdx == 3) {
+        // 自适应: weighted local average with Gaussian-like weighting
+        int winSize = qMax(10, numTraces / 10);
+        int halfWin = winSize / 2;
+
+        for (int t = 0; t < numTraces; ++t) {
+            int start = qMax(0, t - halfWin);
+            int end = qMin(numTraces - 1, t + halfWin);
+            double sumWeight = 0.0;
+
+            // Compute weighted average
+            std::vector<double> avg(samplesPerTrace, 0.0);
+            for (int tt = start; tt <= end; ++tt) {
+                double dist = qAbs(tt - t);
+                double sigma = halfWin / 3.0;
+                double w = std::exp(-(dist * dist) / (2.0 * sigma * sigma));
+                sumWeight += w;
+                for (int s = 0; s < samplesPerTrace; ++s) {
+                    avg[s] += w * samples[tt * samplesPerTrace + s];
+                }
+            }
+            for (int s = 0; s < samplesPerTrace; ++s) {
+                avg[s] /= sumWeight;
+                samples[t * samplesPerTrace + s] -= static_cast<qint32>(avg[s]);
+            }
+        }
+    }
+
+    // Write back to m_rawData
+    char *dstData = m_rawData.data();
+    for (int i = 0; i < totalPixels; ++i) {
+        qint32 val = samples[i];
+        int idx = i * 4;
+        dstData[idx]   = val & 0xFF;
+        dstData[idx+1] = (val >> 8) & 0xFF;
+        dstData[idx+2] = (val >> 16) & 0xFF;
+        dstData[idx+3] = (val >> 24) & 0xFF;
+    }
+
+    m_currentTab->rawData = m_rawData;
+    m_bgRemovalApplied = true;
+    if (m_bgRemovalBtnApply)
+        m_bgRemovalBtnApply->setText("撤销");
+
+    refreshImage();
+    updateChart(m_lastChartX);
 }
