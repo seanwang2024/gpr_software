@@ -3037,70 +3037,55 @@ void MainWindow::showDigitalFilter()
         char *dst = m_rawData.data();
 
         if (isIIR) {
-            // --- IIR Butterworth 32-order via cascaded biquads ---
-            // Standard bilinear transform design
-            int order = 32;
+            // --- IIR Butterworth 8-order (forward-backward → effective 16) ---
+            int order = 8;
             int nSos = order / 2;
 
             struct Biquad { double b0, b1, b2, a1, a2; };
-            QVector<Biquad> sos(nSos);
+            Biquad sos[4];
 
             double Wc1 = tan(M_PI * lowHz / fsHz);
             double Wc2 = tan(M_PI * highHz / fsHz);
 
             for (int k = 0; k < nSos; ++k) {
                 double theta = M_PI * (2*k + 1) / (2*order);
-                double d = sin(theta);  // damping coefficient for this section
+                double d = sin(theta);
 
                 switch (bandType) {
-                case 0: { // Low-pass: cutoff = highHz → Wc2
+                case 0: { // Low-pass
                     double Wc = Wc2;
                     double a0 = 1 + 2*d*Wc + Wc*Wc;
-                    sos[k].b0 = Wc*Wc / a0;
-                    sos[k].b1 = 2*Wc*Wc / a0;
-                    sos[k].b2 = Wc*Wc / a0;
-                    sos[k].a1 = 2*(Wc*Wc - 1) / a0;
-                    sos[k].a2 = (1 - 2*d*Wc + Wc*Wc) / a0;
+                    sos[k] = {Wc*Wc/a0, 2*Wc*Wc/a0, Wc*Wc/a0,
+                              2*(Wc*Wc-1)/a0, (1-2*d*Wc+Wc*Wc)/a0};
                     break;
                 }
-                case 1: { // High-pass: cutoff = lowHz → Wc1
+                case 1: { // High-pass
                     double Wc = Wc1;
                     double a0 = Wc*Wc + 2*d*Wc + 1;
-                    sos[k].b0 = 1.0 / a0;
-                    sos[k].b1 = -2.0 / a0;
-                    sos[k].b2 = 1.0 / a0;
-                    sos[k].a1 = 2*(Wc*Wc - 1) / a0;
-                    sos[k].a2 = (Wc*Wc - 2*d*Wc + 1) / a0;
+                    sos[k] = {1.0/a0, -2.0/a0, 1.0/a0,
+                              2*(Wc*Wc-1)/a0, (Wc*Wc-2*d*Wc+1)/a0};
                     break;
                 }
-                case 2:   // Band-pass
+                case 2: { // Band-pass
+                    double BW = Wc2 - Wc1;
+                    double W0sq = Wc1 * Wc2;
+                    double a0 = 1 + d*BW + W0sq;
+                    sos[k] = {d*BW/a0, 0, -d*BW/a0,
+                              2*(W0sq-1)/a0, (1-d*BW+W0sq)/a0};
+                    break;
+                }
                 case 3: { // Band-stop
                     double BW = Wc2 - Wc1;
                     double W0sq = Wc1 * Wc2;
-                    if (bandType == 2) {
-                        // Band-pass: each LP section becomes 2nd-order via LP→BP transform
-                        double a0 = 1 + d*BW + W0sq;
-                        sos[k].b0 = d*BW / a0;
-                        sos[k].b1 = 0;
-                        sos[k].b2 = -d*BW / a0;
-                        sos[k].a1 = 2*(W0sq - 1) / a0;
-                        sos[k].a2 = (1 - d*BW + W0sq) / a0;
-                    } else {
-                        // Band-stop
-                        double a0 = W0sq + d*BW + 1;
-                        sos[k].b0 = (1 + W0sq) / a0;
-                        sos[k].b1 = 2*(W0sq - 1) / a0;
-                        sos[k].b2 = (1 + W0sq) / a0;
-                        sos[k].a1 = 2*(W0sq - 1) / a0;
-                        sos[k].a2 = (W0sq - d*BW + 1) / a0;
-                    }
+                    double a0 = W0sq + d*BW + 1;
+                    sos[k] = {(1+W0sq)/a0, 2*(W0sq-1)/a0, (1+W0sq)/a0,
+                              2*(W0sq-1)/a0, (W0sq-d*BW+1)/a0};
                     break;
                 }
                 }
             }
 
-            // Apply IIR filter (cascaded biquads, per trace)
-            // Forward-backward filtering for zero phase (eliminates group delay)
+            // Apply IIR: forward-backward for zero phase
             for (int t = 0; t < traceCount; ++t) {
                 double buf[512];
                 const qint32 *s32 = reinterpret_cast<const qint32*>(src + t * N * 4);
@@ -3108,38 +3093,26 @@ void MainWindow::showDigitalFilter()
 
                 // Forward pass
                 for (int s = 0; s < nSos; ++s) {
-                    double w1m = 0, w2m = 0;
+                    double w1 = 0, w2 = 0;
+                    double b0=sos[s].b0, b1=sos[s].b1, b2=sos[s].b2;
+                    double a1=sos[s].a1, a2=sos[s].a2;
                     for (int i = 0; i < N; ++i) {
-                        double w0 = buf[i] - sos[s].a1 * w1m - sos[s].a2 * w2m;
-                        buf[i] = sos[s].b0 * w0 + sos[s].b1 * w1m + sos[s].b2 * w2m;
-                        w2m = w1m;
-                        w1m = w0;
+                        double w0 = buf[i] - a1*w1 - a2*w2;
+                        buf[i] = b0*w0 + b1*w1 + b2*w2;
+                        w2 = w1; w1 = w0;
                     }
                 }
 
-                // Reverse
-                for (int i = 0; i < N / 2; ++i) {
-                    double tmp = buf[i];
-                    buf[i] = buf[N - 1 - i];
-                    buf[N - 1 - i] = tmp;
-                }
-
-                // Backward pass (same filter)
+                // Backward pass (reverse iteration, no array flip needed)
                 for (int s = 0; s < nSos; ++s) {
-                    double w1m = 0, w2m = 0;
-                    for (int i = 0; i < N; ++i) {
-                        double w0 = buf[i] - sos[s].a1 * w1m - sos[s].a2 * w2m;
-                        buf[i] = sos[s].b0 * w0 + sos[s].b1 * w1m + sos[s].b2 * w2m;
-                        w2m = w1m;
-                        w1m = w0;
+                    double w1 = 0, w2 = 0;
+                    double b0=sos[s].b0, b1=sos[s].b1, b2=sos[s].b2;
+                    double a1=sos[s].a1, a2=sos[s].a2;
+                    for (int i = N-1; i >= 0; --i) {
+                        double w0 = buf[i] - a1*w1 - a2*w2;
+                        buf[i] = b0*w0 + b1*w1 + b2*w2;
+                        w2 = w1; w1 = w0;
                     }
-                }
-
-                // Reverse back
-                for (int i = 0; i < N / 2; ++i) {
-                    double tmp = buf[i];
-                    buf[i] = buf[N - 1 - i];
-                    buf[N - 1 - i] = tmp;
                 }
 
                 qint32 *d32 = reinterpret_cast<qint32*>(dst + t * N * 4);
@@ -3315,39 +3288,44 @@ void MainWindow::computeFilteredSpectrumPreview()
     std::vector<std::complex<double>> H(fftN, std::complex<double>(0.0, 0.0));
 
     if (isIIR) {
-        // IIR Butterworth: direct analog magnitude response with bilinear frequency warp
-        int N = 32;
+        // IIR Butterworth order 8, forward-backward → effective order 16
+        // Forward-backward squares the magnitude: |H_fb| = |H|^2
+        int N = 8;
         double Wc1 = tan(M_PI * lowHz / fsHz);
         double Wc2 = tan(M_PI * highHz / fsHz);
 
         for (int i = 0; i < fftN; ++i) {
             double fd = (double)i * fsHz / fftN;
             if (fd <= 0) { H[i] = std::complex<double>(1.0, 0.0); continue; }
-            double Wa = tan(M_PI * fd / fsHz);  // pre-warped analog frequency
+            double Wa = tan(M_PI * fd / fsHz);
             double mag = 0.0;
             switch (bandType) {
             case 0: { // Low-pass
                 double x = Wa / Wc2;
-                mag = 1.0 / sqrt(1.0 + pow(x, 2*N));
+                double mag1 = 1.0 / sqrt(1.0 + pow(x, 2*N));
+                mag = mag1 * mag1;  // forward-backward squares magnitude
                 break;
             }
             case 1: { // High-pass
                 double x = Wc1 / Wa;
-                mag = 1.0 / sqrt(1.0 + pow(x, 2*N));
+                double mag1 = 1.0 / sqrt(1.0 + pow(x, 2*N));
+                mag = mag1 * mag1;
                 break;
             }
             case 2: { // Band-pass
                 double BW = Wc2 - Wc1;
                 double W0sq = Wc1 * Wc2;
                 double x = (Wa*Wa - W0sq) / (BW * Wa);
-                mag = 1.0 / sqrt(1.0 + pow(x, 2*N));
+                double mag1 = 1.0 / sqrt(1.0 + pow(x, 2*N));
+                mag = mag1 * mag1;
                 break;
             }
             case 3: { // Band-stop
                 double BW = Wc2 - Wc1;
                 double W0sq = Wc1 * Wc2;
                 double x = BW * Wa / fabs(Wa*Wa - W0sq + 1e-30);
-                mag = 1.0 / sqrt(1.0 + pow(x, 2*N));
+                double mag1 = 1.0 / sqrt(1.0 + pow(x, 2*N));
+                mag = mag1 * mag1;
                 break;
             }
             }
