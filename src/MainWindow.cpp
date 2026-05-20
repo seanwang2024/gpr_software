@@ -2273,6 +2273,9 @@ void MainWindow::refreshImage()
                 else if (m_transformMode == 2)
                     pixelValue_display = -pixelValue_display;
 
+                // Apply display gain (right-click menu, visual only)
+                pixelValue_display = static_cast<int>(m_gain * pixelValue_display);
+
                 int lutIdx = pixelValue_display / (256 * 256) + 128;
                 if (lutIdx < 0) lutIdx = 0;
                 if (lutIdx > 255) lutIdx = 255;
