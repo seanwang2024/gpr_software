@@ -3037,12 +3037,14 @@ void MainWindow::showDigitalFilter()
         char *dst = m_rawData.data();
 
         if (isIIR) {
-            // --- IIR Butterworth 8-order (forward-backward → effective 16) ---
+            // --- IIR Butterworth 8-order per section (forward-backward → effective 16) ---
+            // Band-pass = HP(lowHz) cascade LP(highHz), Band-stop = LP(lowHz) cascade HP(highHz)
             int order = 8;
             int nSos = order / 2;
 
             struct Biquad { double b0, b1, b2, a1, a2; };
-            Biquad sos[4];
+            Biquad sos[8]; // max 8 sections for cascade
+            int totalSos = nSos;
 
             double Wc1 = tan(M_PI * lowHz / fsHz);
             double Wc2 = tan(M_PI * highHz / fsHz);
@@ -3066,20 +3068,36 @@ void MainWindow::showDigitalFilter()
                               2*(Wc*Wc-1)/a0, (Wc*Wc-2*d*Wc+1)/a0};
                     break;
                 }
-                case 2: { // Band-pass
-                    double BW = Wc2 - Wc1;
-                    double W0sq = Wc1 * Wc2;
-                    double a0 = 1 + d*BW + W0sq;
-                    sos[k] = {d*BW/a0, 0, -d*BW/a0,
-                              2*(W0sq-1)/a0, (1-d*BW+W0sq)/a0};
+                case 2: { // Band-pass = HP(lowHz) then LP(highHz)
+                    totalSos = nSos * 2;
+                    // HP section (cutoff = lowHz)
+                    {
+                        double a0 = Wc1*Wc1 + 2*d*Wc1 + 1;
+                        sos[k] = {1.0/a0, -2.0/a0, 1.0/a0,
+                                  2*(Wc1*Wc1-1)/a0, (Wc1*Wc1-2*d*Wc1+1)/a0};
+                    }
+                    // LP section (cutoff = highHz)
+                    {
+                        double a0 = 1 + 2*d*Wc2 + Wc2*Wc2;
+                        sos[nSos + k] = {Wc2*Wc2/a0, 2*Wc2*Wc2/a0, Wc2*Wc2/a0,
+                                         2*(Wc2*Wc2-1)/a0, (1-2*d*Wc2+Wc2*Wc2)/a0};
+                    }
                     break;
                 }
-                case 3: { // Band-stop
-                    double BW = Wc2 - Wc1;
-                    double W0sq = Wc1 * Wc2;
-                    double a0 = W0sq + d*BW + 1;
-                    sos[k] = {(1+W0sq)/a0, 2*(W0sq-1)/a0, (1+W0sq)/a0,
-                              2*(W0sq-1)/a0, (W0sq-d*BW+1)/a0};
+                case 3: { // Band-stop = LP(lowHz) then HP(highHz)
+                    totalSos = nSos * 2;
+                    // LP section (cutoff = lowHz)
+                    {
+                        double a0 = 1 + 2*d*Wc1 + Wc1*Wc1;
+                        sos[k] = {Wc1*Wc1/a0, 2*Wc1*Wc1/a0, Wc1*Wc1/a0,
+                                  2*(Wc1*Wc1-1)/a0, (1-2*d*Wc1+Wc1*Wc1)/a0};
+                    }
+                    // HP section (cutoff = highHz)
+                    {
+                        double a0 = Wc2*Wc2 + 2*d*Wc2 + 1;
+                        sos[nSos + k] = {1.0/a0, -2.0/a0, 1.0/a0,
+                                         2*(Wc2*Wc2-1)/a0, (Wc2*Wc2-2*d*Wc2+1)/a0};
+                    }
                     break;
                 }
                 }
@@ -3091,8 +3109,8 @@ void MainWindow::showDigitalFilter()
                 const qint32 *s32 = reinterpret_cast<const qint32*>(src + t * N * 4);
                 for (int i = 0; i < N; ++i) buf[i] = s32[i];
 
-                // Forward pass
-                for (int s = 0; s < nSos; ++s) {
+                // Forward pass through all sections
+                for (int s = 0; s < totalSos; ++s) {
                     double w1 = 0, w2 = 0;
                     double b0=sos[s].b0, b1=sos[s].b1, b2=sos[s].b2;
                     double a1=sos[s].a1, a2=sos[s].a2;
@@ -3104,7 +3122,7 @@ void MainWindow::showDigitalFilter()
                 }
 
                 // Backward pass (reverse iteration, no array flip needed)
-                for (int s = 0; s < nSos; ++s) {
+                for (int s = 0; s < totalSos; ++s) {
                     double w1 = 0, w2 = 0;
                     double b0=sos[s].b0, b1=sos[s].b1, b2=sos[s].b2;
                     double a1=sos[s].a1, a2=sos[s].a2;
