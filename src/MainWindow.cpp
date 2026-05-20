@@ -3425,11 +3425,19 @@ void MainWindow::updateFilterSpectrumFiltered(int traceIdx)
     double fs = N / (m_currentTab->timeRange * 1e-9);
     double freqStep = fs / fftN / 1e6;
 
-    for (int i = 0; i < fftN / 2; ++i) {
+    // Normalize: peak = 0 dB
+    double maxDb = -500.0;
+    double dbArr[256];
+    int halfN = fftN / 2;
+    for (int i = 0; i < halfN; ++i) {
         double mag = std::abs(x[i]);
         double db = (mag > 0) ? 20.0 * log10(mag) : -500.0;
         if (db < -500.0) db = -500.0;
-        m_filterSeriesAfter->append(i * freqStep, db);
+        dbArr[i] = db;
+        if (db > maxDb) maxDb = db;
+    }
+    for (int i = 0; i < halfN; ++i) {
+        m_filterSeriesAfter->append(i * freqStep, dbArr[i] - maxDb);
     }
 }
 
