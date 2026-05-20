@@ -3138,7 +3138,6 @@ void MainWindow::showDigitalFilter()
                 case 1:
                     if (nm == 0.0) hd = 1.0 - 2.0 * fc1;
                     else hd = -2.0 * fc1 * sin(2.0 * M_PI * fc1 * nm) / (2.0 * M_PI * fc1 * nm);
-                    if (nm == 0.0) hd += 1.0;
                     break;
                 case 2:
                     if (nm == 0.0) hd = 2.0 * (fc2 - fc1);
@@ -3149,7 +3148,6 @@ void MainWindow::showDigitalFilter()
                     if (nm == 0.0) hd = 1.0 - 2.0 * (fc2 - fc1);
                     else hd = -2.0 * fc2 * sin(2.0 * M_PI * fc2 * nm) / (2.0 * M_PI * fc2 * nm)
                              + 2.0 * fc1 * sin(2.0 * M_PI * fc1 * nm) / (2.0 * M_PI * fc1 * nm);
-                    if (nm == 0.0) hd += 1.0;
                     break;
                 }
                 double w = 0.54 - 0.46 * cos(2.0 * M_PI * n / M);
@@ -3162,8 +3160,8 @@ void MainWindow::showDigitalFilter()
                 for (int i = 0; i < N; ++i) {
                     double sum = 0.0;
                     for (int k = 0; k < hLen; ++k) {
-                        int si = i - k;
-                        if (si >= 0) sum += s32[si] * h[k];
+                        int si = i + M / 2 - k;
+                        if (si >= 0 && si < N) sum += s32[si] * h[k];
                     }
                     d32[i] = static_cast<qint32>(sum);
                 }
@@ -3288,7 +3286,7 @@ void MainWindow::computeFilteredSpectrumPreview()
     int fftN = 512;
 
     // Compute filter frequency response H(w)
-    std::vector<std::complex<double>> H(fftN, std::complex<double>(1.0, 0.0));
+    std::vector<std::complex<double>> H(fftN, std::complex<double>(0.0, 0.0));
 
     if (isIIR) {
         // IIR Butterworth: direct analog magnitude response with bilinear frequency warp
@@ -3344,7 +3342,6 @@ void MainWindow::computeFilteredSpectrumPreview()
             case 1:
                 if (nm == 0.0) hd = 1.0-2.0*fc1;
                 else hd = -2.0*fc1*sin(2*M_PI*fc1*nm)/(2*M_PI*fc1*nm);
-                if (nm == 0.0) hd += 1.0;
                 break;
             case 2:
                 if (nm == 0.0) hd = 2.0*(fc2-fc1);
@@ -3355,7 +3352,6 @@ void MainWindow::computeFilteredSpectrumPreview()
                 if (nm == 0.0) hd = 1.0-2.0*(fc2-fc1);
                 else hd = -2.0*fc2*sin(2*M_PI*fc2*nm)/(2*M_PI*fc2*nm)
                          +2.0*fc1*sin(2*M_PI*fc1*nm)/(2*M_PI*fc1*nm);
-                if (nm == 0.0) hd += 1.0;
                 break;
             }
             double w = 0.54 - 0.46 * cos(2*M_PI*n/M);
