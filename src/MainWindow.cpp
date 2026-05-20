@@ -3018,8 +3018,8 @@ void MainWindow::showDigitalFilter()
             m_filterBtnApply->setText("应用");
             refreshImage();
             updateChart(m_lastChartX);
-            // Re-show "处理前" spectrum from restored data
             updateFilterSpectrum(m_lastChartX);
+            computeFilteredSpectrumPreview();
             return;
         }
 
