@@ -3174,7 +3174,6 @@ void MainWindow::showDigitalFilter()
 
         refreshImage();
         updateChart(m_lastChartX);
-        updateFilterSpectrumFiltered(m_lastChartX);
     });
 
     connect(btnOK, &QPushButton::clicked, m_filterDlg, &QDialog::accept);
