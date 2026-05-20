@@ -2958,18 +2958,18 @@ void MainWindow::showDigitalFilter()
                                 m_filterAxisXBefore, m_filterAxisYBefore,
                                 m_filterSpinLow, m_filterSpinHigh);
     filterChartView->setFreqChangedCallback([this]() {
-        if (!m_filterApplied) computeFilteredSpectrumPreview();
+        computeFilteredSpectrumPreview();
     });
 
     // Re-compute filtered preview when filter type, band type or frequency changes
     connect(m_filterTypeGroup, QOverload<int>::of(&QButtonGroup::idClicked), this,
-            [this]() { if (!m_filterApplied) computeFilteredSpectrumPreview(); });
+            [this]() { computeFilteredSpectrumPreview(); });
     connect(m_filterBandGroup, QOverload<int>::of(&QButtonGroup::idClicked), this,
-            [this]() { if (!m_filterApplied) computeFilteredSpectrumPreview(); });
+            [this]() { computeFilteredSpectrumPreview(); });
     connect(m_filterSpinLow, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-            [this]() { if (!m_filterApplied) computeFilteredSpectrumPreview(); });
+            [this]() { computeFilteredSpectrumPreview(); });
     connect(m_filterSpinHigh, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-            [this]() { if (!m_filterApplied) computeFilteredSpectrumPreview(); });
+            [this]() { computeFilteredSpectrumPreview(); });
 
     // Spinbox → marker line sync
     connect(m_filterSpinLow, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
