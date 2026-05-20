@@ -3523,7 +3523,7 @@ void MainWindow::showBackgroundRemoval()
     row2->addWidget(new QLabel("滑动窗口："));
     m_bgRemovalWindowSpin = new QSpinBox();
     m_bgRemovalWindowSpin->setRange(1, 9999);
-    m_bgRemovalWindowSpin->setValue(10);
+    m_bgRemovalWindowSpin->setValue(200);
     row2->addWidget(m_bgRemovalWindowSpin);
     row2->addStretch();
     mainLayout->addLayout(row2);
