@@ -2607,7 +2607,9 @@ void MainWindow::createMenuBar()
         }
     });
     processBtns->addWidget(btnAdjGainStart);
-    processBtns->addWidget(makeBtn(":/icons/resources/filter.png", "数字滤波"));
+    QToolButton *btnDigFilterStart = makeBtn(":/icons/resources/filter.png", "数字滤波");
+    processBtns->addWidget(btnDigFilterStart);
+    connect(btnDigFilterStart, &QToolButton::clicked, this, &MainWindow::showDigitalFilter);
     processBtns->addWidget(makeBtn(":/icons/resources/batch.png", "批处理"));
 
     startLayout->addStretch();
