@@ -21,6 +21,7 @@
 #include <QTabWidget>
 #include <QToolButton>
 #include <QStackedWidget>
+#include <QCheckBox>
 
 QT_BEGIN_NAMESPACE
 class QChart;
@@ -294,6 +295,29 @@ private:
     bool m_correctApplied = false;
     void showCorrectOffset();
     void applyCorrectOffset();
+
+    // One-click processing dialog pointers (non-modal)
+    QDialog *m_oneClickDlg = nullptr;
+    QCheckBox *m_oneClickCorrectOffset = nullptr;
+    QCheckBox *m_oneClickAmpComp = nullptr;
+    QCheckBox *m_oneClickAdjZero = nullptr;
+    QCheckBox *m_oneClickAdjGain = nullptr;
+    QCheckBox *m_oneClickDigFilter = nullptr;
+    QCheckBox *m_oneClickBgRemove = nullptr;
+    QCheckBox *m_oneClickSmooth = nullptr;
+    QDoubleSpinBox *m_oneClickTimeWindowSpin = nullptr;
+    QDoubleSpinBox *m_oneClickAntennaFreqSpin = nullptr;
+    QSpinBox *m_oneClickAmpCompSpin = nullptr;
+    QSpinBox *m_oneClickZeroValueSpin = nullptr;
+    QSpinBox *m_oneClickBgWindowSpin = nullptr;
+    QSpinBox *m_oneClickSmoothWindowSpin = nullptr;
+    QPushButton *m_oneClickBtnApply = nullptr;
+    QChart *m_oneClickChart = nullptr;
+    QLineSeries *m_oneClickSeries = nullptr;
+    QChartView *m_oneClickChartView = nullptr;
+    bool m_oneClickApplied = false;
+    void showOneClickProcess();
+    void applyOneClickProcess();
 };
 
 #endif

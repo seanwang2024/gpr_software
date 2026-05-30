@@ -38,6 +38,7 @@
 #include <QDateTime>
 #include <QProgressBar>
 #include <QCoreApplication>
+#include <QCheckBox>
 #include <functional>
 #include <cmath>
 #include <complex>
@@ -1935,6 +1936,23 @@ void MainWindow::onImageClicked(const QPoint &pos)
     if (m_filterDlg && m_filterDlg->isVisible()) {
         updateFilterSpectrum(pos.x());
     }
+
+    // Update one-click process reference chart if open
+    if (m_oneClickDlg && m_oneClickDlg->isVisible() && m_oneClickSeries && !m_rawData.isEmpty()) {
+        m_oneClickSeries->clear();
+        int samplesPerTrace = m_pixelsPerRow;
+        qint32 minV = 0, maxV = 0;
+        for (int i = 0; i < samplesPerTrace; ++i) {
+            qint32 val = getPixelValue(pos.x(), i);
+            m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
+            if (i == 0 || val < minV) minV = val;
+            if (i == 0 || val > maxV) maxV = val;
+        }
+        if (QValueAxis *ax = qobject_cast<QValueAxis*>(m_oneClickChart->axisX(m_oneClickSeries))) {
+            int margin = qMax(1, (maxV - minV) / 10);
+            ax->setRange(minV - margin, maxV + margin);
+        }
+    }
 }
 
 void MainWindow::updateCoordinateLabel(int x, int y)
@@ -2581,7 +2599,9 @@ void MainWindow::createMenuBar()
     // 简易处理 group
     QVBoxLayout *processGroup = addGroup(startLayout, "简易处理");
     QHBoxLayout *processBtns = qobject_cast<QHBoxLayout*>(processGroup->itemAt(0)->layout());
-    processBtns->addWidget(makeBtn(":/icons/resources/autoprocess.png", "一键处理"));
+    QToolButton *btnOneClickStart = makeBtn(":/icons/resources/autoprocess.png", "一键处理");
+    connect(btnOneClickStart, &QToolButton::clicked, this, &MainWindow::showOneClickProcess);
+    processBtns->addWidget(btnOneClickStart);
     QToolButton *btnAdjZero = makeBtn(":/icons/resources/adjustzero.png", "调节零点");
     connect(btnAdjZero, &QToolButton::clicked, this, [this]() {
         if (m_tabs.isEmpty()) return;
@@ -2711,7 +2731,9 @@ void MainWindow::createMenuBar()
     QHBoxLayout *g3row2 = new QHBoxLayout();
     g3row2->setSpacing(2);
     g3row2->addWidget(makeTextBtn("克西霍夫"));
-    g3row2->addWidget(makeTextBtn("一键处理"));
+    QToolButton *btnOneClickData = makeTextBtn("一键处理");
+    connect(btnOneClickData, &QToolButton::clicked, this, &MainWindow::showOneClickProcess);
+    g3row2->addWidget(btnOneClickData);
     g3row2->addWidget(makeTextBtn("批处理"));
     g3->insertLayout(1, g3row2);
 
@@ -3909,4 +3931,441 @@ void MainWindow::applyCorrectOffset()
 
     refreshImage();
     updateChart(m_lastChartX);
+}
+
+void MainWindow::showOneClickProcess()
+{
+    if (!m_currentTab) return;
+
+    if (m_oneClickDlg) {
+        m_oneClickDlg->raise();
+        m_oneClickDlg->activateWindow();
+        // Update chart to current position
+        if (m_oneClickSeries && !m_rawData.isEmpty()) {
+            m_oneClickSeries->clear();
+            int samplesPerTrace = m_pixelsPerRow;
+            for (int i = 0; i < samplesPerTrace; ++i) {
+                qint32 val = getPixelValue(m_lastChartX, i);
+                m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
+            }
+        }
+        return;
+    }
+
+    m_oneClickDlg = new QDialog(this);
+    m_oneClickDlg->setAttribute(Qt::WA_DeleteOnClose);
+    m_oneClickDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
+    QString fname = QFileInfo(m_currentTab->filePath).fileName();
+    m_oneClickDlg->setWindowTitle(QString("一键处理 - %1").arg(fname));
+    m_oneClickDlg->resize(800, 500);
+
+    connect(m_oneClickDlg, &QDialog::finished, this, [this]() {
+        m_oneClickDlg = nullptr;
+        m_oneClickCorrectOffset = nullptr;
+        m_oneClickAmpComp = nullptr;
+        m_oneClickAdjZero = nullptr;
+        m_oneClickAdjGain = nullptr;
+        m_oneClickDigFilter = nullptr;
+        m_oneClickBgRemove = nullptr;
+        m_oneClickSmooth = nullptr;
+        m_oneClickTimeWindowSpin = nullptr;
+        m_oneClickAntennaFreqSpin = nullptr;
+        m_oneClickAmpCompSpin = nullptr;
+        m_oneClickZeroValueSpin = nullptr;
+        m_oneClickBgWindowSpin = nullptr;
+        m_oneClickSmoothWindowSpin = nullptr;
+        m_oneClickBtnApply = nullptr;
+        m_oneClickChart = nullptr;
+        m_oneClickSeries = nullptr;
+        m_oneClickChartView = nullptr;
+        m_oneClickApplied = false;
+    });
+
+    QHBoxLayout *mainLayout = new QHBoxLayout(m_oneClickDlg);
+
+    // === Left panel: 处理方法 ===
+    QGroupBox *methodGroup = new QGroupBox("处理方法");
+    QVBoxLayout *methodLayout = new QVBoxLayout(methodGroup);
+
+    // 1. 校正零偏
+    QHBoxLayout *row1 = new QHBoxLayout();
+    m_oneClickCorrectOffset = new QCheckBox("校正零偏");
+    m_oneClickCorrectOffset->setChecked(true);
+    row1->addWidget(m_oneClickCorrectOffset);
+    row1->addWidget(new QLabel("时窗:"));
+    m_oneClickTimeWindowSpin = new QDoubleSpinBox();
+    m_oneClickTimeWindowSpin->setRange(0.0, 99999.0);
+    m_oneClickTimeWindowSpin->setDecimals(1);
+    m_oneClickTimeWindowSpin->setValue(40.0);
+    m_oneClickTimeWindowSpin->setSuffix(" ns");
+    row1->addWidget(m_oneClickTimeWindowSpin);
+    methodLayout->addLayout(row1);
+
+    QHBoxLayout *row1b = new QHBoxLayout();
+    row1b->addStretch();
+    row1b->addWidget(new QLabel("天线频率:"));
+    m_oneClickAntennaFreqSpin = new QDoubleSpinBox();
+    m_oneClickAntennaFreqSpin->setRange(1.0, 99999.0);
+    m_oneClickAntennaFreqSpin->setDecimals(0);
+    m_oneClickAntennaFreqSpin->setValue(900.0);
+    m_oneClickAntennaFreqSpin->setSuffix(" MHz");
+    row1b->addWidget(m_oneClickAntennaFreqSpin);
+    methodLayout->addLayout(row1b);
+
+    // 2. 幅度补偿
+    QHBoxLayout *row2 = new QHBoxLayout();
+    m_oneClickAmpComp = new QCheckBox("幅度补偿");
+    m_oneClickAmpComp->setChecked(true);
+    row2->addWidget(m_oneClickAmpComp);
+    row2->addWidget(new QLabel("值:"));
+    m_oneClickAmpCompSpin = new QSpinBox();
+    m_oneClickAmpCompSpin->setRange(0, 100);
+    m_oneClickAmpCompSpin->setValue(20);
+    row2->addWidget(m_oneClickAmpCompSpin);
+    row2->addStretch();
+    methodLayout->addLayout(row2);
+
+    // 3. 调节零点
+    QHBoxLayout *row3 = new QHBoxLayout();
+    m_oneClickAdjZero = new QCheckBox("调节零点");
+    m_oneClickAdjZero->setChecked(true);
+    row3->addWidget(m_oneClickAdjZero);
+    row3->addWidget(new QLabel("值:"));
+    m_oneClickZeroValueSpin = new QSpinBox();
+    m_oneClickZeroValueSpin->setRange(0, 500);
+    m_oneClickZeroValueSpin->setValue(40);
+    row3->addWidget(m_oneClickZeroValueSpin);
+    row3->addStretch();
+    methodLayout->addLayout(row3);
+
+    // 4. 调节增益
+    QHBoxLayout *row4 = new QHBoxLayout();
+    m_oneClickAdjGain = new QCheckBox("调节增益");
+    m_oneClickAdjGain->setChecked(false);
+    row4->addWidget(m_oneClickAdjGain);
+    row4->addStretch();
+    methodLayout->addLayout(row4);
+
+    // 5. 数字滤波
+    QHBoxLayout *row5 = new QHBoxLayout();
+    m_oneClickDigFilter = new QCheckBox("数字滤波");
+    m_oneClickDigFilter->setChecked(false);
+    row5->addWidget(m_oneClickDigFilter);
+    row5->addStretch();
+    methodLayout->addLayout(row5);
+
+    // 6. 背景消除(滑动法)
+    QHBoxLayout *row6 = new QHBoxLayout();
+    m_oneClickBgRemove = new QCheckBox("背景消除(滑动法)");
+    m_oneClickBgRemove->setChecked(false);
+    row6->addWidget(m_oneClickBgRemove);
+    row6->addWidget(new QLabel("窗口:"));
+    m_oneClickBgWindowSpin = new QSpinBox();
+    m_oneClickBgWindowSpin->setRange(1, 9999);
+    m_oneClickBgWindowSpin->setValue(200);
+    row6->addWidget(m_oneClickBgWindowSpin);
+    methodLayout->addLayout(row6);
+
+    // 7. 滑动平均
+    QHBoxLayout *row7 = new QHBoxLayout();
+    m_oneClickSmooth = new QCheckBox("滑动平均");
+    m_oneClickSmooth->setChecked(false);
+    row7->addWidget(m_oneClickSmooth);
+    row7->addWidget(new QLabel("窗口:"));
+    m_oneClickSmoothWindowSpin = new QSpinBox();
+    m_oneClickSmoothWindowSpin->setRange(1, 9999);
+    m_oneClickSmoothWindowSpin->setValue(5);
+    row7->addWidget(m_oneClickSmoothWindowSpin);
+    methodLayout->addLayout(row7);
+
+    methodLayout->addStretch();
+
+    // Buttons
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    m_oneClickBtnApply = new QPushButton("应用");
+    QPushButton *btnOK = new QPushButton("确定");
+    QPushButton *btnCancel = new QPushButton("取消");
+    btnLayout->addWidget(m_oneClickBtnApply);
+    btnLayout->addWidget(btnOK);
+    btnLayout->addWidget(btnCancel);
+    methodLayout->addLayout(btnLayout);
+
+    mainLayout->addWidget(methodGroup, 1);
+
+    // === Right panel: 参考波形 ===
+    QGroupBox *chartGroup = new QGroupBox("参考波形");
+    QVBoxLayout *chartLayout = new QVBoxLayout(chartGroup);
+
+    m_oneClickChart = new QChart();
+    m_oneClickChart->legend()->hide();
+
+    m_oneClickSeries = new QLineSeries();
+    m_oneClickSeries->setPen(QPen(Qt::blue, 1));
+
+    m_oneClickChart->addSeries(m_oneClickSeries);
+
+    QValueAxis *axisX = new QValueAxis();
+    axisX->setTitleText("幅度");
+    m_oneClickChart->addAxis(axisX, Qt::AlignBottom);
+    m_oneClickSeries->attachAxis(axisX);
+
+    QValueAxis *axisY = new QValueAxis();
+    axisY->setTitleText("采样点");
+    axisY->setRange(0, 511);
+    axisY->setReverse(true);
+    m_oneClickChart->addAxis(axisY, Qt::AlignLeft);
+    m_oneClickSeries->attachAxis(axisY);
+
+    // Populate with current X position data
+    if (!m_rawData.isEmpty()) {
+        int samplesPerTrace = m_pixelsPerRow;
+        qint32 minV = 0, maxV = 0;
+        for (int i = 0; i < samplesPerTrace; ++i) {
+            qint32 val = getPixelValue(m_lastChartX, i);
+            m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
+            if (i == 0 || val < minV) minV = val;
+            if (i == 0 || val > maxV) maxV = val;
+        }
+        int margin = qMax(1, (maxV - minV) / 10);
+        axisX->setRange(minV - margin, maxV + margin);
+    }
+
+    m_oneClickChartView = new QChartView(m_oneClickChart);
+    m_oneClickChartView->setRenderHint(QPainter::Antialiasing);
+    chartLayout->addWidget(m_oneClickChartView);
+
+    mainLayout->addWidget(chartGroup, 2);
+
+    // Connect buttons
+    connect(m_oneClickBtnApply, &QPushButton::clicked, this, [this]() {
+        applyOneClickProcess();
+    });
+
+    connect(btnOK, &QPushButton::clicked, this, [this]() {
+        if (!m_oneClickApplied)
+            applyOneClickProcess();
+        if (m_oneClickApplied)
+            saveProcessedFile();
+        if (m_oneClickDlg)
+            m_oneClickDlg->close();
+    });
+
+    connect(btnCancel, &QPushButton::clicked, this, [this]() {
+        if (m_oneClickApplied) {
+            m_rawData = m_currentTab->originalRawData;
+            m_currentTab->rawData = m_rawData;
+            m_oneClickApplied = false;
+            refreshImage();
+            updateChart(m_lastChartX);
+        }
+        if (m_oneClickDlg)
+            m_oneClickDlg->close();
+    });
+
+    m_oneClickDlg->show();
+}
+
+void MainWindow::applyOneClickProcess()
+{
+    if (!m_currentTab) return;
+
+    if (m_oneClickApplied) {
+        // Undo
+        m_rawData = m_currentTab->originalRawData;
+        m_currentTab->rawData = m_rawData;
+        m_oneClickApplied = false;
+        m_oneClickBtnApply->setText("应用");
+        refreshImage();
+        updateChart(m_lastChartX);
+        return;
+    }
+
+    // Backup original data
+    m_currentTab->originalRawData = m_rawData;
+
+    int samplesPerTrace = m_pixelsPerRow;
+    int totalPixels = m_rawData.size() / 4;
+    int numTraces = totalPixels / samplesPerTrace;
+    if (numTraces == 0 || samplesPerTrace == 0) return;
+
+    char *data = m_rawData.data();
+
+    // Step 1: 校正零偏 (Dewow)
+    if (m_oneClickCorrectOffset && m_oneClickCorrectOffset->isChecked()) {
+        double timeWindowNs = m_oneClickTimeWindowSpin ? m_oneClickTimeWindowSpin->value() : 40.0;
+        double timeRangeSec = m_currentTab->timeRange * 1e-9;
+        double sampleInterval = timeRangeSec / samplesPerTrace;
+        int windowSamples = qMax(1, static_cast<int>(timeWindowNs * 1e-9 / sampleInterval));
+
+        for (int t = 0; t < numTraces; ++t) {
+            double mean = 0.0;
+            for (int s = 0; s < windowSamples && s < samplesPerTrace; ++s) {
+                int idx = (t * samplesPerTrace + s) * 4;
+                qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
+                             (static_cast<quint8>(data[idx+2]) << 16) |
+                             (static_cast<quint8>(data[idx+1]) << 8) |
+                             static_cast<quint8>(data[idx]);
+                mean += val;
+            }
+            mean /= qMin(windowSamples, samplesPerTrace);
+
+            for (int s = 0; s < samplesPerTrace; ++s) {
+                int idx = (t * samplesPerTrace + s) * 4;
+                qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
+                             (static_cast<quint8>(data[idx+2]) << 16) |
+                             (static_cast<quint8>(data[idx+1]) << 8) |
+                             static_cast<quint8>(data[idx]);
+                val -= static_cast<qint32>(mean);
+                data[idx]   = val & 0xFF;
+                data[idx+1] = (val >> 8) & 0xFF;
+                data[idx+2] = (val >> 16) & 0xFF;
+                data[idx+3] = (val >> 24) & 0xFF;
+            }
+        }
+    }
+
+    // Step 2: 幅度补偿 (Amplitude Compensation - exponential gain with depth)
+    if (m_oneClickAmpComp && m_oneClickAmpComp->isChecked()) {
+        int compValue = m_oneClickAmpCompSpin ? m_oneClickAmpCompSpin->value() : 20;
+        if (compValue > 0) {
+            // Exponential gain: G(y) = exp(alpha * y * V / 100)
+            // alpha chosen so that at y=511, V=100 gives ~10x gain
+            double alpha = 2.3 / 511.0; // ln(10) ≈ 2.3, so at V=100, y=511 gives ~10x
+            for (int t = 0; t < numTraces; ++t) {
+                for (int s = 0; s < samplesPerTrace; ++s) {
+                    int idx = (t * samplesPerTrace + s) * 4;
+                    qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
+                                 (static_cast<quint8>(data[idx+2]) << 16) |
+                                 (static_cast<quint8>(data[idx+1]) << 8) |
+                                 static_cast<quint8>(data[idx]);
+                    double gain = std::exp(alpha * s * compValue / 100.0);
+                    val = static_cast<qint32>(val * gain);
+                    data[idx]   = val & 0xFF;
+                    data[idx+1] = (val >> 8) & 0xFF;
+                    data[idx+2] = (val >> 16) & 0xFF;
+                    data[idx+3] = (val >> 24) & 0xFF;
+                }
+            }
+        }
+    }
+
+    // Step 3: 调节零点 (Zero-point adjustment - skip first N rows)
+    if (m_oneClickAdjZero && m_oneClickAdjZero->isChecked()) {
+        int zeroRows = m_oneClickZeroValueSpin ? m_oneClickZeroValueSpin->value() : 40;
+        if (zeroRows > 0) {
+            // Shift traces up by zeroRows, fill bottom with zeros
+            for (int t = 0; t < numTraces; ++t) {
+                int base = t * samplesPerTrace * 4;
+                // Shift data up
+                memmove(data + base, data + base + zeroRows * 4, (samplesPerTrace - zeroRows) * 4);
+                // Zero fill bottom
+                memset(data + base + (samplesPerTrace - zeroRows) * 4, 0, zeroRows * 4);
+            }
+        }
+    }
+
+    // Step 4: 调节增益 (placeholder - user can use gain panel for this)
+    // m_oneClickAdjGain - no additional processing, gain is handled separately
+
+    // Step 5: 数字滤波 (placeholder - user can use digital filter dialog)
+    // m_oneClickDigFilter - no additional processing, filter is handled separately
+
+    // Step 6: 背景消除(滑动法) (Background removal - sliding window)
+    if (m_oneClickBgRemove && m_oneClickBgRemove->isChecked()) {
+        int winSize = m_oneClickBgWindowSpin ? m_oneClickBgWindowSpin->value() : 200;
+        int halfWin = winSize / 2;
+
+        // Work on a copy for reading
+        QByteArray copyData = m_rawData;
+        const char *src = copyData.constData();
+
+        for (int t = 0; t < numTraces; ++t) {
+            for (int s = 0; s < samplesPerTrace; ++s) {
+                // Compute average of surrounding traces
+                int tStart = qMax(0, t - halfWin);
+                int tEnd = qMin(numTraces - 1, t + halfWin);
+                double avg = 0.0;
+                int count = tEnd - tStart + 1;
+
+                for (int tt = tStart; tt <= tEnd; ++tt) {
+                    int idx = (tt * samplesPerTrace + s) * 4;
+                    qint32 val = (static_cast<quint8>(src[idx+3]) << 24) |
+                                 (static_cast<quint8>(src[idx+2]) << 16) |
+                                 (static_cast<quint8>(src[idx+1]) << 8) |
+                                 static_cast<quint8>(src[idx]);
+                    avg += val;
+                }
+                avg /= count;
+
+                int idx = (t * samplesPerTrace + s) * 4;
+                qint32 val = (static_cast<quint8>(src[idx+3]) << 24) |
+                             (static_cast<quint8>(src[idx+2]) << 16) |
+                             (static_cast<quint8>(src[idx+1]) << 8) |
+                             static_cast<quint8>(src[idx]);
+                val -= static_cast<qint32>(avg);
+                data[idx]   = val & 0xFF;
+                data[idx+1] = (val >> 8) & 0xFF;
+                data[idx+2] = (val >> 16) & 0xFF;
+                data[idx+3] = (val >> 24) & 0xFF;
+            }
+        }
+    }
+
+    // Step 7: 滑动平均 (Moving average)
+    if (m_oneClickSmooth && m_oneClickSmooth->isChecked()) {
+        int winSize = m_oneClickSmoothWindowSpin ? m_oneClickSmoothWindowSpin->value() : 5;
+        int halfWin = winSize / 2;
+
+        QByteArray copyData = m_rawData;
+        const char *src = copyData.constData();
+
+        for (int t = 0; t < numTraces; ++t) {
+            for (int s = 0; s < samplesPerTrace; ++s) {
+                double avg = 0.0;
+                int count = 0;
+                int sStart = qMax(0, s - halfWin);
+                int sEnd = qMin(samplesPerTrace - 1, s + halfWin);
+                for (int ss = sStart; ss <= sEnd; ++ss) {
+                    int idx = (t * samplesPerTrace + ss) * 4;
+                    qint32 val = (static_cast<quint8>(src[idx+3]) << 24) |
+                                 (static_cast<quint8>(src[idx+2]) << 16) |
+                                 (static_cast<quint8>(src[idx+1]) << 8) |
+                                 static_cast<quint8>(src[idx]);
+                    avg += val;
+                    count++;
+                }
+                avg /= count;
+
+                int idx = (t * samplesPerTrace + s) * 4;
+                qint32 result = static_cast<qint32>(avg);
+                data[idx]   = result & 0xFF;
+                data[idx+1] = (result >> 8) & 0xFF;
+                data[idx+2] = (result >> 16) & 0xFF;
+                data[idx+3] = (result >> 24) & 0xFF;
+            }
+        }
+    }
+
+    m_currentTab->rawData = m_rawData;
+    m_oneClickApplied = true;
+    m_oneClickBtnApply->setText("撤销");
+
+    refreshImage();
+    updateChart(m_lastChartX);
+
+    // Update one-click reference chart
+    if (m_oneClickSeries && !m_rawData.isEmpty()) {
+        m_oneClickSeries->clear();
+        qint32 minV = 0, maxV = 0;
+        for (int i = 0; i < samplesPerTrace; ++i) {
+            qint32 val = getPixelValue(m_lastChartX, i);
+            m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
+            if (i == 0 || val < minV) minV = val;
+            if (i == 0 || val > maxV) maxV = val;
+        }
+        if (QValueAxis *ax = qobject_cast<QValueAxis*>(m_oneClickChart->axisX(m_oneClickSeries))) {
+            int margin = qMax(1, (maxV - minV) / 10);
+            ax->setRange(minV - margin, maxV + margin);
+        }
+    }
 }
