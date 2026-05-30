@@ -36,6 +36,8 @@
 #include <QTimer>
 #include <QFileInfo>
 #include <QDateTime>
+#include <QProgressBar>
+#include <QCoreApplication>
 #include <functional>
 #include <cmath>
 #include <complex>
@@ -1341,10 +1343,15 @@ MainWindow::MainWindow(QWidget *parent)
     coordinateLabel = new QLabel("点击图片查看坐标", this);
     coordinateLabel->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px; font-family: monospace;");
 
-    openButton = new QPushButton("Open DZT File", this);
+    m_progressBar = new QProgressBar(this);
+    m_progressBar->setRange(0, 100);
+    m_progressBar->setValue(0);
+    m_progressBar->setTextVisible(true);
+    m_progressBar->setFixedHeight(22);
+    m_progressBar->hide();
 
     QHBoxLayout *buttonLayout = new QHBoxLayout();
-    buttonLayout->addWidget(openButton);
+    buttonLayout->addWidget(m_progressBar);
     buttonLayout->addWidget(coordinateLabel);
 
     mainLayout->addLayout(buttonLayout);
@@ -1355,8 +1362,6 @@ MainWindow::MainWindow(QWidget *parent)
 
     createMenuBar();
     loadLUT(12);
-
-    connect(openButton, &QPushButton::clicked, this, &MainWindow::onOpenFile);
     connect(m_docTabWidget, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
     connect(m_docTabWidget, &QTabWidget::currentChanged, this, &MainWindow::switchToTab);
 }
@@ -2591,7 +2596,9 @@ void MainWindow::createMenuBar()
         }
     });
     processBtns->addWidget(btnAdjZero);
-    processBtns->addWidget(makeBtn(":/icons/resources/correctoffset.png", "校正零偏"));
+    QToolButton *btnCorrectOffsetStart = makeBtn(":/icons/resources/correctoffset.png", "校正零偏");
+    connect(btnCorrectOffsetStart, &QToolButton::clicked, this, &MainWindow::showCorrectOffset);
+    processBtns->addWidget(btnCorrectOffsetStart);
     QToolButton *btnBgRemoveStart = makeBtn(":/icons/resources/bgremove.png", "背景消除");
     connect(btnBgRemoveStart, &QToolButton::clicked, this, &MainWindow::showBackgroundRemoval);
     processBtns->addWidget(btnBgRemoveStart);
@@ -2680,7 +2687,9 @@ void MainWindow::createMenuBar()
         }
     });
     g2row1->addWidget(btnAdjGain);
-    g2row1->addWidget(makeTextBtn("校正零偏"));
+    QToolButton *btnCorrectOffset = makeTextBtn("校正零偏");
+    connect(btnCorrectOffset, &QToolButton::clicked, this, &MainWindow::showCorrectOffset);
+    g2row1->addWidget(btnCorrectOffset);
     QToolButton *btnBgRemove = makeTextBtn("背景消除");
     connect(btnBgRemove, &QToolButton::clicked, this, &MainWindow::showBackgroundRemoval);
     g2row1->addWidget(btnBgRemove);
@@ -3610,6 +3619,12 @@ void MainWindow::applyBackgroundRemoval()
     int numTraces = totalPixels / samplesPerTrace;
     if (numTraces == 0 || samplesPerTrace == 0) return;
 
+    // Show progress bar
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat("背景消除: 读取数据...");
+    m_progressBar->show();
+    QCoreApplication::processEvents();
+
     // Parse raw data into 2D array of qint32
     const char *srcData = m_rawData.constData();
     std::vector<qint32> samples(totalPixels);
@@ -3621,25 +3636,32 @@ void MainWindow::applyBackgroundRemoval()
                      (static_cast<quint8>(srcData[idx]));
     }
 
-    if (methodIdx == 0) {
-        // 整体法: compute global average of all traces, subtract from each
+    m_progressBar->setValue(10);
+    m_progressBar->setFormat("背景消除: 处理中... %p%");
+    QCoreApplication::processEvents();
+
+    if (methodIdx == 0 || methodIdx == 2) {
+        // 整体法 / 全部通过: compute global average, subtract from each
         std::vector<double> avg(samplesPerTrace, 0.0);
         for (int t = 0; t < numTraces; ++t) {
             for (int s = 0; s < samplesPerTrace; ++s) {
                 avg[s] += samples[t * samplesPerTrace + s];
             }
         }
-        for (int s = 0; s < samplesPerTrace; ++s) {
+        for (int s = 0; s < samplesPerTrace; ++s)
             avg[s] /= numTraces;
-        }
         for (int t = 0; t < numTraces; ++t) {
             for (int s = 0; s < samplesPerTrace; ++s) {
                 samples[t * samplesPerTrace + s] -= static_cast<qint32>(avg[s]);
             }
+            if (t % qMax(1, numTraces / 20) == 0) {
+                m_progressBar->setValue(10 + 70 * t / numTraces);
+                QCoreApplication::processEvents();
+            }
         }
     } else if (methodIdx == 1) {
         // 扫描范围: sliding window of N traces
-        int winSize = m_bgRemovalWindowSpin ? m_bgRemovalWindowSpin->value() : 10;
+        int winSize = m_bgRemovalWindowSpin ? m_bgRemovalWindowSpin->value() : 200;
         if (winSize < 1) winSize = 1;
         int halfWin = winSize / 2;
 
@@ -3653,28 +3675,15 @@ void MainWindow::applyBackgroundRemoval()
                 for (int tt = start; tt <= end; ++tt) {
                     sum += samples[tt * samplesPerTrace + s];
                 }
-                double avg = sum / count;
-                samples[t * samplesPerTrace + s] -= static_cast<qint32>(avg);
+                samples[t * samplesPerTrace + s] -= static_cast<qint32>(sum / count);
             }
-        }
-    } else if (methodIdx == 2) {
-        // 全部通过: same as 整体法 (global average subtracted)
-        std::vector<double> avg(samplesPerTrace, 0.0);
-        for (int t = 0; t < numTraces; ++t) {
-            for (int s = 0; s < samplesPerTrace; ++s) {
-                avg[s] += samples[t * samplesPerTrace + s];
-            }
-        }
-        for (int s = 0; s < samplesPerTrace; ++s) {
-            avg[s] /= numTraces;
-        }
-        for (int t = 0; t < numTraces; ++t) {
-            for (int s = 0; s < samplesPerTrace; ++s) {
-                samples[t * samplesPerTrace + s] -= static_cast<qint32>(avg[s]);
+            if (t % qMax(1, numTraces / 20) == 0) {
+                m_progressBar->setValue(10 + 70 * t / numTraces);
+                QCoreApplication::processEvents();
             }
         }
     } else if (methodIdx == 3) {
-        // 自适应: weighted local average with Gaussian-like weighting
+        // 自适应: Gaussian weighted local average
         int winSize = qMax(10, numTraces / 10);
         int halfWin = winSize / 2;
 
@@ -3683,7 +3692,6 @@ void MainWindow::applyBackgroundRemoval()
             int end = qMin(numTraces - 1, t + halfWin);
             double sumWeight = 0.0;
 
-            // Compute weighted average
             std::vector<double> avg(samplesPerTrace, 0.0);
             for (int tt = start; tt <= end; ++tt) {
                 double dist = qAbs(tt - t);
@@ -3698,10 +3706,19 @@ void MainWindow::applyBackgroundRemoval()
                 avg[s] /= sumWeight;
                 samples[t * samplesPerTrace + s] -= static_cast<qint32>(avg[s]);
             }
+            if (t % qMax(1, numTraces / 20) == 0) {
+                m_progressBar->setValue(10 + 70 * t / numTraces);
+                m_progressBar->setFormat(QString("背景消除: 自适应处理 %1/%2").arg(t + 1).arg(numTraces));
+                QCoreApplication::processEvents();
+            }
         }
     }
 
     // Write back to m_rawData
+    m_progressBar->setValue(85);
+    m_progressBar->setFormat("背景消除: 写回数据...");
+    QCoreApplication::processEvents();
+
     char *dstData = m_rawData.data();
     for (int i = 0; i < totalPixels; ++i) {
         qint32 val = samples[i];
@@ -3712,10 +3729,183 @@ void MainWindow::applyBackgroundRemoval()
         dstData[idx+3] = (val >> 24) & 0xFF;
     }
 
+    m_progressBar->setValue(95);
+    m_progressBar->setFormat("背景消除: 刷新图像...");
+    QCoreApplication::processEvents();
+
     m_currentTab->rawData = m_rawData;
     m_bgRemovalApplied = true;
     if (m_bgRemovalBtnApply)
         m_bgRemovalBtnApply->setText("撤销");
+
+    refreshImage();
+    updateChart(m_lastChartX);
+
+    m_progressBar->setValue(100);
+    m_progressBar->setFormat("背景消除: 完成");
+    QCoreApplication::processEvents();
+
+    // Hide progress bar after a short delay
+    QTimer::singleShot(2000, this, [this]() {
+        m_progressBar->hide();
+        m_progressBar->setValue(0);
+    });
+}
+
+void MainWindow::showCorrectOffset()
+{
+    if (!m_currentTab) return;
+
+    if (m_correctOffsetDlg) {
+        m_correctOffsetDlg->raise();
+        m_correctOffsetDlg->activateWindow();
+        return;
+    }
+
+    m_correctOffsetDlg = new QDialog(this);
+    m_correctOffsetDlg->setAttribute(Qt::WA_DeleteOnClose);
+    m_correctOffsetDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
+    m_correctOffsetDlg->setWindowTitle("校正参数");
+
+    connect(m_correctOffsetDlg, &QDialog::finished, this, [this]() {
+        m_correctOffsetDlg = nullptr;
+        m_correctTimeWindowSpin = nullptr;
+        m_correctAntennaFreqSpin = nullptr;
+        m_correctBtnApply = nullptr;
+        m_correctApplied = false;
+    });
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(m_correctOffsetDlg);
+
+    // Row 1: 时窗
+    QHBoxLayout *row1 = new QHBoxLayout();
+    row1->addWidget(new QLabel("时窗："));
+    m_correctTimeWindowSpin = new QDoubleSpinBox();
+    m_correctTimeWindowSpin->setRange(0.0, 99999.0);
+    m_correctTimeWindowSpin->setDecimals(1);
+    m_correctTimeWindowSpin->setValue(2.0);
+    m_correctTimeWindowSpin->setSuffix(" ns");
+    row1->addWidget(m_correctTimeWindowSpin);
+    row1->addStretch();
+    mainLayout->addLayout(row1);
+
+    // Row 2: 天线频率
+    QHBoxLayout *row2 = new QHBoxLayout();
+    row2->addWidget(new QLabel("天线频率："));
+    m_correctAntennaFreqSpin = new QDoubleSpinBox();
+    m_correctAntennaFreqSpin->setRange(1.0, 99999.0);
+    m_correctAntennaFreqSpin->setDecimals(0);
+    m_correctAntennaFreqSpin->setValue(900.0);
+    m_correctAntennaFreqSpin->setSuffix(" MHz");
+    row2->addWidget(m_correctAntennaFreqSpin);
+    row2->addStretch();
+    mainLayout->addLayout(row2);
+
+    // Buttons
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    m_correctBtnApply = new QPushButton("应用");
+    QPushButton *btnOK = new QPushButton("确定");
+    QPushButton *btnCancel = new QPushButton("取消");
+    btnLayout->addWidget(m_correctBtnApply);
+    btnLayout->addWidget(btnOK);
+    btnLayout->addWidget(btnCancel);
+    mainLayout->addLayout(btnLayout);
+
+    // Apply button
+    connect(m_correctBtnApply, &QPushButton::clicked, this, [this]() {
+        applyCorrectOffset();
+    });
+
+    // OK button
+    connect(btnOK, &QPushButton::clicked, this, [this]() {
+        if (!m_correctApplied)
+            applyCorrectOffset();
+        if (m_correctApplied)
+            saveProcessedFile();
+        if (m_correctOffsetDlg)
+            m_correctOffsetDlg->close();
+    });
+
+    // Cancel button
+    connect(btnCancel, &QPushButton::clicked, this, [this]() {
+        if (m_correctApplied) {
+            m_rawData = m_currentTab->originalRawData;
+            m_currentTab->rawData = m_rawData;
+            m_correctApplied = false;
+            refreshImage();
+            updateChart(m_lastChartX);
+        }
+        if (m_correctOffsetDlg)
+            m_correctOffsetDlg->close();
+    });
+
+    m_correctOffsetDlg->show();
+}
+
+void MainWindow::applyCorrectOffset()
+{
+    if (!m_currentTab) return;
+
+    if (m_correctApplied) {
+        // Undo
+        m_rawData = m_currentTab->originalRawData;
+        m_currentTab->rawData = m_rawData;
+        m_correctApplied = false;
+        m_correctBtnApply->setText("应用");
+        refreshImage();
+        updateChart(m_lastChartX);
+        return;
+    }
+
+    // Backup original data
+    m_currentTab->originalRawData = m_rawData;
+
+    // Dewow: remove DC offset per trace using a time window
+    double timeWindowNs = m_correctTimeWindowSpin ? m_correctTimeWindowSpin->value() : 2.0;
+    double antennaFreqMHz = m_correctAntennaFreqSpin ? m_correctAntennaFreqSpin->value() : 900.0;
+
+    int samplesPerTrace = m_pixelsPerRow;
+    int totalPixels = m_rawData.size() / 4;
+    int numTraces = totalPixels / samplesPerTrace;
+    if (numTraces == 0 || samplesPerTrace == 0) return;
+
+    // Calculate how many samples the time window covers
+    double timeRangeSec = m_currentTab->timeRange * 1e-9;
+    double sampleInterval = timeRangeSec / samplesPerTrace;
+    int windowSamples = qMax(1, static_cast<int>(timeWindowNs * 1e-9 / sampleInterval));
+
+    char *data = m_rawData.data();
+    for (int t = 0; t < numTraces; ++t) {
+        // Compute mean of first windowSamples in this trace
+        double mean = 0.0;
+        for (int s = 0; s < windowSamples && s < samplesPerTrace; ++s) {
+            int idx = (t * samplesPerTrace + s) * 4;
+            qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
+                         (static_cast<quint8>(data[idx+2]) << 16) |
+                         (static_cast<quint8>(data[idx+1]) << 8) |
+                         (static_cast<quint8>(data[idx]));
+            mean += val;
+        }
+        mean /= qMin(windowSamples, samplesPerTrace);
+
+        // Subtract mean from entire trace
+        for (int s = 0; s < samplesPerTrace; ++s) {
+            int idx = (t * samplesPerTrace + s) * 4;
+            qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
+                         (static_cast<quint8>(data[idx+2]) << 16) |
+                         (static_cast<quint8>(data[idx+1]) << 8) |
+                         (static_cast<quint8>(data[idx]));
+            val -= static_cast<qint32>(mean);
+            data[idx]   = val & 0xFF;
+            data[idx+1] = (val >> 8) & 0xFF;
+            data[idx+2] = (val >> 16) & 0xFF;
+            data[idx+3] = (val >> 24) & 0xFF;
+        }
+    }
+
+    m_currentTab->rawData = m_rawData;
+    m_correctApplied = true;
+    m_correctBtnApply->setText("撤销");
 
     refreshImage();
     updateChart(m_lastChartX);

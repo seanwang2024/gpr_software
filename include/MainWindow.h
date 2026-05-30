@@ -24,6 +24,7 @@
 
 QT_BEGIN_NAMESPACE
 class QChart;
+class QProgressBar;
 class QScrollBar;
 class QGridLayout;
 QT_END_NAMESPACE
@@ -204,6 +205,7 @@ private:
 
     // Shared/global widgets
     QPushButton *openButton;
+    QProgressBar *m_progressBar = nullptr;
     QLabel *coordinateLabel;
     QTreeWidget *gainTree;
     QWidget *m_leftPanel;
@@ -283,6 +285,15 @@ private:
     bool m_bgRemovalApplied = false;
     void showBackgroundRemoval();
     void applyBackgroundRemoval();
+
+    // Correct offset dialog pointers (non-modal)
+    QDialog *m_correctOffsetDlg = nullptr;
+    QDoubleSpinBox *m_correctTimeWindowSpin = nullptr;
+    QDoubleSpinBox *m_correctAntennaFreqSpin = nullptr;
+    QPushButton *m_correctBtnApply = nullptr;
+    bool m_correctApplied = false;
+    void showCorrectOffset();
+    void applyCorrectOffset();
 };
 
 #endif
