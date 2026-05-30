@@ -39,6 +39,7 @@
 #include <QProgressBar>
 #include <QCoreApplication>
 #include <QCheckBox>
+#include <QTextStream>
 #include <functional>
 #include <cmath>
 #include <complex>
@@ -1938,24 +1939,8 @@ void MainWindow::onImageClicked(const QPoint &pos)
     }
 
     // Update one-click process reference chart if open
-    if (m_oneClickDlg && m_oneClickDlg->isVisible() && m_oneClickSeries && !m_rawData.isEmpty()) {
-        m_oneClickSeries->clear();
-        int samplesPerTrace = m_pixelsPerRow;
-        qint32 minV = 0, maxV = 0;
-        for (int i = 0; i < samplesPerTrace; ++i) {
-            qint32 val = getPixelValue(pos.x(), i);
-            m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
-            if (i == 0 || val < minV) minV = val;
-            if (i == 0 || val > maxV) maxV = val;
-        }
-        auto axes = m_oneClickChart->axes(Qt::Horizontal);
-        if (!axes.isEmpty()) {
-            QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
-            if (ax) {
-                int margin = qMax(1, (maxV - minV) / 10);
-                ax->setRange(minV - margin, maxV + margin);
-            }
-        }
+    if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
+        updateOneClickRefChart();
     }
 }
 
@@ -3768,24 +3753,8 @@ void MainWindow::applyBackgroundRemoval()
     updateChart(m_lastChartX);
 
     // Sync one-click dialog reference chart
-    if (m_oneClickDlg && m_oneClickDlg->isVisible() && m_oneClickSeries && !m_rawData.isEmpty()) {
-        m_oneClickSeries->clear();
-        qint32 minV = 0, maxV = 0;
-        int spt = m_pixelsPerRow;
-        for (int i = 0; i < spt; ++i) {
-            qint32 val = getPixelValue(m_lastChartX, i);
-            m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
-            if (i == 0 || val < minV) minV = val;
-            if (i == 0 || val > maxV) maxV = val;
-        }
-        auto axes = m_oneClickChart->axes(Qt::Horizontal);
-        if (!axes.isEmpty()) {
-            QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
-            if (ax) {
-                int margin = qMax(1, (maxV - minV) / 10);
-                ax->setRange(minV - margin, maxV + margin);
-            }
-        }
+    if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
+        updateOneClickRefChart();
     }
 
     m_progressBar->setValue(100);
@@ -3958,23 +3927,8 @@ void MainWindow::applyCorrectOffset()
     updateChart(m_lastChartX);
 
     // Sync one-click dialog reference chart
-    if (m_oneClickDlg && m_oneClickDlg->isVisible() && m_oneClickSeries && !m_rawData.isEmpty()) {
-        m_oneClickSeries->clear();
-        qint32 minV = 0, maxV = 0;
-        for (int i = 0; i < samplesPerTrace; ++i) {
-            qint32 val = getPixelValue(m_lastChartX, i);
-            m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
-            if (i == 0 || val < minV) minV = val;
-            if (i == 0 || val > maxV) maxV = val;
-        }
-        auto axes = m_oneClickChart->axes(Qt::Horizontal);
-        if (!axes.isEmpty()) {
-            QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
-            if (ax) {
-                int margin = qMax(1, (maxV - minV) / 10);
-                ax->setRange(minV - margin, maxV + margin);
-            }
-        }
+    if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
+        updateOneClickRefChart();
     }
 }
 
@@ -3985,26 +3939,7 @@ void MainWindow::showOneClickProcess()
     if (m_oneClickDlg) {
         m_oneClickDlg->raise();
         m_oneClickDlg->activateWindow();
-        // Update chart to current position
-        if (m_oneClickSeries && !m_rawData.isEmpty()) {
-            m_oneClickSeries->clear();
-            int samplesPerTrace = m_pixelsPerRow;
-            qint32 minV = 0, maxV = 0;
-            for (int i = 0; i < samplesPerTrace; ++i) {
-                qint32 val = getPixelValue(m_lastChartX, i);
-                m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
-                if (i == 0 || val < minV) minV = val;
-                if (i == 0 || val > maxV) maxV = val;
-            }
-            auto axes = m_oneClickChart->axes(Qt::Horizontal);
-            if (!axes.isEmpty()) {
-                QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
-                if (ax) {
-                    int margin = qMax(1, (maxV - minV) / 10);
-                    ax->setRange(minV - margin, maxV + margin);
-                }
-            }
-        }
+        updateOneClickRefChart();
         return;
     }
 
@@ -4071,7 +4006,7 @@ void MainWindow::showOneClickProcess()
     // 2. 幅度补偿
     QHBoxLayout *row2 = new QHBoxLayout();
     m_oneClickAmpComp = new QCheckBox("幅度补偿");
-    m_oneClickAmpComp->setChecked(true);
+    m_oneClickAmpComp->setChecked(false);
     row2->addWidget(m_oneClickAmpComp);
     row2->addWidget(new QLabel("值:"));
     m_oneClickAmpCompSpin = new QSpinBox();
@@ -4084,7 +4019,7 @@ void MainWindow::showOneClickProcess()
     // 3. 调节零点
     QHBoxLayout *row3 = new QHBoxLayout();
     m_oneClickAdjZero = new QCheckBox("调节零点");
-    m_oneClickAdjZero->setChecked(true);
+    m_oneClickAdjZero->setChecked(false);
     row3->addWidget(m_oneClickAdjZero);
     row3->addWidget(new QLabel("值:"));
     m_oneClickZeroValueSpin = new QSpinBox();
@@ -4168,26 +4103,22 @@ void MainWindow::showOneClickProcess()
     QValueAxis *axisY = new QValueAxis();
     axisY->setTitleText("采样点");
     axisY->setRange(0, 511);
+    axisY->setLabelFormat("%d");
     axisY->setReverse(true);
     m_oneClickChart->addAxis(axisY, Qt::AlignLeft);
     m_oneClickSeries->attachAxis(axisY);
 
-    // Populate with current X position data
-    if (!m_rawData.isEmpty()) {
-        int samplesPerTrace = m_pixelsPerRow;
-        qint32 minV = 0, maxV = 0;
-        for (int i = 0; i < samplesPerTrace; ++i) {
-            qint32 val = getPixelValue(m_lastChartX, i);
-            m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
-            if (i == 0 || val < minV) minV = val;
-            if (i == 0 || val > maxV) maxV = val;
-        }
-        int margin = qMax(1, (maxV - minV) / 10);
-        axisX->setRange(minV - margin, maxV + margin);
-    }
+    // Populate with current X position data (will be updated by updateOneClickRefChart after connections)
+    axisX->setRange(-8388608.0, 8388608.0);
 
-    m_oneClickChartView = new QChartView(m_oneClickChart);
+    m_oneClickChartView = new CustomChartView();
+    m_oneClickChartView->setChart(m_oneClickChart);
     m_oneClickChartView->setRenderHint(QPainter::Antialiasing);
+    m_oneClickChartView->setLineSeries(m_oneClickSeries);
+    m_oneClickChartView->setLineCount(8);
+    m_oneClickChartView->setGainRange(-6.0f, 6.0f);
+    m_oneClickChartView->setGainVisible(false);
+    m_oneClickChartView->setYScale(1.0f);
     chartLayout->addWidget(m_oneClickChartView);
 
     mainLayout->addWidget(chartGroup, 2);
@@ -4218,6 +4149,42 @@ void MainWindow::showOneClickProcess()
             m_oneClickDlg->close();
     });
 
+    // Real-time preview: any checkbox/spinbox change updates reference waveform
+    connect(m_oneClickCorrectOffset, &QCheckBox::toggled, this, [this]() {
+        if (!m_oneClickApplied) updateOneClickRefChart();
+    });
+    connect(m_oneClickTimeWindowSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this]() {
+        if (!m_oneClickApplied) updateOneClickRefChart();
+    });
+    connect(m_oneClickAntennaFreqSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this]() {
+        if (!m_oneClickApplied) updateOneClickRefChart();
+    });
+    connect(m_oneClickAmpComp, &QCheckBox::toggled, this, [this]() {
+        if (!m_oneClickApplied) updateOneClickRefChart();
+    });
+    connect(m_oneClickAmpCompSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() {
+        if (!m_oneClickApplied) updateOneClickRefChart();
+    });
+    connect(m_oneClickAdjZero, &QCheckBox::toggled, this, [this]() {
+        if (!m_oneClickApplied) updateOneClickRefChart();
+    });
+    connect(m_oneClickZeroValueSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() {
+        if (!m_oneClickApplied) updateOneClickRefChart();
+    });
+    connect(m_oneClickAdjGain, &QCheckBox::toggled, this, [this]() {
+        if (m_oneClickChartView) {
+            m_oneClickChartView->setGainVisible(m_oneClickAdjGain->isChecked());
+            m_oneClickChartView->update();
+        }
+        if (!m_oneClickApplied) updateOneClickRefChart();
+    });
+    connect(m_oneClickChartView, &CustomChartView::gainChanged, this, [this]() {
+        if (!m_oneClickApplied) updateOneClickRefChart();
+    });
+
+    // Initial preview with checked items (e.g. dewow)
+    updateOneClickRefChart();
+
     m_oneClickDlg->show();
 }
 
@@ -4237,24 +4204,15 @@ void MainWindow::applyOneClickProcess()
         // Sync reference chart on undo
         if (m_oneClickSeries && !m_rawData.isEmpty()) {
             m_oneClickSeries->clear();
-            qint32 minV = 0, maxV = 0;
             int spt = m_pixelsPerRow;
-            QVector<QPointF> points;
-            points.reserve(spt);
             for (int i = 0; i < spt; ++i) {
                 qint32 val = getPixelValue(m_lastChartX, i);
-                points.append(QPointF(static_cast<qreal>(val), static_cast<qreal>(i)));
-                if (i == 0 || val < minV) minV = val;
-                if (i == 0 || val > maxV) maxV = val;
+                m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
             }
-            m_oneClickSeries->replace(points);
             auto axes = m_oneClickChart->axes(Qt::Horizontal);
             if (!axes.isEmpty()) {
                 QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
-                if (ax) {
-                    int margin = qMax(1, (maxV - minV) / 10);
-                    ax->setRange(minV - margin, maxV + margin);
-                }
+                if (ax) ax->setRange(-8388608.0, 8388608.0);
             }
             if (m_oneClickChartView) m_oneClickChartView->update();
         }
@@ -4437,26 +4395,88 @@ void MainWindow::applyOneClickProcess()
     // Update one-click reference chart
     if (m_oneClickSeries && !m_rawData.isEmpty()) {
         m_oneClickSeries->clear();
-        qint32 minV = 0, maxV = 0;
-        QVector<QPointF> points;
-        points.reserve(samplesPerTrace);
         for (int i = 0; i < samplesPerTrace; ++i) {
             qint32 val = getPixelValue(m_lastChartX, i);
-            points.append(QPointF(static_cast<qreal>(val), static_cast<qreal>(i)));
-            if (i == 0 || val < minV) minV = val;
-            if (i == 0 || val > maxV) maxV = val;
+            m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
         }
-        m_oneClickSeries->replace(points);
-        // Update X axis range using axes() list
         auto axes = m_oneClickChart->axes(Qt::Horizontal);
         if (!axes.isEmpty()) {
             QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
-            if (ax) {
-                int margin = qMax(1, (maxV - minV) / 10);
-                ax->setRange(minV - margin, maxV + margin);
+            if (ax) ax->setRange(-8388608.0, 8388608.0);
+        }
+        if (m_oneClickChartView) m_oneClickChartView->update();
+    }
+}
+
+void MainWindow::updateOneClickRefChart()
+{
+    if (!m_oneClickSeries || m_rawData.isEmpty() || !m_currentTab) return;
+
+    if (m_oneClickApplied) return; // after apply, show actual processed data
+
+    m_oneClickSeries->clear();
+
+    int samplesPerTrace = m_pixelsPerRow;
+
+    // Read raw 512 samples for current trace
+    QVector<qint32> samples(samplesPerTrace);
+    for (int i = 0; i < samplesPerTrace; ++i)
+        samples[i] = getPixelValue(m_lastChartX, i);
+
+    // Preview: 校正零偏 (Dewow)
+    if (m_oneClickCorrectOffset && m_oneClickCorrectOffset->isChecked()) {
+        double timeWindowNs = m_oneClickTimeWindowSpin ? m_oneClickTimeWindowSpin->value() : 40.0;
+        double timeRangeSec = m_currentTab->timeRange * 1e-9;
+        double sampleInterval = timeRangeSec / samplesPerTrace;
+        int windowSamples = qMax(1, static_cast<int>(timeWindowNs * 1e-9 / sampleInterval));
+        double mean = 0.0;
+        for (int s = 0; s < windowSamples && s < samplesPerTrace; ++s)
+            mean += samples[s];
+        mean /= qMin(windowSamples, samplesPerTrace);
+        for (int s = 0; s < samplesPerTrace; ++s)
+            samples[s] -= static_cast<qint32>(mean);
+    }
+
+    // Preview: 幅度补偿 (Amplitude Compensation)
+    if (m_oneClickAmpComp && m_oneClickAmpComp->isChecked() && m_oneClickAmpCompSpin) {
+        int compValue = m_oneClickAmpCompSpin->value();
+        if (compValue > 0) {
+            const double alpha = 4.60517 / 511.0; // ln(100)/511
+            for (int i = 0; i < samplesPerTrace; ++i) {
+                double gain = std::exp(alpha * i * compValue / 100.0);
+                samples[i] = static_cast<qint32>(samples[i] * gain);
             }
         }
-        if (m_oneClickChartView)
-            m_oneClickChartView->update();
     }
+
+    // Preview: 调节零点 (shift up)
+    if (m_oneClickAdjZero && m_oneClickAdjZero->isChecked() && m_oneClickZeroValueSpin) {
+        int zeroRows = m_oneClickZeroValueSpin->value();
+        if (zeroRows > 0 && zeroRows < samplesPerTrace) {
+            for (int i = 0; i < samplesPerTrace - zeroRows; ++i)
+                samples[i] = samples[i + zeroRows];
+            for (int i = samplesPerTrace - zeroRows; i < samplesPerTrace; ++i)
+                samples[i] = 0;
+        }
+    }
+
+    // Preview: 调节增益 (interpolated gain from CustomChartView handles)
+    if (m_oneClickAdjGain && m_oneClickAdjGain->isChecked() && m_oneClickChartView) {
+        for (int i = 0; i < samplesPerTrace; ++i) {
+            float g = m_oneClickChartView->interpolatedGain(i);
+            float gainLinear = std::pow(10.0f, g / 20.0f);
+            samples[i] = static_cast<qint32>(samples[i] * gainLinear);
+        }
+    }
+
+    // Display in chart
+    for (int i = 0; i < samplesPerTrace; ++i)
+        m_oneClickSeries->append(static_cast<qreal>(samples[i]), static_cast<qreal>(i));
+
+    auto axes = m_oneClickChart->axes(Qt::Horizontal);
+    if (!axes.isEmpty()) {
+        QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
+        if (ax) ax->setRange(-8388608.0, 8388608.0);
+    }
+    if (m_oneClickChartView) m_oneClickChartView->update();
 }

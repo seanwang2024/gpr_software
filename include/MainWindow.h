@@ -314,10 +314,11 @@ private:
     QPushButton *m_oneClickBtnApply = nullptr;
     QChart *m_oneClickChart = nullptr;
     QLineSeries *m_oneClickSeries = nullptr;
-    QChartView *m_oneClickChartView = nullptr;
+    CustomChartView *m_oneClickChartView = nullptr;
     bool m_oneClickApplied = false;
     void showOneClickProcess();
     void applyOneClickProcess();
+    void updateOneClickRefChart();
 };
 
 #endif
