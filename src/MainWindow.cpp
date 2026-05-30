@@ -3767,6 +3767,27 @@ void MainWindow::applyBackgroundRemoval()
     refreshImage();
     updateChart(m_lastChartX);
 
+    // Sync one-click dialog reference chart
+    if (m_oneClickDlg && m_oneClickDlg->isVisible() && m_oneClickSeries && !m_rawData.isEmpty()) {
+        m_oneClickSeries->clear();
+        qint32 minV = 0, maxV = 0;
+        int spt = m_pixelsPerRow;
+        for (int i = 0; i < spt; ++i) {
+            qint32 val = getPixelValue(m_lastChartX, i);
+            m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
+            if (i == 0 || val < minV) minV = val;
+            if (i == 0 || val > maxV) maxV = val;
+        }
+        auto axes = m_oneClickChart->axes(Qt::Horizontal);
+        if (!axes.isEmpty()) {
+            QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
+            if (ax) {
+                int margin = qMax(1, (maxV - minV) / 10);
+                ax->setRange(minV - margin, maxV + margin);
+            }
+        }
+    }
+
     m_progressBar->setValue(100);
     m_progressBar->setFormat("背景消除: 完成");
     QCoreApplication::processEvents();
@@ -3935,6 +3956,26 @@ void MainWindow::applyCorrectOffset()
 
     refreshImage();
     updateChart(m_lastChartX);
+
+    // Sync one-click dialog reference chart
+    if (m_oneClickDlg && m_oneClickDlg->isVisible() && m_oneClickSeries && !m_rawData.isEmpty()) {
+        m_oneClickSeries->clear();
+        qint32 minV = 0, maxV = 0;
+        for (int i = 0; i < samplesPerTrace; ++i) {
+            qint32 val = getPixelValue(m_lastChartX, i);
+            m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
+            if (i == 0 || val < minV) minV = val;
+            if (i == 0 || val > maxV) maxV = val;
+        }
+        auto axes = m_oneClickChart->axes(Qt::Horizontal);
+        if (!axes.isEmpty()) {
+            QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
+            if (ax) {
+                int margin = qMax(1, (maxV - minV) / 10);
+                ax->setRange(minV - margin, maxV + margin);
+            }
+        }
+    }
 }
 
 void MainWindow::showOneClickProcess()
