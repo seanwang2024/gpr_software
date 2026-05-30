@@ -4233,6 +4233,31 @@ void MainWindow::applyOneClickProcess()
         m_oneClickBtnApply->setText("应用");
         refreshImage();
         updateChart(m_lastChartX);
+
+        // Sync reference chart on undo
+        if (m_oneClickSeries && !m_rawData.isEmpty()) {
+            m_oneClickSeries->clear();
+            qint32 minV = 0, maxV = 0;
+            int spt = m_pixelsPerRow;
+            QVector<QPointF> points;
+            points.reserve(spt);
+            for (int i = 0; i < spt; ++i) {
+                qint32 val = getPixelValue(m_lastChartX, i);
+                points.append(QPointF(static_cast<qreal>(val), static_cast<qreal>(i)));
+                if (i == 0 || val < minV) minV = val;
+                if (i == 0 || val > maxV) maxV = val;
+            }
+            m_oneClickSeries->replace(points);
+            auto axes = m_oneClickChart->axes(Qt::Horizontal);
+            if (!axes.isEmpty()) {
+                QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
+                if (ax) {
+                    int margin = qMax(1, (maxV - minV) / 10);
+                    ax->setRange(minV - margin, maxV + margin);
+                }
+            }
+            if (m_oneClickChartView) m_oneClickChartView->update();
+        }
         return;
     }
 
@@ -4413,12 +4438,15 @@ void MainWindow::applyOneClickProcess()
     if (m_oneClickSeries && !m_rawData.isEmpty()) {
         m_oneClickSeries->clear();
         qint32 minV = 0, maxV = 0;
+        QVector<QPointF> points;
+        points.reserve(samplesPerTrace);
         for (int i = 0; i < samplesPerTrace; ++i) {
             qint32 val = getPixelValue(m_lastChartX, i);
-            m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
+            points.append(QPointF(static_cast<qreal>(val), static_cast<qreal>(i)));
             if (i == 0 || val < minV) minV = val;
             if (i == 0 || val > maxV) maxV = val;
         }
+        m_oneClickSeries->replace(points);
         // Update X axis range using axes() list
         auto axes = m_oneClickChart->axes(Qt::Horizontal);
         if (!axes.isEmpty()) {
@@ -4428,5 +4456,7 @@ void MainWindow::applyOneClickProcess()
                 ax->setRange(minV - margin, maxV + margin);
             }
         }
+        if (m_oneClickChartView)
+            m_oneClickChartView->update();
     }
 }
