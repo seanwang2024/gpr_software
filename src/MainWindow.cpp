@@ -1948,9 +1948,13 @@ void MainWindow::onImageClicked(const QPoint &pos)
             if (i == 0 || val < minV) minV = val;
             if (i == 0 || val > maxV) maxV = val;
         }
-        if (QValueAxis *ax = qobject_cast<QValueAxis*>(m_oneClickChart->axisX(m_oneClickSeries))) {
-            int margin = qMax(1, (maxV - minV) / 10);
-            ax->setRange(minV - margin, maxV + margin);
+        auto axes = m_oneClickChart->axes(Qt::Horizontal);
+        if (!axes.isEmpty()) {
+            QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
+            if (ax) {
+                int margin = qMax(1, (maxV - minV) / 10);
+                ax->setRange(minV - margin, maxV + margin);
+            }
         }
     }
 }
@@ -3944,9 +3948,20 @@ void MainWindow::showOneClickProcess()
         if (m_oneClickSeries && !m_rawData.isEmpty()) {
             m_oneClickSeries->clear();
             int samplesPerTrace = m_pixelsPerRow;
+            qint32 minV = 0, maxV = 0;
             for (int i = 0; i < samplesPerTrace; ++i) {
                 qint32 val = getPixelValue(m_lastChartX, i);
                 m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
+                if (i == 0 || val < minV) minV = val;
+                if (i == 0 || val > maxV) maxV = val;
+            }
+            auto axes = m_oneClickChart->axes(Qt::Horizontal);
+            if (!axes.isEmpty()) {
+                QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
+                if (ax) {
+                    int margin = qMax(1, (maxV - minV) / 10);
+                    ax->setRange(minV - margin, maxV + margin);
+                }
             }
         }
         return;
@@ -4363,9 +4378,14 @@ void MainWindow::applyOneClickProcess()
             if (i == 0 || val < minV) minV = val;
             if (i == 0 || val > maxV) maxV = val;
         }
-        if (QValueAxis *ax = qobject_cast<QValueAxis*>(m_oneClickChart->axisX(m_oneClickSeries))) {
-            int margin = qMax(1, (maxV - minV) / 10);
-            ax->setRange(minV - margin, maxV + margin);
+        // Update X axis range using axes() list
+        auto axes = m_oneClickChart->axes(Qt::Horizontal);
+        if (!axes.isEmpty()) {
+            QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
+            if (ax) {
+                int margin = qMax(1, (maxV - minV) / 10);
+                ax->setRange(minV - margin, maxV + margin);
+            }
         }
     }
 }
