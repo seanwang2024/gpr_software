@@ -4322,52 +4322,51 @@ void MainWindow::applyOneClickProcess()
         }
     }
 
-    // Step 2: 幅度补偿 (Amplitude Compensation - segment-based with interpolation)
+    // Step 2: 幅度补偿 (per-trace, segment-based with interpolation)
     if (m_oneClickAmpComp && m_oneClickAmpComp->isChecked()) {
         int compValue = m_oneClickAmpCompSpin ? m_oneClickAmpCompSpin->value() : 100;
         if (compValue > 0) {
             const int numSegs = 8;
             const int segSize = samplesPerTrace / numSegs;
-            // Scan DEWOW'd data to find max abs value in each segment
-            double segMax[numSegs];
-            for (int seg = 0; seg < numSegs; ++seg) segMax[seg] = 0.0;
-            int dataTotal = totalPixels;
-            for (int i = 0; i < dataTotal; ++i) {
-                int s = i % samplesPerTrace;
-                int seg = qMin(s / segSize, numSegs - 1);
-                int idx = i * 4;
-                qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
-                             (static_cast<quint8>(data[idx+2]) << 16) |
-                             (static_cast<quint8>(data[idx+1]) << 8) |
-                             static_cast<quint8>(data[idx]);
-                double av = qAbs(static_cast<double>(val));
-                if (av > segMax[seg]) segMax[seg] = av;
-            }
-            double coeff[numSegs];
-            for (int seg = 0; seg < numSegs; ++seg) {
-                if (segMax[seg] < 1.0) segMax[seg] = 1.0;
-                coeff[seg] = 8388608.0 / segMax[seg] * (compValue / 100.0);
-            }
-            // Build interpolated gain table (linear between segment centers)
             const int centers[8] = {32, 96, 160, 224, 288, 352, 416, 480};
-            double gainTable[512];
-            for (int i = 0; i < samplesPerTrace; ++i) {
-                if (i <= centers[0]) {
-                    gainTable[i] = coeff[0];
-                } else if (i >= centers[7]) {
-                    gainTable[i] = coeff[7];
-                } else {
-                    for (int k = 0; k < 7; ++k) {
-                        if (i <= centers[k + 1]) {
-                            double t = (double)(i - centers[k]) / (centers[k + 1] - centers[k]);
-                            gainTable[i] = coeff[k] + t * (coeff[k + 1] - coeff[k]);
-                            break;
+            // Per-trace: compute segMax, interpolate, apply
+            for (int t = 0; t < numTraces; ++t) {
+                // Compute per-trace segMax from DEWOW'd data
+                double segMax[numSegs];
+                for (int seg = 0; seg < numSegs; ++seg) segMax[seg] = 0.0;
+                for (int s = 0; s < samplesPerTrace; ++s) {
+                    int idx = (t * samplesPerTrace + s) * 4;
+                    qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
+                                 (static_cast<quint8>(data[idx+2]) << 16) |
+                                 (static_cast<quint8>(data[idx+1]) << 8) |
+                                 static_cast<quint8>(data[idx]);
+                    int seg = qMin(s / segSize, numSegs - 1);
+                    double av = qAbs(static_cast<double>(val));
+                    if (av > segMax[seg]) segMax[seg] = av;
+                }
+                double coeff[numSegs];
+                for (int seg = 0; seg < numSegs; ++seg) {
+                    if (segMax[seg] < 1.0) segMax[seg] = 1.0;
+                    coeff[seg] = 8388608.0 / segMax[seg] * (compValue / 100.0);
+                }
+                // Build interpolated gain table
+                double gainTable[512];
+                for (int i = 0; i < samplesPerTrace; ++i) {
+                    if (i <= centers[0]) {
+                        gainTable[i] = coeff[0];
+                    } else if (i >= centers[7]) {
+                        gainTable[i] = coeff[7];
+                    } else {
+                        for (int k = 0; k < 7; ++k) {
+                            if (i <= centers[k + 1]) {
+                                double t2 = (double)(i - centers[k]) / (centers[k + 1] - centers[k]);
+                                gainTable[i] = coeff[k] + t2 * (coeff[k + 1] - coeff[k]);
+                                break;
+                            }
                         }
                     }
                 }
-            }
-            // Apply interpolated gain to all traces
-            for (int t = 0; t < numTraces; ++t) {
+                // Apply to this trace
                 for (int s = 0; s < samplesPerTrace; ++s) {
                     int idx = (t * samplesPerTrace + s) * 4;
                     qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
@@ -4575,13 +4574,13 @@ void MainWindow::updateOneClickRefChart()
         }
     }
 
-    // Preview: 幅度补偿 (segment-based statistical with interpolation)
+    // Preview: 幅度补偿 (per-trace, segment-based with interpolation)
     if (m_oneClickAmpComp && m_oneClickAmpComp->isChecked() && m_oneClickAmpCompSpin) {
         int compValue = m_oneClickAmpCompSpin->value();
         if (compValue > 0) {
             const int numSegs = 8;
             const int segSize = samplesPerTrace / numSegs;
-            // Compute segMax from current samples[] (already DEWOW'd if checked)
+            // Compute segMax from current trace's DEWOW'd samples
             double segMax[numSegs];
             for (int seg = 0; seg < numSegs; ++seg) segMax[seg] = 0.0;
             for (int i = 0; i < samplesPerTrace; ++i) {
