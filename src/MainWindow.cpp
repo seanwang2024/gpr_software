@@ -1355,7 +1355,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Initially show welcome, hide others
     m_leftPanel->hide();
-    m_docTabWidget->hide();
+    m_docSplitter->hide();
     welcomeLabel->show();
 
     mainLayout->addLayout(contentLayout);
