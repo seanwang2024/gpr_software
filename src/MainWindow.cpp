@@ -1570,7 +1570,38 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     pageLayout->addWidget(tab->chartView);
 
     // Per-tab signal connections
-    connect(tab->imageLabel, &ImageLabel::imageClicked, this, &MainWindow::onImageClicked);
+    connect(tab->imageLabel, &ImageLabel::imageClicked, this, [this, tab](const QPoint &pos) {
+        // Activate this tab if it's not current
+        if (m_currentTab != tab) {
+            m_currentTab = tab;
+            m_rawData = tab->rawData;
+            m_dataOffset = tab->dataOffset;
+            m_pixelsPerRow = tab->pixelsPerRow;
+            m_gain = tab->gain;
+            m_transformMode = tab->transformMode;
+            m_traceCount = tab->traceCount;
+            m_timeRange = tab->timeRange;
+            m_depthRange = tab->depthRange;
+            scrollArea = tab->scrollArea;
+            imageLabel = tab->imageLabel;
+            chartView = tab->chartView;
+            chartSeries = tab->chartSeries;
+            m_btnApply->setText(tab->gainApplied ? "撤销" : "应用");
+            m_btnApply->setEnabled(true);
+            m_btnOK->setEnabled(true);
+            m_btnCancel->setEnabled(true);
+            if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
+                QString fname = QFileInfo(tab->filePath).fileName();
+                m_oneClickDlg->setWindowTitle(QString("一键处理 - %1").arg(fname));
+            }
+            // Switch the tab group's current tab
+            for (auto *grp : m_tabGroups) {
+                int idx = grp->indexOf(tab->page);
+                if (idx >= 0) { grp->setCurrentIndex(idx); break; }
+            }
+        }
+        onImageClicked(pos);
+    });
 
     connect(tab->imageLabel, &ImageLabel::transformSelected, this, [this, tab](int mode) {
         tab->transformMode = mode;
@@ -2506,7 +2537,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             }
         }
     }
-    // Handle left-click on tab bar: activate group & update dialog title
+    // Handle left-click on tab bar: activate group & ensure correct tab
     if (event->type() == QEvent::MouseButtonPress) {
         auto *tabBar = qobject_cast<QTabBar*>(watched);
         if (tabBar) {
@@ -2514,15 +2545,35 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             if (me->button() == Qt::LeftButton) {
                 int idx = tabBar->tabAt(me->pos());
                 if (idx >= 0) {
-                    // Find owning group
                     for (auto *grp : m_tabGroups) {
                         if (grp->tabBar() == tabBar) {
                             m_activeTabGroup = grp;
-                            // If clicking the already-current tab, currentChanged won't fire
-                            // Manually update dialog title
-                            if (m_oneClickDlg && m_oneClickDlg->isVisible() && m_currentTab) {
-                                QString fname = QFileInfo(m_currentTab->filePath).fileName();
-                                m_oneClickDlg->setWindowTitle(QString("一键处理 - %1").arg(fname));
+                            // Find TabData for the clicked tab
+                            QWidget *page = grp->widget(idx);
+                            for (auto *t : m_tabs) {
+                                if (t->page == page) {
+                                    if (m_currentTab != t) {
+                                        m_currentTab = t;
+                                        m_rawData = t->rawData;
+                                        m_dataOffset = t->dataOffset;
+                                        m_pixelsPerRow = t->pixelsPerRow;
+                                        m_gain = t->gain;
+                                        m_transformMode = t->transformMode;
+                                        m_traceCount = t->traceCount;
+                                        m_timeRange = t->timeRange;
+                                        m_depthRange = t->depthRange;
+                                        scrollArea = t->scrollArea;
+                                        imageLabel = t->imageLabel;
+                                        chartView = t->chartView;
+                                        chartSeries = t->chartSeries;
+                                        m_btnApply->setText(t->gainApplied ? "撤销" : "应用");
+                                    }
+                                    if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
+                                        QString fname = QFileInfo(t->filePath).fileName();
+                                        m_oneClickDlg->setWindowTitle(QString("一键处理 - %1").arg(fname));
+                                    }
+                                    break;
+                                }
                             }
                             break;
                         }
