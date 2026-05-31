@@ -4185,37 +4185,37 @@ void MainWindow::showOneClickProcess()
             m_oneClickDlg->close();
     });
 
-    // Real-time preview: any checkbox/spinbox change updates reference waveform
+    // Real-time preview: dialog settings always update reference waveform
     connect(m_oneClickCorrectOffset, &QCheckBox::toggled, this, [this]() {
-        if (!m_oneClickApplied) updateOneClickRefChart();
+        updateOneClickRefChart();
     });
     connect(m_oneClickTimeWindowSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this]() {
-        if (!m_oneClickApplied) updateOneClickRefChart();
+        updateOneClickRefChart();
     });
     connect(m_oneClickAntennaFreqSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this]() {
-        if (!m_oneClickApplied) updateOneClickRefChart();
+        updateOneClickRefChart();
     });
     connect(m_oneClickAmpComp, &QCheckBox::toggled, this, [this]() {
-        if (!m_oneClickApplied) updateOneClickRefChart();
+        updateOneClickRefChart();
     });
     connect(m_oneClickAmpCompSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() {
-        if (!m_oneClickApplied) updateOneClickRefChart();
+        updateOneClickRefChart();
     });
     connect(m_oneClickAdjZero, &QCheckBox::toggled, this, [this]() {
-        if (!m_oneClickApplied) updateOneClickRefChart();
+        updateOneClickRefChart();
     });
     connect(m_oneClickZeroValueSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() {
-        if (!m_oneClickApplied) updateOneClickRefChart();
+        updateOneClickRefChart();
     });
     connect(m_oneClickAdjGain, &QCheckBox::toggled, this, [this]() {
         if (m_oneClickChartView) {
             m_oneClickChartView->setGainVisible(m_oneClickAdjGain->isChecked());
             m_oneClickChartView->update();
         }
-        if (!m_oneClickApplied) updateOneClickRefChart();
+        updateOneClickRefChart();
     });
     connect(m_oneClickChartView, &CustomChartView::gainChanged, this, [this]() {
-        if (!m_oneClickApplied) updateOneClickRefChart();
+        updateOneClickRefChart();
     });
 
     // Initial preview with checked items (e.g. dewow)
@@ -4229,15 +4229,13 @@ void MainWindow::applyOneClickProcess()
     if (!m_currentTab) return;
 
     if (m_oneClickApplied) {
-        // Undo: only restore raw data and image, do NOT change dialog state
+        // Undo: only restore display (raw data + image + main chart)
         m_rawData = m_currentTab->originalRawData;
         m_currentTab->rawData = m_rawData;
         m_oneClickApplied = false;
         m_oneClickBtnApply->setText("应用");
         refreshImage();
         updateChart(m_lastChartX);
-        // Restore reference chart preview from current dialog settings
-        updateOneClickRefChart();
         return;
     }
 
@@ -4458,18 +4456,31 @@ void MainWindow::applyOneClickProcess()
 
 void MainWindow::updateOneClickRefChart()
 {
-    if (!m_oneClickSeries || m_rawData.isEmpty() || !m_currentTab) return;
+    if (!m_oneClickSeries || !m_currentTab) return;
 
-    if (m_oneClickApplied) return; // after apply, show actual processed data
+    // Always read from original data so dialog preview is independent of apply/undo
+    const QByteArray &srcData = (m_currentTab->gainApplied || m_oneClickApplied)
+                                ? m_currentTab->originalRawData : m_rawData;
+    if (srcData.isEmpty()) return;
 
     m_oneClickSeries->clear();
 
     int samplesPerTrace = m_pixelsPerRow;
 
-    // Read raw 512 samples for current trace
+    // Read raw 512 samples for current trace from source data
     QVector<qint32> samples(samplesPerTrace);
-    for (int i = 0; i < samplesPerTrace; ++i)
-        samples[i] = getPixelValue(m_lastChartX, i);
+    for (int i = 0; i < samplesPerTrace; ++i) {
+        int dataIdx = (m_lastChartX * samplesPerTrace + i) * 4;
+        qint32 val = 0;
+        if (dataIdx + 4 <= srcData.size()) {
+            val = static_cast<qint32>(
+                (static_cast<quint8>(srcData[dataIdx + 3]) << 24) |
+                (static_cast<quint8>(srcData[dataIdx + 2]) << 16) |
+                (static_cast<quint8>(srcData[dataIdx + 1]) << 8) |
+                static_cast<quint8>(srcData[dataIdx]));
+        }
+        samples[i] = val;
+    }
 
     // Preview: 校正零偏 (Dewow - sliding window mean removal)
     if (m_oneClickCorrectOffset && m_oneClickCorrectOffset->isChecked()) {
