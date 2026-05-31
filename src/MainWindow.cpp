@@ -2254,8 +2254,8 @@ void MainWindow::saveProcessedFile()
 {
     if (!m_currentTab) return;
 
-    // 确保增益已应用
-    if (!m_currentTab->gainApplied) {
+    // 确保增益已应用（仅旧的增益系统；一键处理已自己处理数据）
+    if (!m_currentTab->gainApplied && !m_oneClickApplied) {
         // 先应用增益
         m_currentTab->originalRawData = m_rawData;
         bool isLinear2 = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
@@ -2317,6 +2317,16 @@ void MainWindow::saveProcessedFile()
     if (!image.isNull()) {
         createTab(outPath, image);
     }
+
+    // 恢复原文件 tab 到初始状态
+    m_rawData = m_currentTab->originalRawData;
+    m_currentTab->rawData = m_rawData;
+    m_currentTab->gainApplied = false;
+    m_btnApply->setText(QString::fromUtf8("应用"));
+    m_oneClickApplied = false;
+    m_oneClickBtnApply->setText("应用");
+    refreshImage();
+    updateChart(m_lastChartX);
 }
 
 void MainWindow::refreshImage()
