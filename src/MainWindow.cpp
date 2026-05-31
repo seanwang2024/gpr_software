@@ -2233,11 +2233,12 @@ void MainWindow::saveProcessedFile()
     QString procDir = fi.absolutePath() + "/proc";
     QDir().mkpath(procDir);
 
-    // 找到可用的文件名 P_N.DZT
+    // 找到可用的文件名 原文件名_p01.DZT, _p02.DZT, ...
+    QString baseName = fi.completeBaseName();  // e.g. "SCAN001"
     int N = 1;
     QString outPath;
     do {
-        outPath = procDir + QString("/P_%1.DZT").arg(N++);
+        outPath = procDir + QString("/%1_p%2.DZT").arg(baseName).arg(N++, 2, 10, QChar('0'));
     } while (QFile::exists(outPath));
 
     // 写文件：0x20000 头部 + 处理后的数据
