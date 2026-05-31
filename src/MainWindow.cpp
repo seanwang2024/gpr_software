@@ -1674,6 +1674,23 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     return tab;
 }
 
+namespace {
+const char *activeGroupSS =
+    "QTabWidget::pane { border: none; }"
+    "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
+    "QTabBar::tab:selected { background: #ffffff; font-weight: bold; }";
+const char *inactiveGroupSS =
+    "QTabWidget::pane { border: none; }"
+    "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
+    "QTabBar::tab:selected { background: #ffffff; }";
+}
+
+static void updateGroupStyles(QTabWidget *activeGroup, const QVector<QTabWidget*> &groups)
+{
+    for (auto *grp : groups)
+        grp->setStyleSheet(grp == activeGroup ? activeGroupSS : inactiveGroupSS);
+}
+
 void MainWindow::switchToTab(int index)
 {
     if (index < 0 || m_tabs.isEmpty()) {
@@ -1705,6 +1722,9 @@ void MainWindow::switchToTab(int index)
     if (!tab) return;
 
     m_currentTab = tab;
+
+    // Update group styles: active group has bold selected tab
+    updateGroupStyles(srcGroup, m_tabGroups);
 
     m_rawData = tab->rawData;
     m_dataOffset = tab->dataOffset;
@@ -2552,6 +2572,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                     for (auto *grp : m_tabGroups) {
                         if (grp->tabBar() == tabBar) {
                             m_activeTabGroup = grp;
+                            updateGroupStyles(grp, m_tabGroups);
                             // Find TabData for the clicked tab
                             QWidget *page = grp->widget(idx);
                             for (auto *t : m_tabs) {
@@ -4368,7 +4389,8 @@ void MainWindow::showOneClickProcess()
     connect(btnOK, &QPushButton::clicked, this, [this]() {
         if (!m_currentTab) return;
 
-        // 保存当前显示数据
+        // 保存原 tab 指针和显示数据
+        TabData *origTab = m_currentTab;
         QByteArray savedRawData = m_rawData;
         bool savedApplied = m_oneClickApplied;
 
@@ -4379,10 +4401,12 @@ void MainWindow::showOneClickProcess()
         if (m_oneClickApplied)
             saveProcessedFile();
 
-        // 恢复显示数据（确定不改变图片显示）
+        // 恢复原 tab 显示数据（确定不改变原文件图片显示）
         if (!savedApplied) {
-            m_rawData = savedRawData;
-            m_currentTab->rawData = savedRawData;
+            origTab->rawData = savedRawData;
+            if (m_currentTab == origTab) {
+                m_rawData = savedRawData;
+            }
             m_oneClickApplied = false;
             m_oneClickBtnApply->setText("应用");
         }
