@@ -4322,22 +4322,47 @@ void MainWindow::applyOneClickProcess()
         }
     }
 
-    // Step 2: 幅度补偿 (Amplitude Compensation - exponential gain with depth)
+    // Step 2: 幅度补偿 (Amplitude Compensation - segment-based statistical)
     if (m_oneClickAmpComp && m_oneClickAmpComp->isChecked()) {
         int compValue = m_oneClickAmpCompSpin ? m_oneClickAmpCompSpin->value() : 20;
         if (compValue > 0) {
-            // Exponential gain: G(y) = exp(alpha * y * V / 100)
-            // alpha chosen so that at y=511, V=100 gives ~10x gain
-            double alpha = 2.3 / 511.0; // ln(10) ≈ 2.3, so at V=100, y=511 gives ~10x
+            const int numSegs = 8;
+            const int segSize = samplesPerTrace / numSegs;
+            // Scan original data to find max abs value in each segment
+            double segMax[numSegs];
+            for (int seg = 0; seg < numSegs; ++seg) segMax[seg] = 0.0;
+            const char *srcData = m_currentTab->originalRawData.constData();
+            int srcTotal = m_currentTab->originalRawData.size() / 4;
+            for (int i = 0; i < srcTotal; ++i) {
+                int s = i % samplesPerTrace;
+                int seg = qMin(s / segSize, numSegs - 1);
+                int idx = i * 4;
+                qint32 val = (static_cast<quint8>(srcData[idx+3]) << 24) |
+                             (static_cast<quint8>(srcData[idx+2]) << 16) |
+                             (static_cast<quint8>(srcData[idx+1]) << 8) |
+                             static_cast<quint8>(srcData[idx]);
+                double av = qAbs(static_cast<double>(val));
+                if (av > segMax[seg]) segMax[seg] = av;
+            }
+            // Compute coefficients: coeff = 8388608 / segMax * (compValue/100)
+            double coeff[numSegs];
+            for (int seg = 0; seg < numSegs; ++seg) {
+                if (segMax[seg] < 1.0) segMax[seg] = 1.0;
+                coeff[seg] = 8388608.0 / segMax[seg] * (compValue / 100.0);
+            }
+            // Apply coefficients
             for (int t = 0; t < numTraces; ++t) {
                 for (int s = 0; s < samplesPerTrace; ++s) {
+                    int seg = qMin(s / segSize, numSegs - 1);
                     int idx = (t * samplesPerTrace + s) * 4;
                     qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
                                  (static_cast<quint8>(data[idx+2]) << 16) |
                                  (static_cast<quint8>(data[idx+1]) << 8) |
                                  static_cast<quint8>(data[idx]);
-                    double gain = std::exp(alpha * s * compValue / 100.0);
-                    val = static_cast<qint32>(val * gain);
+                    float result = static_cast<float>(val * coeff[seg]);
+                    if (result > 8388607.0f) result = 8388607.0f;
+                    if (result < -8388608.0f) result = -8388608.0f;
+                    val = static_cast<qint32>(result);
                     data[idx]   = val & 0xFF;
                     data[idx+1] = (val >> 8) & 0xFF;
                     data[idx+2] = (val >> 16) & 0xFF;
@@ -4535,14 +4560,39 @@ void MainWindow::updateOneClickRefChart()
         }
     }
 
-    // Preview: 幅度补偿 (Amplitude Compensation)
+    // Preview: 幅度补偿 (segment-based statistical)
     if (m_oneClickAmpComp && m_oneClickAmpComp->isChecked() && m_oneClickAmpCompSpin) {
         int compValue = m_oneClickAmpCompSpin->value();
         if (compValue > 0) {
-            const double alpha = 4.60517 / 511.0; // ln(100)/511
+            const int numSegs = 8;
+            const int segSize = samplesPerTrace / numSegs;
+            // Scan srcData for segment max values
+            double segMax[numSegs];
+            for (int seg = 0; seg < numSegs; ++seg) segMax[seg] = 0.0;
+            int srcTotal = srcData.size() / 4;
+            const char *sd = srcData.constData();
+            for (int i = 0; i < srcTotal; ++i) {
+                int s = i % samplesPerTrace;
+                int seg = qMin(s / segSize, numSegs - 1);
+                int idx = i * 4;
+                qint32 val = (static_cast<quint8>(sd[idx+3]) << 24) |
+                             (static_cast<quint8>(sd[idx+2]) << 16) |
+                             (static_cast<quint8>(sd[idx+1]) << 8) |
+                             static_cast<quint8>(sd[idx]);
+                double av = qAbs(static_cast<double>(val));
+                if (av > segMax[seg]) segMax[seg] = av;
+            }
+            double coeff[numSegs];
+            for (int seg = 0; seg < numSegs; ++seg) {
+                if (segMax[seg] < 1.0) segMax[seg] = 1.0;
+                coeff[seg] = 8388608.0 / segMax[seg] * (compValue / 100.0);
+            }
             for (int i = 0; i < samplesPerTrace; ++i) {
-                double gain = std::exp(alpha * i * compValue / 100.0);
-                samples[i] = static_cast<qint32>(samples[i] * gain);
+                int seg = qMin(i / segSize, numSegs - 1);
+                float result = static_cast<float>(samples[i] * coeff[seg]);
+                if (result > 8388607.0f) result = 8388607.0f;
+                if (result < -8388608.0f) result = -8388608.0f;
+                samples[i] = static_cast<qint32>(result);
             }
         }
     }
