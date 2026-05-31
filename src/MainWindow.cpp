@@ -1841,14 +1841,18 @@ void MainWindow::splitHorizontal(QTabWidget *srcGroup, int tabIdx)
 
     m_docSplitter->addWidget(newGroup);
 
-    // Stretch both groups equally so they auto-resize with the window
-    m_docSplitter->setStretchFactor(m_docSplitter->indexOf(m_docTabWidget), 1);
-    m_docSplitter->setStretchFactor(m_docSplitter->indexOf(newGroup), 1);
+    // Stretch all groups equally so they auto-resize with the window
+    for (int i = 0; i < m_docSplitter->count(); ++i)
+        m_docSplitter->setStretchFactor(i, 1);
 
-    // Set 50:50 split
+    // Distribute sizes equally among all groups
     int h = m_docSplitter->height();
     if (h < 100) h = 600;
-    m_docSplitter->setSizes(QList<int>() << h / 2 << h / 2);
+    int n = m_docSplitter->count();
+    QList<int> sizes;
+    for (int i = 0; i < n; ++i)
+        sizes << h / n;
+    m_docSplitter->setSizes(sizes);
 
     newGroup->setCurrentIndex(0);
     m_activeTabGroup = newGroup;
@@ -2539,9 +2543,34 @@ void MainWindow::resizeImageLabel()
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
-    if (event->type() == QEvent::Resize && m_currentTab) {
-        if (watched == m_currentTab->scrollArea->viewport()) {
-            resizeImageLabel();
+    if (event->type() == QEvent::Resize) {
+        // Handle viewport resize for ALL tabs (not just current)
+        for (auto *tab : m_tabs) {
+            if (watched == tab->scrollArea->viewport()) {
+                if (tab == m_currentTab) {
+                    resizeImageLabel();
+                } else {
+                    // Resize non-current tab's image independently
+                    int sigPad = (tab->signalPosition < 0.0f)
+                        ? qRound(tab->pixelsPerRow * (-tab->signalPosition) / 20.0f) : 0;
+                    int skipRows = sigPad + (tab->zeroApplied ? tab->zeroSkipRows : 0);
+                    int drawRows = tab->pixelsPerRow - skipRows;
+                    int viewH = tab->scrollArea->viewport()->height();
+                    if (viewH <= 0) viewH = drawRows;
+
+                    int traceCount = tab->rawData.size() / 4 / tab->pixelsPerRow;
+                    tab->imageLabel->setFixedSize(traceCount, viewH);
+
+                    int maxVal = qMax(0, traceCount - tab->scrollArea->viewport()->width());
+                    tab->extHScrollBar->setRange(0, maxVal);
+                    tab->extHScrollBar->setPageStep(tab->scrollArea->viewport()->width());
+                    tab->extHScrollBar->setVisible(maxVal > 0);
+
+                    tab->leftRuler->update();
+                    tab->rightRuler->update();
+                }
+                return QMainWindow::eventFilter(watched, event);
+            }
         }
     }
     if (event->type() == QEvent::ContextMenu) {
