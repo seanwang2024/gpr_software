@@ -310,9 +310,20 @@ qreal CustomChartView::mapChartToWidgetY(float y)
 
 void CustomChartView::paintEvent(QPaintEvent *event)
 {
+    if (!chart()) return;
+
+    // Auto-adjust top margin to fit gain labels before QChartView lays out
+    if (m_gainVisible) {
+        QFontMetrics fm(font());
+        int labelHeight = fm.height() + 6;
+        QMargins mg = chart()->margins();
+        if (mg.top() < labelHeight) {
+            chart()->setMargins(QMargins(mg.left(), labelHeight, mg.right(), mg.bottom()));
+        }
+    }
+
     QChartView::paintEvent(event);
 
-    if (!chart()) return;
     QRectF plotArea = chart()->plotArea();
 
     QPainter painter(viewport());
@@ -4214,7 +4225,31 @@ void MainWindow::showOneClickProcess()
         }
         updateOneClickRefChart();
     });
-    connect(m_oneClickChartView, &CustomChartView::gainChanged, this, [this]() {
+    connect(m_oneClickChartView, &CustomChartView::gainChanged, this, [this](int idx, float val) {
+        // Auto-expand gain range in 6dB steps
+        if (m_oneClickChartView) {
+            float maxAbs = qAbs(val);
+            for (int i = 0; i < m_oneClickChartView->lineCount(); ++i) {
+                float h = m_oneClickChartView->handleX(i);
+                if (qAbs(h) > maxAbs) maxAbs = qAbs(h);
+            }
+            float n = std::ceil(maxAbs / 6.0f);
+            if (n < 1.0f) n = 1.0f;
+            float range = 6.0f * n;
+            if (range > m_oneClickChartView->gainMax() || range < m_oneClickChartView->gainMax() - 6.0f) {
+                m_oneClickChartView->setGainRange(-range, range);
+                // Force QChart to recalculate layout for wider labels
+                if (m_oneClickChart) {
+                    QMargins mg = m_oneClickChart->margins();
+                    // Top margin adapts to label height (font height + padding)
+                    QFontMetrics fm(font());
+                    int neededTop = fm.height() + 8;
+                    if (neededTop > mg.top()) {
+                        m_oneClickChart->setMargins(QMargins(mg.left(), neededTop, mg.right(), mg.bottom()));
+                    }
+                }
+            }
+        }
         updateOneClickRefChart();
     });
 
