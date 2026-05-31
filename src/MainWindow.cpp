@@ -1502,6 +1502,12 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
             else
                 chartView->setGainRange(-range, range);
         }
+        // Trigger QChart to recalculate plotArea for new label widths
+        if (m_oneClickChart) {
+            QMargins mg = m_oneClickChart->margins();
+            m_oneClickChart->setMargins(QMargins(mg.left(), mg.top() + 1, mg.right(), mg.bottom()));
+            m_oneClickChart->setMargins(mg);
+        }
         updateChart(m_lastChartX);
     });
 
@@ -1992,14 +1998,29 @@ void MainWindow::updateChart(int xValue)
     int totalOff = sigPad + zeroPad;
     double displayRange = isZeroMode ? 20.0 : (20.0 + sigPos);
 
+    // Use original data when gain is already applied, so chart preview is always vs original
+    const QByteArray &chartRawData = (m_currentTab && m_currentTab->gainApplied)
+                                     ? m_currentTab->originalRawData : m_rawData;
+
     for (int i = 0; i < maxPoints; ++i) {
         qint32 displayValue = 0;
         int srcY = totalOff + i;
         if (srcY < maxPoints) {
-            qint32 pixelValue = getPixelValue(xValue, srcY);
+            int dataIdx = (xValue * m_pixelsPerRow + srcY) * 4;
+            qint32 pixelValue = 0;
+            if (dataIdx + 4 <= chartRawData.size()) {
+                pixelValue = static_cast<qint32>(
+                    (static_cast<quint8>(chartRawData[dataIdx + 3]) << 24) |
+                    (static_cast<quint8>(chartRawData[dataIdx + 2]) << 16) |
+                    (static_cast<quint8>(chartRawData[dataIdx + 1]) << 8) |
+                    static_cast<quint8>(chartRawData[dataIdx]));
+            }
             float rawGain = (chartView) ? chartView->interpolatedGain(srcY) : m_gain;
             float rowGainLinear = isLinear ? rawGain : std::pow(10.0f, rawGain / 20.0f);
-            displayValue = static_cast<qint32>(rowGainLinear * pixelValue);
+            float dv = rowGainLinear * static_cast<float>(pixelValue);
+            if (dv > 8388607.0f) dv = 8388607.0f;
+            if (dv < -8388608.0f) dv = -8388608.0f;
+            displayValue = static_cast<qint32>(dv);
         }
         qreal yCoord;
         if (isZeroMode)
@@ -2143,7 +2164,10 @@ void MainWindow::applyGain()
                          (static_cast<quint8>(data[idx+2]) << 16) |
                          (static_cast<quint8>(data[idx+1]) << 8) |
                          (static_cast<quint8>(data[idx]));
-            val = static_cast<qint32>(gainTable[i % 512] * static_cast<float>(val));
+            float result = gainTable[i % 512] * static_cast<float>(val);
+            if (result > 8388607.0f) result = 8388607.0f;
+            if (result < -8388608.0f) result = -8388608.0f;
+            val = static_cast<qint32>(result);
             data[idx]   = val & 0xFF;
             data[idx+1] = (val >> 8) & 0xFF;
             data[idx+2] = (val >> 16) & 0xFF;
@@ -2179,7 +2203,10 @@ void MainWindow::saveProcessedFile()
                          (static_cast<quint8>(data[idx+2]) << 16) |
                          (static_cast<quint8>(data[idx+1]) << 8) |
                          (static_cast<quint8>(data[idx]));
-            val = static_cast<qint32>(gainTable[i % 512] * static_cast<float>(val));
+            float result = gainTable[i % 512] * static_cast<float>(val);
+            if (result > 8388607.0f) result = 8388607.0f;
+            if (result < -8388608.0f) result = -8388608.0f;
+            val = static_cast<qint32>(result);
             data[idx]   = val & 0xFF;
             data[idx+1] = (val >> 8) & 0xFF;
             data[idx+2] = (val >> 16) & 0xFF;
@@ -2286,7 +2313,11 @@ void MainWindow::refreshImage()
                     pixelValue_display = -pixelValue_display;
 
                 // Apply display gain (right-click menu, visual only)
-                pixelValue_display = static_cast<int>(m_gain * pixelValue_display);
+                float displayGain = (m_currentTab && m_currentTab->gainApplied) ? 1.0f : m_gain;
+                float dv = displayGain * static_cast<float>(pixelValue_display);
+                if (dv > 8388607.0f) dv = 8388607.0f;
+                if (dv < -8388608.0f) dv = -8388608.0f;
+                pixelValue_display = static_cast<int>(dv);
 
                 int lutIdx = pixelValue_display / (256 * 256) + 128;
                 if (lutIdx < 0) lutIdx = 0;
@@ -3799,7 +3830,7 @@ void MainWindow::showCorrectOffset()
     m_correctTimeWindowSpin = new QDoubleSpinBox();
     m_correctTimeWindowSpin->setRange(0.0, 99999.0);
     m_correctTimeWindowSpin->setDecimals(1);
-    m_correctTimeWindowSpin->setValue(2.0);
+    m_correctTimeWindowSpin->setValue(40.0);
     m_correctTimeWindowSpin->setSuffix(" ns");
     row1->addWidget(m_correctTimeWindowSpin);
     row1->addStretch();
@@ -3876,8 +3907,8 @@ void MainWindow::applyCorrectOffset()
     // Backup original data
     m_currentTab->originalRawData = m_rawData;
 
-    // Dewow: remove DC offset per trace using a time window
-    double timeWindowNs = m_correctTimeWindowSpin ? m_correctTimeWindowSpin->value() : 2.0;
+    // Dewow: sliding window mean removal per trace
+    double timeWindowNs = m_correctTimeWindowSpin ? m_correctTimeWindowSpin->value() : 40.0;
     double antennaFreqMHz = m_correctAntennaFreqSpin ? m_correctAntennaFreqSpin->value() : 900.0;
 
     int samplesPerTrace = m_pixelsPerRow;
@@ -3885,33 +3916,31 @@ void MainWindow::applyCorrectOffset()
     int numTraces = totalPixels / samplesPerTrace;
     if (numTraces == 0 || samplesPerTrace == 0) return;
 
-    // Calculate how many samples the time window covers
     double timeRangeSec = m_currentTab->timeRange * 1e-9;
     double sampleInterval = timeRangeSec / samplesPerTrace;
     int windowSamples = qMax(1, static_cast<int>(timeWindowNs * 1e-9 / sampleInterval));
+    int halfWin = windowSamples / 2;
 
     char *data = m_rawData.data();
     for (int t = 0; t < numTraces; ++t) {
-        // Compute mean of first windowSamples in this trace
-        double mean = 0.0;
-        for (int s = 0; s < windowSamples && s < samplesPerTrace; ++s) {
-            int idx = (t * samplesPerTrace + s) * 4;
-            qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
-                         (static_cast<quint8>(data[idx+2]) << 16) |
-                         (static_cast<quint8>(data[idx+1]) << 8) |
-                         (static_cast<quint8>(data[idx]));
-            mean += val;
-        }
-        mean /= qMin(windowSamples, samplesPerTrace);
-
-        // Subtract mean from entire trace
+        QVector<double> trace(samplesPerTrace);
         for (int s = 0; s < samplesPerTrace; ++s) {
             int idx = (t * samplesPerTrace + s) * 4;
-            qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
-                         (static_cast<quint8>(data[idx+2]) << 16) |
-                         (static_cast<quint8>(data[idx+1]) << 8) |
-                         (static_cast<quint8>(data[idx]));
-            val -= static_cast<qint32>(mean);
+            trace[s] = static_cast<double>(
+                (static_cast<quint8>(data[idx+3]) << 24) |
+                (static_cast<quint8>(data[idx+2]) << 16) |
+                (static_cast<quint8>(data[idx+1]) << 8) |
+                static_cast<quint8>(data[idx]));
+        }
+        QVector<double> cumsum(samplesPerTrace + 1, 0.0);
+        for (int s = 0; s < samplesPerTrace; ++s)
+            cumsum[s + 1] = cumsum[s] + trace[s];
+        for (int s = 0; s < samplesPerTrace; ++s) {
+            int left = qMax(0, s - halfWin);
+            int right = qMin(samplesPerTrace - 1, s + halfWin);
+            double localMean = (cumsum[right + 1] - cumsum[left]) / (right - left + 1);
+            qint32 val = static_cast<qint32>(trace[s] - localMean);
+            int idx = (t * samplesPerTrace + s) * 4;
             data[idx]   = val & 0xFF;
             data[idx+1] = (val >> 8) & 0xFF;
             data[idx+2] = (val >> 16) & 0xFF;
@@ -4229,32 +4258,36 @@ void MainWindow::applyOneClickProcess()
 
     char *data = m_rawData.data();
 
-    // Step 1: 校正零偏 (Dewow)
+    // Step 1: 校正零偏 (Dewow - sliding window mean removal)
     if (m_oneClickCorrectOffset && m_oneClickCorrectOffset->isChecked()) {
         double timeWindowNs = m_oneClickTimeWindowSpin ? m_oneClickTimeWindowSpin->value() : 40.0;
         double timeRangeSec = m_currentTab->timeRange * 1e-9;
         double sampleInterval = timeRangeSec / samplesPerTrace;
         int windowSamples = qMax(1, static_cast<int>(timeWindowNs * 1e-9 / sampleInterval));
+        int halfWin = windowSamples / 2;
 
         for (int t = 0; t < numTraces; ++t) {
-            double mean = 0.0;
-            for (int s = 0; s < windowSamples && s < samplesPerTrace; ++s) {
-                int idx = (t * samplesPerTrace + s) * 4;
-                qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
-                             (static_cast<quint8>(data[idx+2]) << 16) |
-                             (static_cast<quint8>(data[idx+1]) << 8) |
-                             static_cast<quint8>(data[idx]);
-                mean += val;
-            }
-            mean /= qMin(windowSamples, samplesPerTrace);
-
+            // Read trace into buffer and build cumulative sum
+            QVector<double> trace(samplesPerTrace);
             for (int s = 0; s < samplesPerTrace; ++s) {
                 int idx = (t * samplesPerTrace + s) * 4;
-                qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
-                             (static_cast<quint8>(data[idx+2]) << 16) |
-                             (static_cast<quint8>(data[idx+1]) << 8) |
-                             static_cast<quint8>(data[idx]);
-                val -= static_cast<qint32>(mean);
+                trace[s] = static_cast<double>(
+                    (static_cast<quint8>(data[idx+3]) << 24) |
+                    (static_cast<quint8>(data[idx+2]) << 16) |
+                    (static_cast<quint8>(data[idx+1]) << 8) |
+                    static_cast<quint8>(data[idx]));
+            }
+            QVector<double> cumsum(samplesPerTrace + 1, 0.0);
+            for (int s = 0; s < samplesPerTrace; ++s)
+                cumsum[s + 1] = cumsum[s] + trace[s];
+
+            // Subtract local mean (centered sliding window)
+            for (int s = 0; s < samplesPerTrace; ++s) {
+                int left = qMax(0, s - halfWin);
+                int right = qMin(samplesPerTrace - 1, s + halfWin);
+                double localMean = (cumsum[right + 1] - cumsum[left]) / (right - left + 1);
+                qint32 val = static_cast<qint32>(trace[s] - localMean);
+                int idx = (t * samplesPerTrace + s) * 4;
                 data[idx]   = val & 0xFF;
                 data[idx+1] = (val >> 8) & 0xFF;
                 data[idx+2] = (val >> 16) & 0xFF;
@@ -4303,8 +4336,30 @@ void MainWindow::applyOneClickProcess()
         }
     }
 
-    // Step 4: 调节增益 (placeholder - user can use gain panel for this)
-    // m_oneClickAdjGain - no additional processing, gain is handled separately
+    // Step 4: 调节增益 (apply interpolated gain from CustomChartView handles)
+    if (m_oneClickAdjGain && m_oneClickAdjGain->isChecked() && m_oneClickChartView) {
+        float gainTable[512];
+        for (int x = 0; x < 512; ++x) {
+            float rawGain = m_oneClickChartView->interpolatedGain(x);
+            gainTable[x] = std::pow(10.0f, rawGain / 20.0f);
+        }
+        int totalPixels = m_rawData.size() / 4;
+        for (int i = 0; i < totalPixels; ++i) {
+            int idx = i * 4;
+            qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
+                         (static_cast<quint8>(data[idx+2]) << 16) |
+                         (static_cast<quint8>(data[idx+1]) << 8) |
+                         static_cast<quint8>(data[idx]);
+            float result = gainTable[i % 512] * static_cast<float>(val);
+            if (result > 8388607.0f) result = 8388607.0f;
+            if (result < -8388608.0f) result = -8388608.0f;
+            val = static_cast<qint32>(result);
+            data[idx]   = val & 0xFF;
+            data[idx+1] = (val >> 8) & 0xFF;
+            data[idx+2] = (val >> 16) & 0xFF;
+            data[idx+3] = (val >> 24) & 0xFF;
+        }
+    }
 
     // Step 5: 数字滤波 (placeholder - user can use digital filter dialog)
     // m_oneClickDigFilter - no additional processing, filter is handled separately
@@ -4423,18 +4478,22 @@ void MainWindow::updateOneClickRefChart()
     for (int i = 0; i < samplesPerTrace; ++i)
         samples[i] = getPixelValue(m_lastChartX, i);
 
-    // Preview: 校正零偏 (Dewow)
+    // Preview: 校正零偏 (Dewow - sliding window mean removal)
     if (m_oneClickCorrectOffset && m_oneClickCorrectOffset->isChecked()) {
         double timeWindowNs = m_oneClickTimeWindowSpin ? m_oneClickTimeWindowSpin->value() : 40.0;
         double timeRangeSec = m_currentTab->timeRange * 1e-9;
         double sampleInterval = timeRangeSec / samplesPerTrace;
         int windowSamples = qMax(1, static_cast<int>(timeWindowNs * 1e-9 / sampleInterval));
-        double mean = 0.0;
-        for (int s = 0; s < windowSamples && s < samplesPerTrace; ++s)
-            mean += samples[s];
-        mean /= qMin(windowSamples, samplesPerTrace);
+        int halfWin = windowSamples / 2;
+        QVector<double> cumsum(samplesPerTrace + 1, 0.0);
         for (int s = 0; s < samplesPerTrace; ++s)
-            samples[s] -= static_cast<qint32>(mean);
+            cumsum[s + 1] = cumsum[s] + samples[s];
+        for (int s = 0; s < samplesPerTrace; ++s) {
+            int left = qMax(0, s - halfWin);
+            int right = qMin(samplesPerTrace - 1, s + halfWin);
+            double localMean = (cumsum[right + 1] - cumsum[left]) / (right - left + 1);
+            samples[s] -= static_cast<qint32>(localMean);
+        }
     }
 
     // Preview: 幅度补偿 (Amplitude Compensation)
@@ -4462,10 +4521,16 @@ void MainWindow::updateOneClickRefChart()
 
     // Preview: 调节增益 (interpolated gain from CustomChartView handles)
     if (m_oneClickAdjGain && m_oneClickAdjGain->isChecked() && m_oneClickChartView) {
+        float gainTable[512];
+        for (int x = 0; x < 512; ++x) {
+            float rawGain = m_oneClickChartView->interpolatedGain(x);
+            gainTable[x] = std::pow(10.0f, rawGain / 20.0f);
+        }
         for (int i = 0; i < samplesPerTrace; ++i) {
-            float g = m_oneClickChartView->interpolatedGain(i);
-            float gainLinear = std::pow(10.0f, g / 20.0f);
-            samples[i] = static_cast<qint32>(samples[i] * gainLinear);
+            float result = gainTable[i % 512] * static_cast<float>(samples[i]);
+            if (result > 8388607.0f) result = 8388607.0f;
+            if (result < -8388608.0f) result = -8388608.0f;
+            samples[i] = static_cast<qint32>(result);
         }
     }
 
@@ -4478,5 +4543,5 @@ void MainWindow::updateOneClickRefChart()
         QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
         if (ax) ax->setRange(-8388608.0, 8388608.0);
     }
-    if (m_oneClickChartView) m_oneClickChartView->update();
+    if (m_oneClickChartView) m_oneClickChartView->viewport()->update();
 }
