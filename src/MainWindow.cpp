@@ -1062,7 +1062,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_docTabWidget->setStyleSheet(
         "QTabWidget::pane { border: none; }"
         "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
-        "QTabBar::tab:selected { background: #ffffff; }"
+        "QTabBar::tab:selected { background: #ffffff; font-weight: bold; }"
     );
     m_docTabWidget->tabBar()->installEventFilter(this);
 
@@ -1726,18 +1726,6 @@ void MainWindow::switchToTab(int index)
     m_btnOK->setEnabled(true);
     m_btnCancel->setEnabled(true);
 
-    // Bold active tab text across all groups
-    for (auto *grp : m_tabGroups) {
-        for (int i = 0; i < grp->count(); ++i) {
-            QWidget *p = grp->widget(i);
-            bool isActive = (p == tab->page);
-            QString title = grp->tabText(i);
-            // Remove existing bold markers
-            title.remove("<b>").remove("</b>");
-            grp->setTabText(i, isActive ? QString("<b>%1</b>").arg(title) : title);
-        }
-    }
-
     // Update one-click dialog title to match active file
     if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
         QString fname = QFileInfo(tab->filePath).fileName();
@@ -1816,7 +1804,7 @@ void MainWindow::splitHorizontal(QTabWidget *srcGroup, int tabIdx)
     newGroup->setStyleSheet(
         "QTabWidget::pane { border: none; }"
         "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
-        "QTabBar::tab:selected { background: #ffffff; }"
+        "QTabBar::tab:selected { background: #ffffff; font-weight: bold; }"
     );
     newGroup->tabBar()->installEventFilter(this);
 
@@ -1827,6 +1815,10 @@ void MainWindow::splitHorizontal(QTabWidget *srcGroup, int tabIdx)
     m_tabGroups.append(newGroup);
 
     m_docSplitter->addWidget(newGroup);
+
+    // Stretch both groups equally so they auto-resize with the window
+    m_docSplitter->setStretchFactor(m_docSplitter->indexOf(m_docTabWidget), 1);
+    m_docSplitter->setStretchFactor(m_docSplitter->indexOf(newGroup), 1);
 
     // Set 50:50 split
     int h = m_docSplitter->height();
@@ -2579,15 +2571,6 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                                         chartView = t->chartView;
                                         chartSeries = t->chartSeries;
                                         m_btnApply->setText(t->gainApplied ? "撤销" : "应用");
-                                        // Bold active tab text
-                                        for (auto *g2 : m_tabGroups) {
-                                            for (int j = 0; j < g2->count(); ++j) {
-                                                QString ttl = g2->tabText(j);
-                                                ttl.remove("<b>").remove("</b>");
-                                                g2->setTabText(j, g2->widget(j) == page
-                                                    ? QString("<b>%1</b>").arg(ttl) : ttl);
-                                            }
-                                        }
                                     }
                                     if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
                                         QString fname = QFileInfo(t->filePath).fileName();
