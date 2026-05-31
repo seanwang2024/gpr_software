@@ -1695,6 +1695,12 @@ void MainWindow::switchToTab(int index)
     m_btnOK->setEnabled(true);
     m_btnCancel->setEnabled(true);
 
+    // Update one-click dialog title to match active file
+    if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
+        QString fname = QFileInfo(tab->filePath).fileName();
+        m_oneClickDlg->setWindowTitle(QString("一键处理 - %1").arg(fname));
+    }
+
     // Defer resize until the tab page layout is settled
     QTimer::singleShot(0, this, [this]() {
         if (m_currentTab) {
