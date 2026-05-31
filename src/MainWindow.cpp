@@ -4311,10 +4311,26 @@ void MainWindow::showOneClickProcess()
     });
 
     connect(btnOK, &QPushButton::clicked, this, [this]() {
+        if (!m_currentTab) return;
+
+        // 保存当前显示数据
+        QByteArray savedRawData = m_rawData;
+        bool savedApplied = m_oneClickApplied;
+
+        // 在临时数据上执行处理
         if (!m_oneClickApplied)
             applyOneClickProcess();
+
         if (m_oneClickApplied)
             saveProcessedFile();
+
+        // 恢复显示数据（确定不改变图片显示）
+        if (!savedApplied) {
+            m_rawData = savedRawData;
+            m_currentTab->rawData = savedRawData;
+            m_oneClickApplied = false;
+            m_oneClickBtnApply->setText("应用");
+        }
     });
 
     connect(btnCancel, &QPushButton::clicked, this, [this]() {
