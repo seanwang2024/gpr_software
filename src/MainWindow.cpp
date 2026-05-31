@@ -4058,7 +4058,7 @@ void MainWindow::showOneClickProcess()
     row2->addWidget(new QLabel("值:"));
     m_oneClickAmpCompSpin = new QSpinBox();
     m_oneClickAmpCompSpin->setRange(0, 100);
-    m_oneClickAmpCompSpin->setValue(20);
+    m_oneClickAmpCompSpin->setValue(100);
     row2->addWidget(m_oneClickAmpCompSpin);
     row2->addStretch();
     methodLayout->addLayout(row2);
@@ -4324,7 +4324,7 @@ void MainWindow::applyOneClickProcess()
 
     // Step 2: 幅度补偿 (Amplitude Compensation - segment-based statistical)
     if (m_oneClickAmpComp && m_oneClickAmpComp->isChecked()) {
-        int compValue = m_oneClickAmpCompSpin ? m_oneClickAmpCompSpin->value() : 20;
+        int compValue = m_oneClickAmpCompSpin ? m_oneClickAmpCompSpin->value() : 100;
         if (compValue > 0) {
             const int numSegs = 8;
             const int segSize = samplesPerTrace / numSegs;
