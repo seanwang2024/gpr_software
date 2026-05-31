@@ -229,6 +229,12 @@ private:
     QTabWidget *m_activeTabGroup = nullptr;
     void splitHorizontal(QTabWidget *srcGroup, int tabIdx);
 
+    // Tab drag state
+    QTabWidget *m_dragSrcGroup = nullptr;
+    int m_dragSrcIdx = -1;
+    QPoint m_dragStartPos;
+    bool m_dragging = false;
+
     // Tab management
     QVector<TabData*> m_tabs;
     TabData *m_currentTab = nullptr;

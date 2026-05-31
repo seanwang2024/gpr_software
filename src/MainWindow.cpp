@@ -2067,6 +2067,10 @@ void MainWindow::onOpenFile()
 
     if (m_tabs.isEmpty()) hideWelcome();
 
+    // Ensure active group is valid
+    if (!m_tabGroups.contains(m_activeTabGroup))
+        m_activeTabGroup = m_docTabWidget;
+
     createTab(fileName, image);
 }
 
@@ -2566,7 +2570,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             }
         }
     }
-    // Handle left-click on tab bar: activate group & ensure correct tab
+    // Handle left-click on tab bar: activate group & start drag tracking
     if (event->type() == QEvent::MouseButtonPress) {
         auto *tabBar = qobject_cast<QTabBar*>(watched);
         if (tabBar) {
@@ -2574,10 +2578,19 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             if (me->button() == Qt::LeftButton) {
                 int idx = tabBar->tabAt(me->pos());
                 if (idx >= 0) {
+                    // Reset drag state
+                    m_dragging = false;
+                    m_dragSrcIdx = -1;
+                    m_dragSrcGroup = nullptr;
+
                     for (auto *grp : m_tabGroups) {
                         if (grp->tabBar() == tabBar) {
                             m_activeTabGroup = grp;
                             updateGroupStyles(grp, m_tabGroups);
+                            // Record potential drag start
+                            m_dragSrcGroup = grp;
+                            m_dragSrcIdx = idx;
+                            m_dragStartPos = me->globalPosition().toPoint();
                             // Find TabData for the clicked tab
                             QWidget *page = grp->widget(idx);
                             for (auto *t : m_tabs) {
@@ -2610,6 +2623,60 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                     }
                 }
             }
+        }
+    }
+    // Handle mouse move: enter drag mode
+    if (event->type() == QEvent::MouseMove && m_dragSrcGroup && m_dragSrcIdx >= 0) {
+        auto *tabBar = qobject_cast<QTabBar*>(watched);
+        if (tabBar) {
+            auto *me = static_cast<QMouseEvent*>(event);
+            QPoint delta = me->globalPosition().toPoint() - m_dragStartPos;
+            if (!m_dragging && (delta.manhattanLength() > 5)) {
+                m_dragging = true;
+                tabBar->setCursor(Qt::DragMoveCursor);
+            }
+        }
+    }
+    // Handle mouse release: execute tab drop
+    if (event->type() == QEvent::MouseButtonRelease && m_dragSrcGroup) {
+        auto *tabBar = qobject_cast<QTabBar*>(watched);
+        if (tabBar) {
+            tabBar->setCursor(Qt::ArrowCursor);
+            if (m_dragging && m_dragSrcIdx >= 0 && m_dragSrcIdx < m_dragSrcGroup->count()) {
+                auto *me = static_cast<QMouseEvent*>(event);
+                QPoint globalPos = me->globalPosition().toPoint();
+
+                // Find target group under mouse
+                QTabWidget *dstGroup = nullptr;
+                for (auto *grp : m_tabGroups) {
+                    if (grp == m_dragSrcGroup) continue;
+                    QPoint localPos = grp->mapFromGlobal(globalPos);
+                    if (grp->rect().contains(localPos)) {
+                        dstGroup = grp;
+                        break;
+                    }
+                }
+
+                if (dstGroup) {
+                    // Move tab from source to destination
+                    QWidget *page = m_dragSrcGroup->widget(m_dragSrcIdx);
+                    QString title = m_dragSrcGroup->tabText(m_dragSrcIdx);
+                    m_dragSrcGroup->removeTab(m_dragSrcIdx);
+                    dstGroup->addTab(page, title);
+                    dstGroup->setCurrentIndex(dstGroup->count() - 1);
+
+                    // Clean up empty source group
+                    if (m_dragSrcGroup->count() == 0 && m_dragSrcGroup != m_docTabWidget) {
+                        m_tabGroups.removeOne(m_dragSrcGroup);
+                        delete m_dragSrcGroup;
+                    }
+                    m_activeTabGroup = dstGroup;
+                    updateGroupStyles(dstGroup, m_tabGroups);
+                }
+            }
+            m_dragging = false;
+            m_dragSrcGroup = nullptr;
+            m_dragSrcIdx = -1;
         }
     }
     return QMainWindow::eventFilter(watched, event);
