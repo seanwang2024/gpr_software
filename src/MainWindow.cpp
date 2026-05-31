@@ -1066,6 +1066,13 @@ MainWindow::MainWindow(QWidget *parent)
     );
     m_docTabWidget->tabBar()->installEventFilter(this);
 
+    // Splitter wrapping tab groups for horizontal/vertical splits
+    m_docSplitter = new QSplitter(Qt::Vertical, this);
+    m_docSplitter->addWidget(m_docTabWidget);
+    m_docSplitter->setChildrenCollapsible(false);
+    m_tabGroups.append(m_docTabWidget);
+    m_activeTabGroup = m_docTabWidget;
+
     // Left panel: stacked gain / zero-point pages
     m_leftPanel = new QWidget;
     QVBoxLayout *leftOuterLayout = new QVBoxLayout(m_leftPanel);
@@ -1344,7 +1351,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_leftStack->setCurrentIndex(0);
     m_leftPanel->setMinimumWidth(260);
     contentLayout->addWidget(welcomeLabel, 1);
-    contentLayout->addWidget(m_docTabWidget, 1);
+    contentLayout->addWidget(m_docSplitter, 1);
 
     // Initially show welcome, hide others
     m_leftPanel->hide();
@@ -1594,10 +1601,10 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
 
     m_tabs.append(tab);
 
-    // Add to doc tab widget
+    // Add to active tab group
     QString tabTitle = QFileInfo(filePath).fileName();
-    int idx = m_docTabWidget->addTab(tab->page, tabTitle);
-    m_docTabWidget->setCurrentIndex(idx);
+    int idx = m_activeTabGroup->addTab(tab->page, tabTitle);
+    m_activeTabGroup->setCurrentIndex(idx);
 
     // Initialize chart handles with current point count and gain mode
     if (tab->chartView) {
@@ -1655,7 +1662,11 @@ void MainWindow::switchToTab(int index)
         return;
     }
 
-    QWidget *page = m_docTabWidget->widget(index);
+    auto *srcGroup = qobject_cast<QTabWidget*>(sender());
+    if (!srcGroup) return;
+    m_activeTabGroup = srcGroup;
+
+    QWidget *page = srcGroup->widget(index);
     TabData *tab = nullptr;
     for (auto *t : m_tabs) {
         if (t->page == page) { tab = t; break; }
@@ -1695,9 +1706,11 @@ void MainWindow::switchToTab(int index)
 
 void MainWindow::closeTab(int index)
 {
-    if (index < 0 || index >= m_docTabWidget->count()) return;
+    auto *srcGroup = qobject_cast<QTabWidget*>(sender());
+    if (!srcGroup) return;
+    if (index < 0 || index >= srcGroup->count()) return;
 
-    QWidget *page = m_docTabWidget->widget(index);
+    QWidget *page = srcGroup->widget(index);
     TabData *tab = nullptr;
     for (auto *t : m_tabs) {
         if (t->page == page) { tab = t; break; }
@@ -1705,10 +1718,17 @@ void MainWindow::closeTab(int index)
     if (!tab) return;
 
     m_tabs.removeOne(tab);
-    m_docTabWidget->removeTab(index);
+    srcGroup->removeTab(index);
 
     delete tab->page;
     delete tab;
+
+    // If the group is now empty and not the original one, remove it
+    if (srcGroup->count() == 0 && srcGroup != m_docTabWidget) {
+        m_tabGroups.removeOne(srcGroup);
+        delete srcGroup;
+        m_activeTabGroup = m_docTabWidget;
+    }
 
     if (m_tabs.isEmpty()) {
         showWelcome();
@@ -1718,7 +1738,7 @@ void MainWindow::closeTab(int index)
 void MainWindow::showWelcome()
 {
     m_leftPanel->hide();
-    m_docTabWidget->hide();
+    m_docSplitter->hide();
     welcomeLabel->show();
     m_btnApply->setEnabled(false);
     m_btnOK->setEnabled(false);
@@ -1728,7 +1748,44 @@ void MainWindow::showWelcome()
 void MainWindow::hideWelcome()
 {
     welcomeLabel->hide();
-    m_docTabWidget->show();
+    m_docSplitter->show();
+}
+
+void MainWindow::splitHorizontal(QTabWidget *srcGroup, int tabIdx)
+{
+    if (!srcGroup || tabIdx < 0 || tabIdx >= srcGroup->count()) return;
+
+    // Get the page and title from source group
+    QWidget *page = srcGroup->widget(tabIdx);
+    QString title = srcGroup->tabText(tabIdx);
+    srcGroup->removeTab(tabIdx);
+
+    // Create new tab group
+    QTabWidget *newGroup = new QTabWidget(this);
+    newGroup->setTabsClosable(true);
+    newGroup->setDocumentMode(true);
+    newGroup->setStyleSheet(
+        "QTabWidget::pane { border: none; }"
+        "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
+        "QTabBar::tab:selected { background: #ffffff; }"
+    );
+    newGroup->tabBar()->installEventFilter(this);
+
+    connect(newGroup, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
+    connect(newGroup, &QTabWidget::currentChanged, this, &MainWindow::switchToTab);
+
+    newGroup->addTab(page, title);
+    m_tabGroups.append(newGroup);
+
+    m_docSplitter->addWidget(newGroup);
+
+    // Set 50:50 split
+    int h = m_docSplitter->height();
+    if (h < 100) h = 600;
+    m_docSplitter->setSizes(QList<int>() << h / 2 << h / 2);
+
+    newGroup->setCurrentIndex(0);
+    m_activeTabGroup = newGroup;
 }
 
 void MainWindow::showFileHeader()
@@ -2398,18 +2455,31 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             resizeImageLabel();
         }
     }
-    if (watched == m_docTabWidget->tabBar() && event->type() == QEvent::ContextMenu) {
-        auto *ctx = static_cast<QContextMenuEvent*>(event);
-        int idx = m_docTabWidget->tabBar()->tabAt(ctx->pos());
-        if (idx >= 0) {
-            QMenu menu;
-            menu.addAction(QString::fromUtf8("新水平选项卡组(&H)"));
-            menu.addAction(QString::fromUtf8("新垂直选项卡组(&V)"));
-            menu.addSeparator();
-            menu.addAction(QString::fromUtf8("取消(&C)"));
-            menu.exec(ctx->globalPos());
+    if (event->type() == QEvent::ContextMenu) {
+        auto *tabBar = qobject_cast<QTabBar*>(watched);
+        if (tabBar) {
+            // Find which tab group owns this tab bar
+            QTabWidget *srcGroup = nullptr;
+            for (auto *grp : m_tabGroups) {
+                if (grp->tabBar() == tabBar) { srcGroup = grp; break; }
+            }
+            if (srcGroup) {
+                auto *ctx = static_cast<QContextMenuEvent*>(event);
+                int idx = tabBar->tabAt(ctx->pos());
+                if (idx >= 0) {
+                    QMenu menu;
+                    QAction *actH = menu.addAction(QString::fromUtf8("新水平选项卡组(&H)"));
+                    menu.addAction(QString::fromUtf8("新垂直选项卡组(&V)"));
+                    menu.addSeparator();
+                    menu.addAction(QString::fromUtf8("取消(&C)"));
+                    QAction *chosen = menu.exec(ctx->globalPos());
+                    if (chosen == actH) {
+                        splitHorizontal(srcGroup, idx);
+                    }
+                }
+                return true;
+            }
         }
-        return true;
     }
     return QMainWindow::eventFilter(watched, event);
 }

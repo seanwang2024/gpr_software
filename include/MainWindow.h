@@ -22,12 +22,14 @@
 #include <QToolButton>
 #include <QStackedWidget>
 #include <QCheckBox>
+#include <QSplitter>
 
 QT_BEGIN_NAMESPACE
 class QChart;
 class QProgressBar;
 class QScrollBar;
 class QGridLayout;
+class QTabBar;
 QT_END_NAMESPACE
 
 class HRulerWidget : public QWidget
@@ -220,6 +222,12 @@ private:
     QTabWidget *ribbonTab;
     QLabel *welcomeLabel;
     QTabWidget *m_docTabWidget;
+
+    // Tab group management (splitter)
+    QSplitter *m_docSplitter = nullptr;
+    QVector<QTabWidget*> m_tabGroups;
+    QTabWidget *m_activeTabGroup = nullptr;
+    void splitHorizontal(QTabWidget *srcGroup, int tabIdx);
 
     // Tab management
     QVector<TabData*> m_tabs;
