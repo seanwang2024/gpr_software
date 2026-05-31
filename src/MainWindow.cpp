@@ -2312,6 +2312,10 @@ void MainWindow::saveProcessedFile()
     outFile.write(m_rawData);
     outFile.close();
 
+    // 保存原文件 tab 指针和数据（createTab 会切换 m_currentTab）
+    TabData *origTab = m_currentTab;
+    QByteArray origData = origTab->originalRawData;
+
     // 打开新文件作为新 tab
     QImage image = loadDZTFile(outPath);
     if (!image.isNull()) {
@@ -2319,14 +2323,19 @@ void MainWindow::saveProcessedFile()
     }
 
     // 恢复原文件 tab 到初始状态
-    m_rawData = m_currentTab->originalRawData;
-    m_currentTab->rawData = m_rawData;
-    m_currentTab->gainApplied = false;
-    m_btnApply->setText(QString::fromUtf8("应用"));
+    origTab->rawData = origData;
+    origTab->gainApplied = false;
+    origTab->zeroApplied = false;
+
+    // 如果当前仍在原文件 tab，同步快捷指针
+    if (m_currentTab == origTab) {
+        m_rawData = origData;
+        m_btnApply->setText(QString::fromUtf8("应用"));
+        refreshImage();
+        updateChart(m_lastChartX);
+    }
     m_oneClickApplied = false;
     m_oneClickBtnApply->setText("应用");
-    refreshImage();
-    updateChart(m_lastChartX);
 }
 
 void MainWindow::refreshImage()
