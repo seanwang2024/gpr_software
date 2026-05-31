@@ -1726,6 +1726,18 @@ void MainWindow::switchToTab(int index)
     m_btnOK->setEnabled(true);
     m_btnCancel->setEnabled(true);
 
+    // Bold active tab text across all groups
+    for (auto *grp : m_tabGroups) {
+        for (int i = 0; i < grp->count(); ++i) {
+            QWidget *p = grp->widget(i);
+            bool isActive = (p == tab->page);
+            QString title = grp->tabText(i);
+            // Remove existing bold markers
+            title.remove("<b>").remove("</b>");
+            grp->setTabText(i, isActive ? QString("<b>%1</b>").arg(title) : title);
+        }
+    }
+
     // Update one-click dialog title to match active file
     if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
         QString fname = QFileInfo(tab->filePath).fileName();
@@ -2567,6 +2579,15 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                                         chartView = t->chartView;
                                         chartSeries = t->chartSeries;
                                         m_btnApply->setText(t->gainApplied ? "撤销" : "应用");
+                                        // Bold active tab text
+                                        for (auto *g2 : m_tabGroups) {
+                                            for (int j = 0; j < g2->count(); ++j) {
+                                                QString ttl = g2->tabText(j);
+                                                ttl.remove("<b>").remove("</b>");
+                                                g2->setTabText(j, g2->widget(j) == page
+                                                    ? QString("<b>%1</b>").arg(ttl) : ttl);
+                                            }
+                                        }
                                     }
                                     if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
                                         QString fname = QFileInfo(t->filePath).fileName();
@@ -4316,8 +4337,8 @@ void MainWindow::showOneClickProcess()
 
     mainLayout->addWidget(methodGroup, 1);
 
-    // === Right panel: 参考波形 ===
-    QGroupBox *chartGroup = new QGroupBox("参考波形");
+    // === Right panel: 处理后参考波形 ===
+    QGroupBox *chartGroup = new QGroupBox("处理后参考波形");
     QVBoxLayout *chartLayout = new QVBoxLayout(chartGroup);
 
     m_oneClickChart = new QChart();
