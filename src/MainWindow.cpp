@@ -1064,6 +1064,7 @@ MainWindow::MainWindow(QWidget *parent)
         "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
         "QTabBar::tab:selected { background: #ffffff; }"
     );
+    m_docTabWidget->tabBar()->installEventFilter(this);
 
     // Left panel: stacked gain / zero-point pages
     m_leftPanel = new QWidget;
@@ -2396,6 +2397,19 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         if (watched == m_currentTab->scrollArea->viewport()) {
             resizeImageLabel();
         }
+    }
+    if (watched == m_docTabWidget->tabBar() && event->type() == QEvent::ContextMenu) {
+        auto *ctx = static_cast<QContextMenuEvent*>(event);
+        int idx = m_docTabWidget->tabBar()->tabAt(ctx->pos());
+        if (idx >= 0) {
+            QMenu menu;
+            menu.addAction(QString::fromUtf8("新水平选项卡组(&H)"));
+            menu.addAction(QString::fromUtf8("新垂直选项卡组(&V)"));
+            menu.addSeparator();
+            menu.addAction(QString::fromUtf8("取消(&C)"));
+            menu.exec(ctx->globalPos());
+        }
+        return true;
     }
     return QMainWindow::eventFilter(watched, event);
 }

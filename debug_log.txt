@@ -1,0 +1,175 @@
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1910813560512 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=0 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296036016 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=0 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296034448 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=291 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296034224 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=309 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296034224 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=309 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296034960 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=560 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296034320 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=560 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296034320 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=560 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296034896 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=560 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296035120 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=560 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296034320 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=560 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296034768 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=560 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296035024 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=560 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296034864 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=560 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296034416 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=560 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1909295348576 visible=1
+m_oneClickSeries=1909296035984 m_oneClickChart=1909295567616 m_oneClickChartView=1909295571328
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=594 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1616378482848 visible=1
+m_oneClickSeries=1616366330320 m_oneClickChart=1616991996544 m_oneClickChartView=1616991995520
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=452 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=1616378482848 visible=1
+m_oneClickSeries=1616992883248 m_oneClickChart=1616991996544 m_oneClickChartView=1616991995520
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=452 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2021423248656 visible=1
+m_oneClickSeries=2022928340688 m_oneClickChart=2020810882192 m_oneClickChartView=2020810883088
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=0 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2021423248656 visible=1
+m_oneClickSeries=2021423692512 m_oneClickChart=2020810882192 m_oneClickChartView=2020810883088
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=0 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2021423248656 visible=1
+m_oneClickSeries=2021423692640 m_oneClickChart=2020810882192 m_oneClickChartView=2020810883088
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=535 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2021423248656 visible=1
+m_oneClickSeries=2021423692192 m_oneClickChart=2020810882192 m_oneClickChartView=2020810883088
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=535 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2021423248656 visible=1
+m_oneClickSeries=2021423692192 m_oneClickChart=2020810882192 m_oneClickChartView=2020810883088
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=535 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2021423248656 visible=1
+m_oneClickSeries=2021423692192 m_oneClickChart=2020810882192 m_oneClickChartView=2020810883088
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=535 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2758291552080 visible=1
+m_oneClickSeries=2758293253504 m_oneClickChart=2758291404288 m_oneClickChartView=2758291406720
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=406 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2758291552080 visible=1
+m_oneClickSeries=2758293253440 m_oneClickChart=2758291404288 m_oneClickChartView=2758291406720
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=406 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2758291552080 visible=1
+m_oneClickSeries=2758293254304 m_oneClickChart=2758291404288 m_oneClickChartView=2758291406720
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=406 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2758291552080 visible=1
+m_oneClickSeries=2758293254592 m_oneClickChart=2758291404288 m_oneClickChartView=2758291406720
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=406 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2758291552080 visible=1
+m_oneClickSeries=2758293254272 m_oneClickChart=2758291404288 m_oneClickChartView=2758291406720
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=406 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2758291552080 visible=1
+m_oneClickSeries=2758293254592 m_oneClickChart=2758291404288 m_oneClickChartView=2758291406720
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=406 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2758291552080 visible=1
+m_oneClickSeries=2758293254752 m_oneClickChart=2758291404288 m_oneClickChartView=2758291406720
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=406 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2758291552080 visible=1
+m_oneClickSeries=2758293253312 m_oneClickChart=2758291404288 m_oneClickChartView=2758291406720
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=406 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2758291552080 visible=1
+m_oneClickSeries=2758293254112 m_oneClickChart=2758291404288 m_oneClickChartView=2758291406720
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=406 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2758291552080 visible=1
+m_oneClickSeries=2758293254080 m_oneClickChart=2758291404288 m_oneClickChartView=2758291406720
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=406 samplesPerTrace=512
+=== applyOneClickProcess ===
+m_oneClickDlg=2758291552080 visible=1
+m_oneClickSeries=2758293254080 m_oneClickChart=2758291404288 m_oneClickChartView=2758291406720
+m_rawData.isEmpty=0 size=3549184
+m_lastChartX=406 samplesPerTrace=512

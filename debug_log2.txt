@@ -1,0 +1,219 @@
+=== ENTER applyOneClickProcess ===
+m_currentTab=2020809565856
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2021423527328 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2020810882192 view=2020810883088 series=2022928340688
+points=512 minV=-7867664 maxV=9120752
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2020809565856
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2021423527328 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2020809565856
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2021423527328 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2020810882192 view=2020810883088 series=2021423692512
+points=512 minV=-7867664 maxV=9120752
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2020809565856
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2021423527328 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2020809565856
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2021423527328 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2020810882192 view=2020810883088 series=2021423692640
+points=512 minV=-7276331 maxV=10081621
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2020809565856
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2021423527328 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2020809565856
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2021423527328 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2020810882192 view=2020810883088 series=2021423692192
+points=512 minV=-7276331 maxV=10081621
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2020809565856
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2021423527328 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2020809565856
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2021423527328 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2020810882192 view=2020810883088 series=2021423692192
+points=512 minV=-7276331 maxV=10081621
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2020809565856
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2021423527328 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2020809565856
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2021423527328 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2020810882192 view=2020810883088 series=2021423692192
+points=512 minV=-7276331 maxV=10081621
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2020809565856
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2021423527328 checked=1
+=== DIALOG OPENED ===
+m_oneClickBtnApply=2758293141248
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2758291554400 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2758291404288 view=2758291406720 series=2758293253504
+points=512 minV=-8395308 maxV=10594964
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2758291554400 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2758291554400 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2758291404288 view=2758291406720 series=2758293253440
+points=512 minV=-8395308 maxV=10594964
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2758291554400 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2758291554400 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2758291404288 view=2758291406720 series=2758293254304
+points=512 minV=-8395308 maxV=10594964
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2758291554400 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2758291554400 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2758291404288 view=2758291406720 series=2758293254592
+points=512 minV=-8395308 maxV=10594964
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2758291554400 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2758291554400 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2758291404288 view=2758291406720 series=2758293254272
+points=512 minV=-8395308 maxV=10594964
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2758291554400 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2758291554400 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2758291404288 view=2758291406720 series=2758293254592
+points=512 minV=-8395308 maxV=10594964
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2758291554400 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2758291554400 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2758291404288 view=2758291406720 series=2758293254752
+points=512 minV=-8395308 maxV=10594964
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2758291554400 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2758291554400 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2758291404288 view=2758291406720 series=2758293253312
+points=512 minV=-8395308 maxV=10594964
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2758291554400 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2758291554400 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2758291404288 view=2758291406720 series=2758293254112
+points=512 minV=-8395308 maxV=10594964
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2758291554400 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2758291554400 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2758291404288 view=2758291406720 series=2758293254080
+points=512 minV=-8395308 maxV=10594964
+hAxes=1 vAxes=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=1
+m_oneClickCorrectOffset=2758291554400 checked=1
+=== ENTER applyOneClickProcess ===
+m_currentTab=2757678173648
+m_oneClickApplied=0
+m_oneClickCorrectOffset=2758291554400 checked=1
+backup done, rawData size=3549184
+=== update ref chart ===
+chart=2758291404288 view=2758291406720 series=2758293254080
+points=512 minV=-8395308 maxV=10594964
+hAxes=1 vAxes=1
