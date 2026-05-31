@@ -1394,6 +1394,23 @@ MainWindow::~MainWindow()
 
 // --- Tab management ---
 
+namespace {
+const char *activeGroupSS =
+    "QTabWidget::pane { border: none; }"
+    "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
+    "QTabBar::tab:selected { background: #ffffff; font-weight: bold; }";
+const char *inactiveGroupSS =
+    "QTabWidget::pane { border: none; }"
+    "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
+    "QTabBar::tab:selected { background: #ffffff; }";
+}
+
+static void updateGroupStyles(QTabWidget *activeGroup, const QVector<QTabWidget*> &groups)
+{
+    for (auto *grp : groups)
+        grp->setStyleSheet(grp == activeGroup ? activeGroupSS : inactiveGroupSS);
+}
+
 TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
 {
     TabData *tab = new TabData();
@@ -1571,6 +1588,12 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
 
     // Per-tab signal connections
     connect(tab->imageLabel, &ImageLabel::imageClicked, this, [this, tab](const QPoint &pos) {
+        // Find which group owns this tab
+        QTabWidget *ownerGroup = nullptr;
+        for (auto *grp : m_tabGroups) {
+            if (grp->indexOf(tab->page) >= 0) { ownerGroup = grp; break; }
+        }
+
         // Activate this tab if it's not current
         if (m_currentTab != tab) {
             m_currentTab = tab;
@@ -1595,11 +1618,10 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
                 m_oneClickDlg->setWindowTitle(QString("一键处理 - %1").arg(fname));
             }
             // Switch the tab group's current tab
-            for (auto *grp : m_tabGroups) {
-                int idx = grp->indexOf(tab->page);
-                if (idx >= 0) { grp->setCurrentIndex(idx); break; }
-            }
+            if (ownerGroup) ownerGroup->setCurrentIndex(ownerGroup->indexOf(tab->page));
         }
+        // Always update group styles: clicking this window makes it active
+        if (ownerGroup) updateGroupStyles(ownerGroup, m_tabGroups);
         onImageClicked(pos);
     });
 
@@ -1672,23 +1694,6 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     });
 
     return tab;
-}
-
-namespace {
-const char *activeGroupSS =
-    "QTabWidget::pane { border: none; }"
-    "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
-    "QTabBar::tab:selected { background: #ffffff; font-weight: bold; }";
-const char *inactiveGroupSS =
-    "QTabWidget::pane { border: none; }"
-    "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
-    "QTabBar::tab:selected { background: #ffffff; }";
-}
-
-static void updateGroupStyles(QTabWidget *activeGroup, const QVector<QTabWidget*> &groups)
-{
-    for (auto *grp : groups)
-        grp->setStyleSheet(grp == activeGroup ? activeGroupSS : inactiveGroupSS);
 }
 
 void MainWindow::switchToTab(int index)
