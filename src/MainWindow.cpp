@@ -4181,8 +4181,6 @@ void MainWindow::showOneClickProcess()
             applyOneClickProcess();
         if (m_oneClickApplied)
             saveProcessedFile();
-        if (m_oneClickDlg)
-            m_oneClickDlg->close();
     });
 
     connect(btnCancel, &QPushButton::clicked, this, [this]() {
