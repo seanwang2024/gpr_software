@@ -4011,19 +4011,26 @@ void MainWindow::showOneClickProcess()
     QHBoxLayout *row1 = new QHBoxLayout();
     m_oneClickCorrectOffset = new QCheckBox("校正零偏");
     m_oneClickCorrectOffset->setChecked(true);
+    m_oneClickCorrectOffset->setMinimumWidth(80);
     row1->addWidget(m_oneClickCorrectOffset);
-    row1->addWidget(new QLabel("时窗:"));
+    QLabel *lblTimeWin = new QLabel("时窗:");
+    lblTimeWin->setMinimumWidth(55);
+    lblTimeWin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    row1->addWidget(lblTimeWin);
     m_oneClickTimeWindowSpin = new QDoubleSpinBox();
     m_oneClickTimeWindowSpin->setRange(0.0, 99999.0);
     m_oneClickTimeWindowSpin->setDecimals(1);
-    m_oneClickTimeWindowSpin->setValue(40.0);
+    m_oneClickTimeWindowSpin->setValue(5.0);
     m_oneClickTimeWindowSpin->setSuffix(" ns");
     row1->addWidget(m_oneClickTimeWindowSpin);
     methodLayout->addLayout(row1);
 
     QHBoxLayout *row1b = new QHBoxLayout();
-    row1b->addStretch();
-    row1b->addWidget(new QLabel("天线频率:"));
+    row1b->addSpacing(80); // align with checkbox width
+    QLabel *lblAntFreq = new QLabel("天线频率:");
+    lblAntFreq->setMinimumWidth(55);
+    lblAntFreq->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    row1b->addWidget(lblAntFreq);
     m_oneClickAntennaFreqSpin = new QDoubleSpinBox();
     m_oneClickAntennaFreqSpin->setRange(1.0, 99999.0);
     m_oneClickAntennaFreqSpin->setDecimals(0);
@@ -4260,7 +4267,7 @@ void MainWindow::applyOneClickProcess()
 
     // Step 1: 校正零偏 (Dewow - sliding window mean removal)
     if (m_oneClickCorrectOffset && m_oneClickCorrectOffset->isChecked()) {
-        double timeWindowNs = m_oneClickTimeWindowSpin ? m_oneClickTimeWindowSpin->value() : 40.0;
+        double timeWindowNs = m_oneClickTimeWindowSpin ? m_oneClickTimeWindowSpin->value() : 5.0;
         double timeRangeSec = m_currentTab->timeRange * 1e-9;
         double sampleInterval = timeRangeSec / samplesPerTrace;
         int windowSamples = qMax(1, static_cast<int>(timeWindowNs * 1e-9 / sampleInterval));
@@ -4480,7 +4487,7 @@ void MainWindow::updateOneClickRefChart()
 
     // Preview: 校正零偏 (Dewow - sliding window mean removal)
     if (m_oneClickCorrectOffset && m_oneClickCorrectOffset->isChecked()) {
-        double timeWindowNs = m_oneClickTimeWindowSpin ? m_oneClickTimeWindowSpin->value() : 40.0;
+        double timeWindowNs = m_oneClickTimeWindowSpin ? m_oneClickTimeWindowSpin->value() : 5.0;
         double timeRangeSec = m_currentTab->timeRange * 1e-9;
         double sampleInterval = timeRangeSec / samplesPerTrace;
         int windowSamples = qMax(1, static_cast<int>(timeWindowNs * 1e-9 / sampleInterval));
