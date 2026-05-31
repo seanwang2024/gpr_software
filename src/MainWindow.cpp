@@ -2506,6 +2506,31 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             }
         }
     }
+    // Handle left-click on tab bar: activate group & update dialog title
+    if (event->type() == QEvent::MouseButtonPress) {
+        auto *tabBar = qobject_cast<QTabBar*>(watched);
+        if (tabBar) {
+            auto *me = static_cast<QMouseEvent*>(event);
+            if (me->button() == Qt::LeftButton) {
+                int idx = tabBar->tabAt(me->pos());
+                if (idx >= 0) {
+                    // Find owning group
+                    for (auto *grp : m_tabGroups) {
+                        if (grp->tabBar() == tabBar) {
+                            m_activeTabGroup = grp;
+                            // If clicking the already-current tab, currentChanged won't fire
+                            // Manually update dialog title
+                            if (m_oneClickDlg && m_oneClickDlg->isVisible() && m_currentTab) {
+                                QString fname = QFileInfo(m_currentTab->filePath).fileName();
+                                m_oneClickDlg->setWindowTitle(QString("一键处理 - %1").arg(fname));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
     return QMainWindow::eventFilter(watched, event);
 }
 
