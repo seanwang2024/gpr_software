@@ -4322,44 +4322,59 @@ void MainWindow::applyOneClickProcess()
         }
     }
 
-    // Step 2: 幅度补偿 (Amplitude Compensation - segment-based statistical)
+    // Step 2: 幅度补偿 (Amplitude Compensation - segment-based with interpolation)
     if (m_oneClickAmpComp && m_oneClickAmpComp->isChecked()) {
         int compValue = m_oneClickAmpCompSpin ? m_oneClickAmpCompSpin->value() : 100;
         if (compValue > 0) {
             const int numSegs = 8;
             const int segSize = samplesPerTrace / numSegs;
-            // Scan original data to find max abs value in each segment
+            // Scan DEWOW'd data to find max abs value in each segment
             double segMax[numSegs];
             for (int seg = 0; seg < numSegs; ++seg) segMax[seg] = 0.0;
-            const char *srcData = m_currentTab->originalRawData.constData();
-            int srcTotal = m_currentTab->originalRawData.size() / 4;
-            for (int i = 0; i < srcTotal; ++i) {
+            int dataTotal = totalPixels;
+            for (int i = 0; i < dataTotal; ++i) {
                 int s = i % samplesPerTrace;
                 int seg = qMin(s / segSize, numSegs - 1);
                 int idx = i * 4;
-                qint32 val = (static_cast<quint8>(srcData[idx+3]) << 24) |
-                             (static_cast<quint8>(srcData[idx+2]) << 16) |
-                             (static_cast<quint8>(srcData[idx+1]) << 8) |
-                             static_cast<quint8>(srcData[idx]);
+                qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
+                             (static_cast<quint8>(data[idx+2]) << 16) |
+                             (static_cast<quint8>(data[idx+1]) << 8) |
+                             static_cast<quint8>(data[idx]);
                 double av = qAbs(static_cast<double>(val));
                 if (av > segMax[seg]) segMax[seg] = av;
             }
-            // Compute coefficients: coeff = 8388608 / segMax * (compValue/100)
             double coeff[numSegs];
             for (int seg = 0; seg < numSegs; ++seg) {
                 if (segMax[seg] < 1.0) segMax[seg] = 1.0;
                 coeff[seg] = 8388608.0 / segMax[seg] * (compValue / 100.0);
             }
-            // Apply coefficients
+            // Build interpolated gain table (linear between segment centers)
+            const int centers[8] = {32, 96, 160, 224, 288, 352, 416, 480};
+            double gainTable[512];
+            for (int i = 0; i < samplesPerTrace; ++i) {
+                if (i <= centers[0]) {
+                    gainTable[i] = coeff[0];
+                } else if (i >= centers[7]) {
+                    gainTable[i] = coeff[7];
+                } else {
+                    for (int k = 0; k < 7; ++k) {
+                        if (i <= centers[k + 1]) {
+                            double t = (double)(i - centers[k]) / (centers[k + 1] - centers[k]);
+                            gainTable[i] = coeff[k] + t * (coeff[k + 1] - coeff[k]);
+                            break;
+                        }
+                    }
+                }
+            }
+            // Apply interpolated gain to all traces
             for (int t = 0; t < numTraces; ++t) {
                 for (int s = 0; s < samplesPerTrace; ++s) {
-                    int seg = qMin(s / segSize, numSegs - 1);
                     int idx = (t * samplesPerTrace + s) * 4;
                     qint32 val = (static_cast<quint8>(data[idx+3]) << 24) |
                                  (static_cast<quint8>(data[idx+2]) << 16) |
                                  (static_cast<quint8>(data[idx+1]) << 8) |
                                  static_cast<quint8>(data[idx]);
-                    float result = static_cast<float>(val * coeff[seg]);
+                    float result = static_cast<float>(val * gainTable[s]);
                     if (result > 8388607.0f) result = 8388607.0f;
                     if (result < -8388608.0f) result = -8388608.0f;
                     val = static_cast<qint32>(result);
@@ -4560,26 +4575,18 @@ void MainWindow::updateOneClickRefChart()
         }
     }
 
-    // Preview: 幅度补偿 (segment-based statistical)
+    // Preview: 幅度补偿 (segment-based statistical with interpolation)
     if (m_oneClickAmpComp && m_oneClickAmpComp->isChecked() && m_oneClickAmpCompSpin) {
         int compValue = m_oneClickAmpCompSpin->value();
         if (compValue > 0) {
             const int numSegs = 8;
             const int segSize = samplesPerTrace / numSegs;
-            // Scan srcData for segment max values
+            // Compute segMax from current samples[] (already DEWOW'd if checked)
             double segMax[numSegs];
             for (int seg = 0; seg < numSegs; ++seg) segMax[seg] = 0.0;
-            int srcTotal = srcData.size() / 4;
-            const char *sd = srcData.constData();
-            for (int i = 0; i < srcTotal; ++i) {
-                int s = i % samplesPerTrace;
-                int seg = qMin(s / segSize, numSegs - 1);
-                int idx = i * 4;
-                qint32 val = (static_cast<quint8>(sd[idx+3]) << 24) |
-                             (static_cast<quint8>(sd[idx+2]) << 16) |
-                             (static_cast<quint8>(sd[idx+1]) << 8) |
-                             static_cast<quint8>(sd[idx]);
-                double av = qAbs(static_cast<double>(val));
+            for (int i = 0; i < samplesPerTrace; ++i) {
+                int seg = qMin(i / segSize, numSegs - 1);
+                double av = qAbs(static_cast<double>(samples[i]));
                 if (av > segMax[seg]) segMax[seg] = av;
             }
             double coeff[numSegs];
@@ -4587,9 +4594,26 @@ void MainWindow::updateOneClickRefChart()
                 if (segMax[seg] < 1.0) segMax[seg] = 1.0;
                 coeff[seg] = 8388608.0 / segMax[seg] * (compValue / 100.0);
             }
+            // Build interpolated gain table (linear between segment centers)
+            const int centers[8] = {32, 96, 160, 224, 288, 352, 416, 480};
+            double gainTable[512];
             for (int i = 0; i < samplesPerTrace; ++i) {
-                int seg = qMin(i / segSize, numSegs - 1);
-                float result = static_cast<float>(samples[i] * coeff[seg]);
+                if (i <= centers[0]) {
+                    gainTable[i] = coeff[0];
+                } else if (i >= centers[7]) {
+                    gainTable[i] = coeff[7];
+                } else {
+                    for (int k = 0; k < 7; ++k) {
+                        if (i <= centers[k + 1]) {
+                            double t = (double)(i - centers[k]) / (centers[k + 1] - centers[k]);
+                            gainTable[i] = coeff[k] + t * (coeff[k + 1] - coeff[k]);
+                            break;
+                        }
+                    }
+                }
+            }
+            for (int i = 0; i < samplesPerTrace; ++i) {
+                float result = static_cast<float>(samples[i] * gainTable[i]);
                 if (result > 8388607.0f) result = 8388607.0f;
                 if (result < -8388608.0f) result = -8388608.0f;
                 samples[i] = static_cast<qint32>(result);
@@ -4632,5 +4656,9 @@ void MainWindow::updateOneClickRefChart()
         QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
         if (ax) ax->setRange(-8388608.0, 8388608.0);
     }
-    if (m_oneClickChartView) m_oneClickChartView->viewport()->update();
+    if (m_oneClickChartView) {
+        m_oneClickChartView->chart()->update();
+        m_oneClickChartView->viewport()->update();
+        m_oneClickChartView->update();
+    }
 }
