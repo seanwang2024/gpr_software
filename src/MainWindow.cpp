@@ -4229,29 +4229,15 @@ void MainWindow::applyOneClickProcess()
     if (!m_currentTab) return;
 
     if (m_oneClickApplied) {
-        // Undo
+        // Undo: only restore raw data and image, do NOT change dialog state
         m_rawData = m_currentTab->originalRawData;
         m_currentTab->rawData = m_rawData;
         m_oneClickApplied = false;
         m_oneClickBtnApply->setText("应用");
         refreshImage();
         updateChart(m_lastChartX);
-
-        // Sync reference chart on undo
-        if (m_oneClickSeries && !m_rawData.isEmpty()) {
-            m_oneClickSeries->clear();
-            int spt = m_pixelsPerRow;
-            for (int i = 0; i < spt; ++i) {
-                qint32 val = getPixelValue(m_lastChartX, i);
-                m_oneClickSeries->append(static_cast<qreal>(val), static_cast<qreal>(i));
-            }
-            auto axes = m_oneClickChart->axes(Qt::Horizontal);
-            if (!axes.isEmpty()) {
-                QValueAxis *ax = qobject_cast<QValueAxis*>(axes.first());
-                if (ax) ax->setRange(-8388608.0, 8388608.0);
-            }
-            if (m_oneClickChartView) m_oneClickChartView->update();
-        }
+        // Restore reference chart preview from current dialog settings
+        updateOneClickRefChart();
         return;
     }
 
