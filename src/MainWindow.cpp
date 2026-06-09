@@ -2830,7 +2830,7 @@ void MainWindow::createMenuBar()
 
     // 调色板 button with dropdown menu
     {
-        QToolButton *paletteBtn = makeBtn(":/icons/resources/palette.png", "调色板\n▾");
+        QToolButton *paletteBtn = makeBtn(":/icons/resources/palette.png", "调色板");
         paletteBtn->setPopupMode(QToolButton::InstantPopup);
         paletteBtn->setStyleSheet(
             "QToolButton { border: none; border-radius: 3px; background: transparent; font-size: 11px; }"
