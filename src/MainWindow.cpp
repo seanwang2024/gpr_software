@@ -2802,10 +2802,10 @@ void MainWindow::createMenuBar()
     // 文件设置 group
     QVBoxLayout *fileGroup = addGroup(startLayout, "文件设置");
     QHBoxLayout *fileBtns = qobject_cast<QHBoxLayout*>(fileGroup->itemAt(0)->layout());
-    QToolButton *btnOpen = makeBtn(":/icons/resources/open.png", "打开");
-    QToolButton *btnSave = makeBtn(":/icons/resources/save.png", "保存");
-    QToolButton *btnClose = makeBtn(":/icons/resources/close.png", "关闭");
-    QToolButton *btnHeader = makeBtn("", "文件头");
+    QToolButton *btnOpen = makeBtn(":/icons/resources/icon_open_64.png", "打开");
+    QToolButton *btnSave = makeBtn(":/icons/resources/icon_save_64.png", "保存");
+    QToolButton *btnClose = makeBtn(":/icons/resources/icon_close_64.png", "关闭");
+    QToolButton *btnHeader = makeBtn(":/icons/resources/icon_fileheader_64.png", "文件头");
     fileBtns->addWidget(btnOpen);
     fileBtns->addWidget(btnSave);
     fileBtns->addWidget(btnClose);
