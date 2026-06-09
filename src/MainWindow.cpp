@@ -2752,7 +2752,7 @@ void MainWindow::createMenuBar()
     ribbonTab = new QTabWidget(this);
     ribbonTab->setTabPosition(QTabWidget::North);
     ribbonTab->setDocumentMode(true);
-    ribbonTab->setFixedHeight(120);
+    ribbonTab->setFixedHeight(132);
     ribbonTab->setStyleSheet(
         "QTabWidget::pane { border: 1px solid #c0c0c0; background: #f0f0f0; }"
         "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; }"
@@ -2831,6 +2831,23 @@ void MainWindow::createMenuBar()
     // 调色板 button with dropdown menu
     {
         QToolButton *paletteBtn = makeBtn(":/icons/resources/palette.png", "调色板");
+        // 在图标底部画一个小三角，表示可下拉
+        {
+            QPixmap pix(":/icons/resources/palette.png");
+            QPixmap combined(pix.size());
+            combined.fill(Qt::transparent);
+            QPainter p(&combined);
+            p.drawPixmap(0, 0, pix);
+            int w = pix.width();
+            int h = pix.height();
+            p.setPen(Qt::NoPen);
+            p.setBrush(paletteBtn->palette().color(QPalette::ButtonText));
+            QPolygon tri;
+            tri << QPoint(w/2 - 4, h - 5) << QPoint(w/2 + 4, h - 5) << QPoint(w/2, h);
+            p.drawPolygon(tri);
+            p.end();
+            paletteBtn->setIcon(QIcon(combined));
+        }
         paletteBtn->setPopupMode(QToolButton::InstantPopup);
         paletteBtn->setStyleSheet(
             "QToolButton { border: none; border-radius: 3px; background: transparent; font-size: 11px; }"
