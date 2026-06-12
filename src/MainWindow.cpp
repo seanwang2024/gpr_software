@@ -5122,8 +5122,9 @@ void MainWindow::applyKirchhoffMigration()
                 sum += val * cosTheta * hannW;
                 count++;
             }
-            // sqrt(N) 归一化保留聚焦增益
-            out[outIdx] = (count > 0) ? sum / std::sqrt(static_cast<double>(count)) : 0.0;
+            // 保留原始加权和（不除 sqrt(N)）—— 让聚焦后的绕射点保持高幅度
+            // 后续 std 缩放会把背景压暗，从而突出峰值，形成高对比度
+            out[outIdx] = (count > 0) ? sum : 0.0;
         }
         if (xOut % qMax(1, numTraces / 20) == 0) {
             m_progressBar->setValue(10 + 80 * xOut / numTraces);
@@ -5131,29 +5132,26 @@ void MainWindow::applyKirchhoffMigration()
         }
     }
 
-    // 用 MAD (Median Absolute Deviation) 做缩放
-    // 聚焦后的绕射点是离群大值，会拉大 std 导致 scale 偏小、整图偏暗；
-    // MAD 反映典型（背景）振幅，对离群值不敏感，背景匹配输入后峰值自然突出。
-    auto medianAbs = [](std::vector<double>& vals, double mean) {
-        const size_t n = vals.size();
-        if (n == 0) return 0.0;
-        std::vector<double> absVals(n);
-        for (size_t i = 0; i < n; ++i) absVals[i] = std::abs(vals[i] - mean);
-        std::nth_element(absVals.begin(), absVals.begin() + n / 2, absVals.end());
-        return absVals[n / 2];
-    };
-
-    double inMean = 0.0;
-    for (int i = 0; i < totalPixels; ++i) inMean += samples[i];
+    // std-based 缩放：输出 std 会被聚焦峰值拉大，scale 偏小，背景被压暗，峰值突出
+    double inMean = 0.0, inM2 = 0.0;
+    for (int i = 0; i < totalPixels; ++i) {
+        inMean += samples[i];
+        inM2 += samples[i] * samples[i];
+    }
     inMean /= totalPixels;
-    double inMad = medianAbs(samples, inMean);
+    double inVar = inM2 / totalPixels - inMean * inMean;
+    double inStd = std::sqrt(inVar > 0.0 ? inVar : 0.0);
 
-    double outMean = 0.0;
-    for (int i = 0; i < totalPixels; ++i) outMean += out[i];
+    double outMean = 0.0, outM2 = 0.0;
+    for (int i = 0; i < totalPixels; ++i) {
+        outMean += out[i];
+        outM2 += out[i] * out[i];
+    }
     outMean /= totalPixels;
-    double outMad = medianAbs(out, outMean);
+    double outVar = outM2 / totalPixels - outMean * outMean;
+    double outStd = std::sqrt(outVar > 0.0 ? outVar : 0.0);
 
-    double scale = (outMad > 1e-9) ? (inMad / outMad) : 1.0;
+    double scale = (outStd > 1e-9) ? (inStd / outStd) : 1.0;
 
     char *data = m_rawData.data();
     for (int i = 0; i < totalPixels; ++i) {
