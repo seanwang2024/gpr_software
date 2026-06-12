@@ -3008,6 +3008,13 @@ void MainWindow::createMenuBar()
                 axisY->setLabelFormat("%d");
             }
             updateChart(m_lastChartX);
+            if (m_currentTab) {
+                QFileInfo fi(m_currentTab->filePath);
+                setWindowTitle(QString("增益-%1").arg(fi.completeBaseName()));
+                setWindowIcon(QIcon(":/icons/resources/adjustgain.png"));
+            }
+        } else {
+            setWindowTitle("DZT Image Viewer");
         }
     });
     processBtns->addWidget(btnAdjGainStart);
@@ -3076,6 +3083,13 @@ void MainWindow::createMenuBar()
                 axisY->setLabelFormat("%d");
             }
             updateChart(m_lastChartX);
+            if (m_currentTab) {
+                QFileInfo fi(m_currentTab->filePath);
+                setWindowTitle(QString("增益-%1").arg(fi.completeBaseName()));
+                setWindowIcon(QIcon(":/icons/resources/adjustgain.png"));
+            }
+        } else {
+            setWindowTitle("DZT Image Viewer");
         }
     });
     g2row1->addWidget(btnAdjGain);
