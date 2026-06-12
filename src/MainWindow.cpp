@@ -5068,28 +5068,39 @@ void MainWindow::applyKirchhoffMigration()
     QCoreApplication::processEvents();
 
     int halfW = aperture / 2;
+    if (halfW < 1) halfW = 1;
     std::vector<double> out(totalPixels, 0.0);
 
     // Kirchhoff 求和偏移 (时间域)：
-    // 对每个输出样元 (x_out, s_out)，从输入各道 (x_in) 的旅行时
-    //   τ(x_in) = sqrt(τ0^2 + (2*(x_in-x_out)*dx/v)^2)
-    // 其中 τ0 = (s_out - firstWave) * tps（输出点在首波之后的走时）
-    // 求和输入道在 τ 处的样本（线性插值）。
+    //   m(x_out, τ0) = Σ_{x_in} W · d(x_in, τ(x_in))
+    //   τ(x_in) = sqrt(τ0^2 + (2·(x_in-x_out)·dx/v)^2)
+    //
+    // 权重 W = cos(θ) · Hann(相对位置)
+    //   - cos(θ) = z/r 倾斜因子（压制远道假频）
+    //   - Hann 窗使孔径边缘平滑过渡，避免突变截断假象
+    //
+    // 归一化用 1/sqrt(N) （N=参与求和道数）：
+    //   - 相干信号叠加 N 道得 N×振幅
+    //   - 不相干噪声叠加 N 道得 sqrt(N)×振幅
+    //   - 除 sqrt(N) 后信噪比增益为 sqrt(N)，聚焦能量保留
     for (int xOut = 0; xOut < numTraces; ++xOut) {
         for (int sOut = 0; sOut < samplesPerTrace; ++sOut) {
+            int outIdx = xOut * samplesPerTrace + sOut;
             double tau0 = (sOut - firstWave) * tps;
             if (tau0 <= 0.0) {
                 // 首波之上：直接保留原值
-                out[xOut * samplesPerTrace + sOut] = samples[xOut * samplesPerTrace + sOut];
+                out[outIdx] = samples[outIdx];
                 continue;
             }
+            double zM = vel * tau0 / 2.0;
             double sum = 0.0;
-            double wsum = 0.0;
+            int count = 0;
             int xMin = std::max(0, xOut - halfW);
             int xMax = std::min(numTraces - 1, xOut + halfW);
             for (int xIn = xMin; xIn <= xMax; ++xIn) {
-                double dx = (xIn - xOut) * dxM;                      // 横向距离 m
-                double tauIn = std::sqrt(tau0 * tau0 + std::pow(2.0 * dx / vel, 2.0));  // ns
+                double dx = (xIn - xOut) * dxM;
+                double arg = 2.0 * dx / vel;
+                double tauIn = std::sqrt(tau0 * tau0 + arg * arg);  // ns
                 double sInF = firstWave + tauIn / tps;
                 if (sInF < 0.0 || sInF > samplesPerTrace - 1.001) continue;
                 int sI0 = static_cast<int>(sInF);
@@ -5097,15 +5108,22 @@ void MainWindow::applyKirchhoffMigration()
                 double v0 = samples[xIn * samplesPerTrace + sI0];
                 double v1 = samples[xIn * samplesPerTrace + sI0 + 1];
                 double val = v0 + (v1 - v0) * frac;
-                // 权重: 倾斜因子 z/r * 1/sqrt(r) （Kirchhoff 标准加权）
-                double zM = vel * tau0 / 2.0;
+
+                // 倾斜因子 cos(θ) = z / r
                 double rM = std::sqrt(zM * zM + dx * dx);
                 if (rM < 1e-9) rM = 1e-9;
-                double w = (zM / rM) / std::sqrt(rM);
-                sum += val * w;
-                wsum += w;
+                double cosTheta = zM / rM;
+
+                // Hann 窗：中心 1.0，边缘 0.0
+                double relPos = std::abs(xIn - xOut) / static_cast<double>(halfW);
+                if (relPos > 1.0) relPos = 1.0;
+                double hannW = 0.5 * (1.0 + std::cos(M_PI * relPos));
+
+                sum += val * cosTheta * hannW;
+                count++;
             }
-            out[xOut * samplesPerTrace + sOut] = (wsum > 1e-12) ? (sum / wsum) : 0.0;
+            // sqrt(N) 归一化保留聚焦增益
+            out[outIdx] = (count > 0) ? sum / std::sqrt(static_cast<double>(count)) : 0.0;
         }
         if (xOut % qMax(1, numTraces / 20) == 0) {
             m_progressBar->setValue(10 + 80 * xOut / numTraces);
@@ -5113,22 +5131,31 @@ void MainWindow::applyKirchhoffMigration()
         }
     }
 
-    // 归一化回原始 [srcMin, srcMax] 范围
-    double outMin = std::numeric_limits<double>::max();
-    double outMax = std::numeric_limits<double>::lowest();
+    // 用 std-based 标量缩放保留原始振幅分布
+    // （min/max 重映射会破坏相对振幅关系，导致弱信号被压平）
+    double inMean = 0.0, inM2 = 0.0;
     for (int i = 0; i < totalPixels; ++i) {
-        if (out[i] < outMin) outMin = out[i];
-        if (out[i] > outMax) outMax = out[i];
+        inMean += samples[i];
+        inM2 += samples[i] * samples[i];
     }
-    double outRange = outMax - outMin;
-    double srcRange = srcMax - srcMin;
-    if (outRange < 1e-9) outRange = 1.0;
-    if (srcRange < 1e-9) srcRange = 1.0;
+    inMean /= totalPixels;
+    double inVar = inM2 / totalPixels - inMean * inMean;
+    double inStd = std::sqrt(inVar > 0.0 ? inVar : 0.0);
+
+    double outMean = 0.0, outM2 = 0.0;
+    for (int i = 0; i < totalPixels; ++i) {
+        outMean += out[i];
+        outM2 += out[i] * out[i];
+    }
+    outMean /= totalPixels;
+    double outVar = outM2 / totalPixels - outMean * outMean;
+    double outStd = std::sqrt(outVar > 0.0 ? outVar : 0.0);
+
+    double scale = (outStd > 1e-9) ? (inStd / outStd) : 1.0;
 
     char *data = m_rawData.data();
     for (int i = 0; i < totalPixels; ++i) {
-        double norm = (out[i] - outMin) / outRange;
-        double v = srcMin + norm * srcRange;
+        double v = (out[i] - outMean) * scale + inMean;
         if (v > 2147483647.0) v = 2147483647.0;
         if (v < -2147483648.0) v = -2147483648.0;
         qint32 iv = static_cast<qint32>(std::round(v));
