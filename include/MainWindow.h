@@ -102,7 +102,7 @@ private:
     QLineSeries *m_series;
     float m_gainMin = -6.0f;
     float m_gainMax = 6.0f;
-    bool m_gainVisible = true;
+    bool m_gainVisible = false;
     float m_yScale = 1.0f;
     float m_zeroOffset = 0.0f;  // time-zero offset for negative-Y shading
     qreal mapGainToWidgetX(float gainVal);

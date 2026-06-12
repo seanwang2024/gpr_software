@@ -1111,7 +1111,13 @@ MainWindow::MainWindow(QWidget *parent)
             m_btnApply->setText("应用");
             refreshImage();
         }
+        if (chartView) chartView->setGainVisible(false);
         m_leftPanel->hide();
+    });
+
+    // X 按钮关闭也隐藏增益handle
+    connect(m_leftPanel, &QDialog::rejected, this, [this]() {
+        if (chartView) chartView->setGainVisible(false);
     });
 
     m_leftStack->addWidget(m_gainPage);
@@ -1748,6 +1754,11 @@ void MainWindow::switchToTab(int index)
     imageLabel = tab->imageLabel;
     chartView = tab->chartView;
     chartSeries = tab->chartSeries;
+
+    // 同步增益handle显示：仅在增益面板可见且处于增益页时显示
+    bool gainActive = m_leftPanel && m_leftPanel->isVisible()
+                      && m_leftStack->currentWidget() == m_gainPage;
+    chartView->setGainVisible(gainActive);
 
     // Sync button state
     m_btnApply->setText(tab->gainApplied ? "撤销" : "应用");
