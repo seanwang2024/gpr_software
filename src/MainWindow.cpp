@@ -2347,7 +2347,7 @@ void MainWindow::saveProcessedFile()
     if (!m_currentTab) return;
 
     // 确保增益已应用（仅旧的增益系统；一键处理已自己处理数据）
-    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied) {
+    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied && !m_deconvApplied) {
         // 先应用增益
         m_currentTab->originalRawData = m_rawData;
         bool isLinear2 = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
@@ -3130,7 +3130,9 @@ void MainWindow::createMenuBar()
     QToolButton *btnMathOp = makeTextBtn("数学运算");
     connect(btnMathOp, &QToolButton::clicked, this, &MainWindow::showMathOperation);
     g3row1->addWidget(btnMathOp);
-    g3row1->addWidget(makeTextBtn("反褶积"));
+    QToolButton *btnDeconv = makeTextBtn("反褶积");
+    connect(btnDeconv, &QToolButton::clicked, this, &MainWindow::showDeconvolution);
+    g3row1->addWidget(btnDeconv);
     g3row1->addWidget(makeTextBtn("希尔伯特"));
     QHBoxLayout *g3row2 = new QHBoxLayout();
     g3row2->setSpacing(2);
@@ -4790,6 +4792,274 @@ void MainWindow::applyMathOperation()
 
     m_progressBar->setValue(100);
     m_progressBar->setFormat("数学运算: 完成");
+    QCoreApplication::processEvents();
+
+    QTimer::singleShot(2000, this, [this]() {
+        m_progressBar->hide();
+        m_progressBar->setValue(0);
+    });
+}
+
+void MainWindow::showDeconvolution()
+{
+    if (!m_currentTab) return;
+
+    if (m_deconvDlg) {
+        m_deconvDlg->raise();
+        m_deconvDlg->activateWindow();
+        return;
+    }
+
+    m_deconvDlg = new QDialog(this);
+    m_deconvDlg->setAttribute(Qt::WA_DeleteOnClose);
+    m_deconvDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
+
+    QFileInfo fi(m_currentTab->filePath);
+    m_deconvDlg->setWindowTitle(QString("反褶积-%1").arg(fi.completeBaseName()));
+
+    connect(m_deconvDlg, &QDialog::finished, this, [this]() {
+        m_deconvDlg = nullptr;
+        m_deconvFilterLenSpin = nullptr;
+        m_deconvPredStepSpin = nullptr;
+        m_deconvBtnApply = nullptr;
+        m_deconvApplied = false;
+    });
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(m_deconvDlg);
+
+    // 参数设置 group
+    QGroupBox *paramGroup = new QGroupBox("参数设置");
+    QFormLayout *paramForm = new QFormLayout(paramGroup);
+    m_deconvFilterLenSpin = new QSpinBox();
+    m_deconvFilterLenSpin->setRange(3, 999);
+    m_deconvFilterLenSpin->setValue(31);
+    paramForm->addRow("滤波器长：", m_deconvFilterLenSpin);
+
+    m_deconvPredStepSpin = new QSpinBox();
+    m_deconvPredStepSpin->setRange(1, 999);
+    m_deconvPredStepSpin->setValue(5);
+    paramForm->addRow("预测步长：", m_deconvPredStepSpin);
+    mainLayout->addWidget(paramGroup);
+
+    // Buttons
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    m_deconvBtnApply = new QPushButton("应用");
+    QPushButton *btnOK = new QPushButton("确定");
+    QPushButton *btnCancel = new QPushButton("取消");
+    btnLayout->addWidget(m_deconvBtnApply);
+    btnLayout->addWidget(btnOK);
+    btnLayout->addWidget(btnCancel);
+    btnLayout->addStretch();
+    mainLayout->addLayout(btnLayout);
+
+    connect(m_deconvBtnApply, &QPushButton::clicked, this, [this]() {
+        applyDeconvolution();
+    });
+
+    connect(btnOK, &QPushButton::clicked, this, [this]() {
+        if (!m_deconvApplied)
+            applyDeconvolution();
+        if (m_deconvApplied)
+            saveProcessedFile();
+        if (m_deconvDlg)
+            m_deconvDlg->close();
+    });
+
+    connect(btnCancel, &QPushButton::clicked, this, [this]() {
+        if (m_deconvApplied) {
+            m_rawData = m_currentTab->originalRawData;
+            m_currentTab->rawData = m_rawData;
+            m_currentTab->gainApplied = false;
+            m_deconvApplied = false;
+            refreshImage();
+            updateChart(m_lastChartX);
+        }
+        if (m_deconvDlg)
+            m_deconvDlg->close();
+    });
+
+    m_deconvDlg->show();
+}
+
+void MainWindow::applyDeconvolution()
+{
+    if (!m_currentTab) return;
+
+    if (m_deconvApplied) {
+        // Undo
+        m_rawData = m_currentTab->originalRawData;
+        m_currentTab->rawData = m_rawData;
+        m_currentTab->gainApplied = false;
+        m_deconvApplied = false;
+        m_deconvBtnApply->setText("应用");
+        refreshImage();
+        updateChart(m_lastChartX);
+        return;
+    }
+
+    m_currentTab->originalRawData = m_rawData;
+
+    int samplesPerTrace = m_pixelsPerRow;
+    int totalPixels = m_rawData.size() / 4;
+    int numTraces = totalPixels / samplesPerTrace;
+    if (numTraces == 0 || samplesPerTrace == 0) return;
+
+    int filterLen = m_deconvFilterLenSpin ? m_deconvFilterLenSpin->value() : 31;
+    int predStep = m_deconvPredStepSpin ? m_deconvPredStepSpin->value() : 5;
+    if (filterLen < 1) filterLen = 1;
+    if (predStep < 1) predStep = 1;
+
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat("反褶积: 读取数据...");
+    m_progressBar->show();
+    QCoreApplication::processEvents();
+
+    const char *srcData = m_rawData.constData();
+    std::vector<double> samples(totalPixels);
+    double srcMin = std::numeric_limits<double>::max();
+    double srcMax = std::numeric_limits<double>::lowest();
+    for (int i = 0; i < totalPixels; ++i) {
+        int idx = i * 4;
+        qint32 v = (static_cast<quint8>(srcData[idx+3]) << 24) |
+                   (static_cast<quint8>(srcData[idx+2]) << 16) |
+                   (static_cast<quint8>(srcData[idx+1]) << 8) |
+                   (static_cast<quint8>(srcData[idx]));
+        samples[i] = static_cast<double>(v);
+        if (samples[i] < srcMin) srcMin = samples[i];
+        if (samples[i] > srcMax) srcMax = samples[i];
+    }
+
+    m_progressBar->setValue(10);
+    m_progressBar->setFormat("反褶积: Wiener 预测算子... %p%");
+    QCoreApplication::processEvents();
+
+    // RADAN 风格预测反褶积 (Predictive Deconvolution)
+    // 对每条 trace:
+    //   1) 计算自相关 r[k] = E[x[n] x[n+k]]
+    //   2) 解 Wiener-Hopf 方程 R f = g, R[i][j] = r[|i-j|], g[i] = r[predStep+i]
+    //   3) 残差输出 e[n] = x[n] - sum_{k=0}^{L-1} f[k] * x[n - predStep - k]
+    int acorrLen = filterLen + predStep;
+    std::vector<double> acorr(acorrLen, 0.0);
+    std::vector<double> filter(filterLen, 0.0);
+    std::vector<double> out(totalPixels, 0.0);
+    std::vector<std::vector<double>> A(filterLen, std::vector<double>(filterLen + 1, 0.0));
+
+    for (int t = 0; t < numTraces; ++t) {
+        double *tr = &samples[t * samplesPerTrace];
+
+        // 自相关
+        for (int k = 0; k < acorrLen; ++k) {
+            double sum = 0.0;
+            int count = samplesPerTrace - k;
+            for (int n = 0; n < count; ++n) {
+                sum += tr[n] * tr[n + k];
+            }
+            acorr[k] = (count > 0) ? sum / count : 0.0;
+        }
+
+        // 白噪声加成 0.1%，保证 Toeplitz 矩阵正定可解
+        if (acorr[0] > 0.0) {
+            acorr[0] *= (1.0 + 1e-3);
+        } else {
+            // 全零 trace，直接复制为 0
+            for (int n = 0; n < samplesPerTrace; ++n)
+                out[t * samplesPerTrace + n] = 0.0;
+            continue;
+        }
+
+        // 构造增广矩阵 [R | g]
+        for (int i = 0; i < filterLen; ++i) {
+            for (int j = 0; j < filterLen; ++j) {
+                A[i][j] = acorr[std::abs(i - j)];
+            }
+            A[i][filterLen] = acorr[predStep + i];
+        }
+
+        // 高斯消元 (部分主元)
+        for (int p = 0; p < filterLen; ++p) {
+            int maxRow = p;
+            for (int r = p + 1; r < filterLen; ++r) {
+                if (std::abs(A[r][p]) > std::abs(A[maxRow][p])) maxRow = r;
+            }
+            if (maxRow != p) std::swap(A[p], A[maxRow]);
+
+            if (std::abs(A[p][p]) < 1e-18) continue;
+
+            for (int r = p + 1; r < filterLen; ++r) {
+                double f = A[r][p] / A[p][p];
+                if (f == 0.0) continue;
+                for (int c = p; c <= filterLen; ++c) {
+                    A[r][c] -= f * A[p][c];
+                }
+            }
+        }
+
+        // 回代
+        for (int i = filterLen - 1; i >= 0; --i) {
+            double s = A[i][filterLen];
+            for (int j = i + 1; j < filterLen; ++j) {
+                s -= A[i][j] * filter[j];
+            }
+            filter[i] = (std::abs(A[i][i]) > 1e-18) ? s / A[i][i] : 0.0;
+        }
+
+        // 应用预测误差滤波：e[n] = x[n] - sum f[k] x[n - predStep - k]
+        for (int n = 0; n < samplesPerTrace; ++n) {
+            double pred = 0.0;
+            for (int k = 0; k < filterLen; ++k) {
+                int idx = n - predStep - k;
+                if (idx >= 0) {
+                    pred += filter[k] * tr[idx];
+                }
+            }
+            out[t * samplesPerTrace + n] = tr[n] - pred;
+        }
+
+        if (t % qMax(1, numTraces / 20) == 0) {
+            m_progressBar->setValue(10 + 80 * t / numTraces);
+            QCoreApplication::processEvents();
+        }
+    }
+
+    // 归一化回原始 [srcMin, srcMax]，否则残差幅值与原图差太多图像看不清
+    double outMin = std::numeric_limits<double>::max();
+    double outMax = std::numeric_limits<double>::lowest();
+    for (int i = 0; i < totalPixels; ++i) {
+        if (out[i] < outMin) outMin = out[i];
+        if (out[i] > outMax) outMax = out[i];
+    }
+    double outRange = outMax - outMin;
+    double srcRange = srcMax - srcMin;
+    if (outRange < 1e-9) outRange = 1.0;
+    if (srcRange < 1e-9) srcRange = 1.0;
+
+    char *data = m_rawData.data();
+    for (int i = 0; i < totalPixels; ++i) {
+        double norm = (out[i] - outMin) / outRange;  // 0..1
+        double v = srcMin + norm * srcRange;
+        if (v > 2147483647.0) v = 2147483647.0;
+        if (v < -2147483648.0) v = -2147483648.0;
+        qint32 iv = static_cast<qint32>(std::round(v));
+        int idx = i * 4;
+        data[idx]   = iv & 0xFF;
+        data[idx+1] = (iv >> 8) & 0xFF;
+        data[idx+2] = (iv >> 16) & 0xFF;
+        data[idx+3] = (iv >> 24) & 0xFF;
+    }
+
+    m_currentTab->rawData = m_rawData;
+    m_deconvApplied = true;
+    m_deconvBtnApply->setText("撤销");
+
+    refreshImage();
+    updateChart(m_lastChartX);
+
+    if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
+        updateOneClickRefChart();
+    }
+
+    m_progressBar->setValue(100);
+    m_progressBar->setFormat("反褶积: 完成");
     QCoreApplication::processEvents();
 
     QTimer::singleShot(2000, this, [this]() {

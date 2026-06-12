@@ -326,6 +326,15 @@ private:
     void showMathOperation();
     void applyMathOperation();
 
+    // Deconvolution dialog pointers (non-modal)
+    QDialog *m_deconvDlg = nullptr;
+    QSpinBox *m_deconvFilterLenSpin = nullptr;
+    QSpinBox *m_deconvPredStepSpin = nullptr;
+    QPushButton *m_deconvBtnApply = nullptr;
+    bool m_deconvApplied = false;
+    void showDeconvolution();
+    void applyDeconvolution();
+
     // Processing range spinboxes (ribbon 数据处理 page)
     QSpinBox *m_startTraceSpin = nullptr;
     QSpinBox *m_endTraceSpin = nullptr;
