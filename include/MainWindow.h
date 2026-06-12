@@ -205,6 +205,8 @@ private:
     void hideWelcome();
     void showFileHeader();
     void showDigitalFilter();
+    void showMovingAverage();
+    void applyMovingAverage();
 
     // Shared/global widgets
     QPushButton *openButton;
@@ -300,6 +302,12 @@ private:
     bool m_bgRemovalApplied = false;
     void showBackgroundRemoval();
     void applyBackgroundRemoval();
+
+    // Moving average dialog pointers (non-modal)
+    QDialog *m_movingAvgDlg = nullptr;
+    QSpinBox *m_movingAvgWindowSpin = nullptr;
+    QPushButton *m_movingAvgBtnApply = nullptr;
+    bool m_movingAvgApplied = false;
 
     // Correct offset dialog pointers (non-modal)
     QDialog *m_correctOffsetDlg = nullptr;

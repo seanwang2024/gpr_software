@@ -2329,7 +2329,7 @@ void MainWindow::saveProcessedFile()
     if (!m_currentTab) return;
 
     // 确保增益已应用（仅旧的增益系统；一键处理已自己处理数据）
-    if (!m_currentTab->gainApplied && !m_oneClickApplied) {
+    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied) {
         // 先应用增益
         m_currentTab->originalRawData = m_rawData;
         bool isLinear2 = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
@@ -3078,7 +3078,9 @@ void MainWindow::createMenuBar()
     QToolButton *btnDigFilter = makeTextBtn("数字滤波");
     g2row2->addWidget(btnDigFilter);
     connect(btnDigFilter, &QToolButton::clicked, this, &MainWindow::showDigitalFilter);
-    g2row2->addWidget(makeTextBtn("滑动平均"));
+    QToolButton *btnMovingAvg = makeTextBtn("滑动平均");
+    connect(btnMovingAvg, &QToolButton::clicked, this, &MainWindow::showMovingAverage);
+    g2row2->addWidget(btnMovingAvg);
     g2row2->addWidget(makeTextBtn("道间均衡"));
     g2->insertLayout(1, g2row2);
 
@@ -3142,9 +3144,10 @@ void MainWindow::createMenuBar()
     endPointSpin->setFixedWidth(70);
     rangeRow2->addWidget(endPointSpin);
 
-    rangeLayout->addWidget(rangeLabel);
+    rangeLayout->addSpacing(15);
     rangeLayout->addLayout(rangeRow1);
     rangeLayout->addLayout(rangeRow2);
+    rangeLayout->addWidget(rangeLabel);
     dataLayout->addWidget(rangeFrame);
 
     dataLayout->addStretch();
@@ -4133,6 +4136,186 @@ void MainWindow::applyBackgroundRemoval()
     QCoreApplication::processEvents();
 
     // Hide progress bar after a short delay
+    QTimer::singleShot(2000, this, [this]() {
+        m_progressBar->hide();
+        m_progressBar->setValue(0);
+    });
+}
+
+void MainWindow::showMovingAverage()
+{
+    if (!m_currentTab) return;
+
+    if (m_movingAvgDlg) {
+        m_movingAvgDlg->raise();
+        m_movingAvgDlg->activateWindow();
+        return;
+    }
+
+    m_movingAvgDlg = new QDialog(this);
+    m_movingAvgDlg->setAttribute(Qt::WA_DeleteOnClose);
+    m_movingAvgDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
+
+    QFileInfo fi(m_currentTab->filePath);
+    m_movingAvgDlg->setWindowTitle(QString("滑动平均 - %1").arg(fi.fileName()));
+
+    connect(m_movingAvgDlg, &QDialog::finished, this, [this]() {
+        m_movingAvgDlg = nullptr;
+        m_movingAvgWindowSpin = nullptr;
+        m_movingAvgBtnApply = nullptr;
+        m_movingAvgApplied = false;
+    });
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(m_movingAvgDlg);
+
+    // 参数设置 group
+    QGroupBox *paramGroup = new QGroupBox("参数设置");
+    QHBoxLayout *paramRow = new QHBoxLayout(paramGroup);
+    paramRow->addWidget(new QLabel("滑动窗口："));
+    m_movingAvgWindowSpin = new QSpinBox();
+    m_movingAvgWindowSpin->setRange(1, 999);
+    m_movingAvgWindowSpin->setValue(8);
+    paramRow->addWidget(m_movingAvgWindowSpin);
+    paramRow->addStretch();
+    mainLayout->addWidget(paramGroup);
+
+    // Buttons
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    m_movingAvgBtnApply = new QPushButton("应用");
+    QPushButton *btnOK = new QPushButton("确定");
+    QPushButton *btnCancel = new QPushButton("取消");
+    btnLayout->addWidget(m_movingAvgBtnApply);
+    btnLayout->addWidget(btnOK);
+    btnLayout->addWidget(btnCancel);
+    btnLayout->addStretch();
+    mainLayout->addLayout(btnLayout);
+
+    // Apply button: toggle apply/undo
+    connect(m_movingAvgBtnApply, &QPushButton::clicked, this, [this]() {
+        applyMovingAverage();
+    });
+
+    // OK button: apply then save processed file
+    connect(btnOK, &QPushButton::clicked, this, [this]() {
+        if (!m_movingAvgApplied)
+            applyMovingAverage();
+        if (m_movingAvgApplied)
+            saveProcessedFile();
+        if (m_movingAvgDlg)
+            m_movingAvgDlg->close();
+    });
+
+    // Cancel button: undo if applied, then close
+    connect(btnCancel, &QPushButton::clicked, this, [this]() {
+        if (m_movingAvgApplied) {
+            m_rawData = m_currentTab->originalRawData;
+            m_currentTab->rawData = m_rawData;
+            m_currentTab->gainApplied = false;
+            m_movingAvgApplied = false;
+            refreshImage();
+            updateChart(m_lastChartX);
+        }
+        if (m_movingAvgDlg)
+            m_movingAvgDlg->close();
+    });
+
+    m_movingAvgDlg->show();
+}
+
+void MainWindow::applyMovingAverage()
+{
+    if (!m_currentTab) return;
+
+    if (m_movingAvgApplied) {
+        // Undo
+        m_rawData = m_currentTab->originalRawData;
+        m_currentTab->rawData = m_rawData;
+        m_currentTab->gainApplied = false;
+        m_movingAvgApplied = false;
+        m_movingAvgBtnApply->setText("应用");
+        refreshImage();
+        updateChart(m_lastChartX);
+        return;
+    }
+
+    int winSize = m_movingAvgWindowSpin ? m_movingAvgWindowSpin->value() : 8;
+    if (winSize < 1) winSize = 1;
+    int halfWin = winSize / 2;
+
+    // Backup original data
+    m_currentTab->originalRawData = m_rawData;
+
+    int samplesPerTrace = m_pixelsPerRow;
+    int totalPixels = m_rawData.size() / 4;
+    int numTraces = totalPixels / samplesPerTrace;
+    if (numTraces == 0 || samplesPerTrace == 0) return;
+
+    // Show progress bar
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat("滑动平均: 读取数据...");
+    m_progressBar->show();
+    QCoreApplication::processEvents();
+
+    // Parse raw data into 2D array of qint32 (little-endian 4-byte)
+    const char *srcData = m_rawData.constData();
+    std::vector<qint32> samples(totalPixels);
+    for (int i = 0; i < totalPixels; ++i) {
+        int idx = i * 4;
+        samples[i] = (static_cast<quint8>(srcData[idx+3]) << 24) |
+                     (static_cast<quint8>(srcData[idx+2]) << 16) |
+                     (static_cast<quint8>(srcData[idx+1]) << 8) |
+                     (static_cast<quint8>(srcData[idx]));
+    }
+
+    m_progressBar->setValue(10);
+    m_progressBar->setFormat("滑动平均: 处理中... %p%");
+    QCoreApplication::processEvents();
+
+    // Moving average along depth (s-axis) for each trace, boundary-clamped
+    for (int t = 0; t < numTraces; ++t) {
+        for (int s = 0; s < samplesPerTrace; ++s) {
+            int sStart = qMax(0, s - halfWin);
+            int sEnd = qMin(samplesPerTrace - 1, s + halfWin);
+            double sum = 0.0;
+            int count = sEnd - sStart + 1;
+            for (int ss = sStart; ss <= sEnd; ++ss) {
+                sum += samples[t * samplesPerTrace + ss];
+            }
+            samples[t * samplesPerTrace + s] = static_cast<qint32>(sum / count);
+        }
+        if (t % qMax(1, numTraces / 20) == 0) {
+            m_progressBar->setValue(10 + 70 * t / numTraces);
+            QCoreApplication::processEvents();
+        }
+    }
+
+    // Write back to m_rawData
+    char *data = m_rawData.data();
+    for (int i = 0; i < totalPixels; ++i) {
+        int idx = i * 4;
+        qint32 val = samples[i];
+        data[idx]   = val & 0xFF;
+        data[idx+1] = (val >> 8) & 0xFF;
+        data[idx+2] = (val >> 16) & 0xFF;
+        data[idx+3] = (val >> 24) & 0xFF;
+    }
+
+    m_currentTab->rawData = m_rawData;
+    m_movingAvgApplied = true;
+    m_movingAvgBtnApply->setText("撤销");
+
+    refreshImage();
+    updateChart(m_lastChartX);
+
+    // Sync one-click dialog reference chart if visible
+    if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
+        updateOneClickRefChart();
+    }
+
+    m_progressBar->setValue(100);
+    m_progressBar->setFormat("滑动平均: 完成");
+    QCoreApplication::processEvents();
+
     QTimer::singleShot(2000, this, [this]() {
         m_progressBar->hide();
         m_progressBar->setValue(0);
