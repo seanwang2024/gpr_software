@@ -1144,7 +1144,10 @@ MainWindow::MainWindow(QWidget *parent)
     // --- Shared: welcome label ---
     welcomeLabel = new QLabel(this);
     welcomeLabel->setAlignment(Qt::AlignCenter);
-    welcomeLabel->setStyleSheet("background: #2b2b2b;");
+    welcomeLabel->setStyleSheet(
+        "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
+        "stop:0 #0a1929, stop:0.5 #14304f, stop:1 #1a4a7a);"
+    );
     QPixmap welcomePix(":/icons/resources/welcome.png");
     welcomeLabel->setPixmap(welcomePix.scaled(800, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation));
 
@@ -1486,7 +1489,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_titleBar = new CustomTitleBar(this);
     setMenuWidget(m_titleBar);
 
-    resize(1200, 700);
+    resize(1440, 840);
 
     createMenuBar();
     loadLUT(12);
