@@ -1096,9 +1096,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_btnApply->setEnabled(false);
     m_btnOK->setEnabled(false);
     m_btnCancel->setEnabled(false);
-    gainBtnLayout->addWidget(m_btnOK);
-    gainBtnLayout->addWidget(m_btnCancel);
     gainBtnLayout->addWidget(m_btnApply);
+    gainBtnLayout->addWidget(m_btnCancel);
+    gainBtnLayout->addWidget(m_btnOK);
     gainPageLayout->addLayout(gainBtnLayout);
 
     connect(m_btnApply, &QPushButton::clicked, this, &MainWindow::applyGain);
@@ -1350,7 +1350,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     leftOuterLayout->addWidget(m_leftStack);
     m_leftStack->setCurrentIndex(0);
-    m_leftPanel->setMinimumWidth(260);
+    m_leftPanel->setMinimumSize(360, 600);
+    m_leftPanel->resize(360, 600);
     contentLayout->addWidget(welcomeLabel, 1);
     contentLayout->addWidget(m_docSplitter, 1);
 
