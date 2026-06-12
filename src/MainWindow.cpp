@@ -2386,28 +2386,24 @@ void MainWindow::saveProcessedFile()
     outFile.write(m_rawData);
     outFile.close();
 
-    // 保存原文件 tab 指针和数据（createTab 会切换 m_currentTab）
+    // 恢复原文件 tab 到初始状态并在打开新 tab 之前刷新显示，
+    // 否则 createTab 切走 m_currentTab 后 origTab 的图像仍停留在处理后的状态。
     TabData *origTab = m_currentTab;
     QByteArray origData = origTab->originalRawData;
+    origTab->rawData = origData;
+    origTab->gainApplied = false;
+    origTab->zeroApplied = false;
+    m_rawData = origData;
+    m_btnApply->setText(QString::fromUtf8("应用"));
+    refreshImage();
+    updateChart(m_lastChartX);
 
-    // 打开新文件作为新 tab
+    // 打开新文件作为新 tab（成功后 m_currentTab 切换到新 tab）
     QImage image = loadDZTFile(outPath);
     if (!image.isNull()) {
         createTab(outPath, image);
     }
 
-    // 恢复原文件 tab 到初始状态
-    origTab->rawData = origData;
-    origTab->gainApplied = false;
-    origTab->zeroApplied = false;
-
-    // 如果当前仍在原文件 tab，同步快捷指针
-    if (m_currentTab == origTab) {
-        m_rawData = origData;
-        m_btnApply->setText(QString::fromUtf8("应用"));
-        refreshImage();
-        updateChart(m_lastChartX);
-    }
     m_oneClickApplied = false;
     if (m_oneClickBtnApply)
         m_oneClickBtnApply->setText("应用");
