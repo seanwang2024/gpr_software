@@ -335,6 +335,14 @@ private:
     void showDeconvolution();
     void applyDeconvolution();
 
+    // Hilbert transform dialog pointers (non-modal)
+    QDialog *m_hilbertDlg = nullptr;
+    QComboBox *m_hilbertTypeCombo = nullptr;
+    QPushButton *m_hilbertBtnApply = nullptr;
+    bool m_hilbertApplied = false;
+    void showHilbertTransform();
+    void applyHilbertTransform();
+
     // Processing range spinboxes (ribbon 数据处理 page)
     QSpinBox *m_startTraceSpin = nullptr;
     QSpinBox *m_endTraceSpin = nullptr;

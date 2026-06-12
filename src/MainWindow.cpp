@@ -173,6 +173,15 @@ static void fft(std::vector<std::complex<double>> &x)
     }
 }
 
+// --- Inverse FFT (in-place, result divided by N) ---
+static void ifft(std::vector<std::complex<double>> &x)
+{
+    int N = x.size();
+    for (auto &v : x) v = std::conj(v);
+    fft(x);
+    for (auto &v : x) v = std::conj(v) / static_cast<double>(N);
+}
+
 static double niceInterval(double range, int maxTicks)
 {
     if (range <= 0 || maxTicks <= 0) return range;
@@ -2347,7 +2356,7 @@ void MainWindow::saveProcessedFile()
     if (!m_currentTab) return;
 
     // 确保增益已应用（仅旧的增益系统；一键处理已自己处理数据）
-    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied && !m_deconvApplied) {
+    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied && !m_deconvApplied && !m_hilbertApplied) {
         // 先应用增益
         m_currentTab->originalRawData = m_rawData;
         bool isLinear2 = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
@@ -3133,7 +3142,9 @@ void MainWindow::createMenuBar()
     QToolButton *btnDeconv = makeTextBtn("反褶积");
     connect(btnDeconv, &QToolButton::clicked, this, &MainWindow::showDeconvolution);
     g3row1->addWidget(btnDeconv);
-    g3row1->addWidget(makeTextBtn("希尔伯特"));
+    QToolButton *btnHilbert = makeTextBtn("希尔伯特");
+    connect(btnHilbert, &QToolButton::clicked, this, &MainWindow::showHilbertTransform);
+    g3row1->addWidget(btnHilbert);
     QHBoxLayout *g3row2 = new QHBoxLayout();
     g3row2->setSpacing(2);
     g3row2->addWidget(makeTextBtn("克西霍夫"));
@@ -4792,6 +4803,246 @@ void MainWindow::applyMathOperation()
 
     m_progressBar->setValue(100);
     m_progressBar->setFormat("数学运算: 完成");
+    QCoreApplication::processEvents();
+
+    QTimer::singleShot(2000, this, [this]() {
+        m_progressBar->hide();
+        m_progressBar->setValue(0);
+    });
+}
+
+void MainWindow::showHilbertTransform()
+{
+    if (!m_currentTab) return;
+
+    if (m_hilbertDlg) {
+        m_hilbertDlg->raise();
+        m_hilbertDlg->activateWindow();
+        return;
+    }
+
+    m_hilbertDlg = new QDialog(this);
+    m_hilbertDlg->setAttribute(Qt::WA_DeleteOnClose);
+    m_hilbertDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
+
+    QFileInfo fi(m_currentTab->filePath);
+    m_hilbertDlg->setWindowTitle(QString("希尔伯特-%1").arg(fi.completeBaseName()));
+
+    connect(m_hilbertDlg, &QDialog::finished, this, [this]() {
+        m_hilbertDlg = nullptr;
+        m_hilbertTypeCombo = nullptr;
+        m_hilbertBtnApply = nullptr;
+        m_hilbertApplied = false;
+    });
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(m_hilbertDlg);
+
+    // 参数设置 group
+    QGroupBox *paramGroup = new QGroupBox("参数设置");
+    QFormLayout *paramForm = new QFormLayout(paramGroup);
+    m_hilbertTypeCombo = new QComboBox();
+    m_hilbertTypeCombo->addItem("瞬时振幅");
+    m_hilbertTypeCombo->addItem("瞬时频率");
+    m_hilbertTypeCombo->addItem("瞬时相位");
+    m_hilbertTypeCombo->setCurrentIndex(0);  // 默认 瞬时振幅
+    paramForm->addRow("变换类型：", m_hilbertTypeCombo);
+    mainLayout->addWidget(paramGroup);
+
+    // Buttons
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    m_hilbertBtnApply = new QPushButton("应用");
+    QPushButton *btnOK = new QPushButton("确定");
+    QPushButton *btnCancel = new QPushButton("取消");
+    btnLayout->addWidget(m_hilbertBtnApply);
+    btnLayout->addWidget(btnOK);
+    btnLayout->addWidget(btnCancel);
+    btnLayout->addStretch();
+    mainLayout->addLayout(btnLayout);
+
+    connect(m_hilbertBtnApply, &QPushButton::clicked, this, [this]() {
+        applyHilbertTransform();
+    });
+
+    connect(btnOK, &QPushButton::clicked, this, [this]() {
+        if (!m_hilbertApplied)
+            applyHilbertTransform();
+        if (m_hilbertApplied)
+            saveProcessedFile();
+        if (m_hilbertDlg)
+            m_hilbertDlg->close();
+    });
+
+    connect(btnCancel, &QPushButton::clicked, this, [this]() {
+        if (m_hilbertApplied) {
+            m_rawData = m_currentTab->originalRawData;
+            m_currentTab->rawData = m_rawData;
+            m_currentTab->gainApplied = false;
+            m_hilbertApplied = false;
+            refreshImage();
+            updateChart(m_lastChartX);
+        }
+        if (m_hilbertDlg)
+            m_hilbertDlg->close();
+    });
+
+    m_hilbertDlg->show();
+}
+
+void MainWindow::applyHilbertTransform()
+{
+    if (!m_currentTab) return;
+
+    if (m_hilbertApplied) {
+        // Undo
+        m_rawData = m_currentTab->originalRawData;
+        m_currentTab->rawData = m_rawData;
+        m_currentTab->gainApplied = false;
+        m_hilbertApplied = false;
+        m_hilbertBtnApply->setText("应用");
+        refreshImage();
+        updateChart(m_lastChartX);
+        return;
+    }
+
+    m_currentTab->originalRawData = m_rawData;
+
+    int samplesPerTrace = m_pixelsPerRow;
+    int totalPixels = m_rawData.size() / 4;
+    int numTraces = totalPixels / samplesPerTrace;
+    if (numTraces == 0 || samplesPerTrace == 0) return;
+
+    int opType = m_hilbertTypeCombo ? m_hilbertTypeCombo->currentIndex() : 0;
+
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat("希尔伯特: 读取数据...");
+    m_progressBar->show();
+    QCoreApplication::processEvents();
+
+    const char *srcData = m_rawData.constData();
+    std::vector<double> samples(totalPixels);
+    double srcMin = std::numeric_limits<double>::max();
+    double srcMax = std::numeric_limits<double>::lowest();
+    for (int i = 0; i < totalPixels; ++i) {
+        int idx = i * 4;
+        qint32 v = (static_cast<quint8>(srcData[idx+3]) << 24) |
+                   (static_cast<quint8>(srcData[idx+2]) << 16) |
+                   (static_cast<quint8>(srcData[idx+1]) << 8) |
+                   (static_cast<quint8>(srcData[idx]));
+        samples[i] = static_cast<double>(v);
+        if (samples[i] < srcMin) srcMin = samples[i];
+        if (samples[i] > srcMax) srcMax = samples[i];
+    }
+
+    m_progressBar->setValue(10);
+    m_progressBar->setFormat("希尔伯特: 计算解析信号... %p%");
+    QCoreApplication::processEvents();
+
+    // FFT 长度：取 ≥ samplesPerTrace 的最小 2 的幂
+    int fftN = 1;
+    while (fftN < samplesPerTrace) fftN <<= 1;
+
+    std::vector<double> out(totalPixels, 0.0);
+    std::vector<std::complex<double>> X(fftN);
+
+    for (int t = 0; t < numTraces; ++t) {
+        const double *tr = &samples[t * samplesPerTrace];
+
+        // 装载到复数缓冲（补零到 fftN）
+        for (int n = 0; n < fftN; ++n) {
+            X[n] = (n < samplesPerTrace) ? std::complex<double>(tr[n], 0.0)
+                                         : std::complex<double>(0.0, 0.0);
+        }
+        fft(X);
+
+        // 构造解析信号谱：
+        //   Z[0] = X[0], Z[fftN/2] = X[fftN/2]
+        //   Z[k] = 2*X[k]            for k = 1..fftN/2-1  (正频)
+        //   Z[k] = 0                 for k = fftN/2+1..fftN-1  (负频置零)
+        X[0] *= 1.0;
+        if (fftN > 1) {
+            for (int k = 1; k < fftN / 2; ++k) X[k] *= 2.0;
+            for (int k = fftN / 2 + 1; k < fftN; ++k) X[k] = std::complex<double>(0.0, 0.0);
+        }
+
+        ifft(X);  // 解析信号 z[n]
+
+        if (opType == 0) {
+            // 瞬时振幅: |z[n]|
+            for (int n = 0; n < samplesPerTrace; ++n) {
+                out[t * samplesPerTrace + n] = std::abs(X[n]);
+            }
+        } else if (opType == 1) {
+            // 瞬时频率: 解卷绕相位后中心差分，单位归一化到 [0, 0.5] cycle/sample
+            std::vector<double> phase(samplesPerTrace);
+            for (int n = 0; n < samplesPerTrace; ++n) phase[n] = std::arg(X[n]);
+            // 解卷绕
+            for (int n = 1; n < samplesPerTrace; ++n) {
+                double d = phase[n] - phase[n - 1];
+                while (d > M_PI) d -= 2.0 * M_PI;
+                while (d < -M_PI) d += 2.0 * M_PI;
+                phase[n] = phase[n - 1] + d;
+            }
+            // 中心差分 -> 瞬时频率 (rad/sample) / (2π) -> cycle/sample
+            for (int n = 0; n < samplesPerTrace; ++n) {
+                double pm = (n > 0) ? phase[n - 1] : phase[n];
+                double pp = (n < samplesPerTrace - 1) ? phase[n + 1] : phase[n];
+                double freq = (pp - pm) / (4.0 * M_PI);  // (1/2)*(dφ/2)/(2π) = (dφ/2π)/2
+                if (freq < 0.0) freq = 0.0;
+                if (freq > 0.5) freq = 0.5;
+                out[t * samplesPerTrace + n] = freq * 1000.0;  // 放大便于显示
+            }
+        } else {
+            // 瞬时相位: arg(z[n])，弧度，缩放到 qint32 友好范围
+            for (int n = 0; n < samplesPerTrace; ++n) {
+                out[t * samplesPerTrace + n] = std::arg(X[n]) * 1000.0;  // -π..π -> -3141..3141
+            }
+        }
+
+        if (t % qMax(1, numTraces / 20) == 0) {
+            m_progressBar->setValue(10 + 80 * t / numTraces);
+            QCoreApplication::processEvents();
+        }
+    }
+
+    // 归一化回原始 [srcMin, srcMax] 范围
+    double outMin = std::numeric_limits<double>::max();
+    double outMax = std::numeric_limits<double>::lowest();
+    for (int i = 0; i < totalPixels; ++i) {
+        if (out[i] < outMin) outMin = out[i];
+        if (out[i] > outMax) outMax = out[i];
+    }
+    double outRange = outMax - outMin;
+    double srcRange = srcMax - srcMin;
+    if (outRange < 1e-9) outRange = 1.0;
+    if (srcRange < 1e-9) srcRange = 1.0;
+
+    char *data = m_rawData.data();
+    for (int i = 0; i < totalPixels; ++i) {
+        double norm = (out[i] - outMin) / outRange;
+        double v = srcMin + norm * srcRange;
+        if (v > 2147483647.0) v = 2147483647.0;
+        if (v < -2147483648.0) v = -2147483648.0;
+        qint32 iv = static_cast<qint32>(std::round(v));
+        int idx = i * 4;
+        data[idx]   = iv & 0xFF;
+        data[idx+1] = (iv >> 8) & 0xFF;
+        data[idx+2] = (iv >> 16) & 0xFF;
+        data[idx+3] = (iv >> 24) & 0xFF;
+    }
+
+    m_currentTab->rawData = m_rawData;
+    m_hilbertApplied = true;
+    m_hilbertBtnApply->setText("撤销");
+
+    refreshImage();
+    updateChart(m_lastChartX);
+
+    if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
+        updateOneClickRefChart();
+    }
+
+    m_progressBar->setValue(100);
+    m_progressBar->setFormat("希尔伯特: 完成");
     QCoreApplication::processEvents();
 
     QTimer::singleShot(2000, this, [this]() {
