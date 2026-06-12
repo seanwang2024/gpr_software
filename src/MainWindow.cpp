@@ -5077,14 +5077,16 @@ void MainWindow::applyKirchhoffMigration()
     if (halfW < 1) halfW = 1;
     std::vector<double> out(totalPixels, 0.0);
 
-    // Kirchhoff 求和偏移 (时间域)，cos(θ) 倾斜因子加权平均：
-    //   m(x_out, τ0) = Σ w·d / Σ w,   w = cos(θ) = z / r
+    // Kirchhoff 时间偏移：动态孔径 + Yilmaz 标准权重 (t0/t)^(3/2)
     //   τ(x_in) = sqrt(τ0^2 + (dx/v_mig)^2)
-    //   z = v_mig·τ0/2,  r = sqrt(z^2 + dx^2)
-    // v_mig 为等效偏移速度(已含发收双程因子)，与商业GPR惯例一致
-    // 远道 θ 大 → w 小 → 减少远道"拖尾"对聚焦峰的模糊
-    // 相干绕射峰：N 道同极性叠加后再除 Σw → 振幅保留输入量级
-    // 不做任何后处理缩放，输出直接进入显示 LUT（输入已 ±2^23 满量程）
+    //   动态孔径: dx ≤ z·tan(θ_max), θ_max=45°
+    //     浅层 z 小 → 孔径自动收缩到 1 道 → 浅层不受远道反向极性抵消
+    //     深部 z 大 → 孔径自动放大(上限 halfW) → 多道参与聚焦绕射
+    //   权重 w = (t0/t)^(3/2) = cos(θ)·sqrt(t0/t) (倾斜因子×反混叠因子)
+    //     远道 t 大 → w 小 → 软截断远道"拖尾"
+    //   归一化 sum/wsum 保留相干绕射峰振幅，输入已 ±2^23 满量程不后处理缩放
+    const double thetaMax = 45.0 * M_PI / 180.0;
+    const double tanThetaMax = std::tan(thetaMax);  // ≈ 1.0
     for (int xOut = 0; xOut < numTraces; ++xOut) {
         for (int sOut = 0; sOut < samplesPerTrace; ++sOut) {
             int outIdx = xOut * samplesPerTrace + sOut;
@@ -5094,10 +5096,15 @@ void MainWindow::applyKirchhoffMigration()
                 continue;
             }
             double zM = vel * tau0 / 2.0;
+            double dxMaxM = zM * tanThetaMax;
+            int halfWDyn = (dxM > 1e-9) ? (static_cast<int>(dxMaxM / dxM) + 1) : halfW;
+            if (halfWDyn < 1) halfWDyn = 1;
+            if (halfWDyn > halfW) halfWDyn = halfW;
+            int xMin = std::max(0, xOut - halfWDyn);
+            int xMax = std::min(numTraces - 1, xOut + halfWDyn);
+
             double sum = 0.0;
             double wsum = 0.0;
-            int xMin = std::max(0, xOut - halfW);
-            int xMax = std::min(numTraces - 1, xOut + halfW);
             for (int xIn = xMin; xIn <= xMax; ++xIn) {
                 double dx = (xIn - xOut) * dxM;
                 double arg = dx / vel;
@@ -5109,9 +5116,7 @@ void MainWindow::applyKirchhoffMigration()
                 double v0 = samples[xIn * samplesPerTrace + sI0];
                 double v1 = samples[xIn * samplesPerTrace + sI0 + 1];
                 double val = v0 + (v1 - v0) * frac;
-                double rM = std::sqrt(zM * zM + dx * dx);
-                if (rM < 1e-9) rM = 1e-9;
-                double w = zM / rM;  // cos(θ)
+                double w = std::pow(tau0 / tauIn, 1.5);  // (t0/t)^(3/2)
                 sum += val * w;
                 wsum += w;
             }
