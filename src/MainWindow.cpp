@@ -3184,7 +3184,8 @@ void MainWindow::showDigitalFilter()
     m_filterDlg = new QDialog(this);
     m_filterDlg->setAttribute(Qt::WA_DeleteOnClose);
     m_filterDlg->setWindowFlags(Qt::Tool | Qt::WindowMinMaxButtonsHint | Qt::WindowCloseButtonHint);
-    m_filterDlg->setWindowTitle("数字滤波");
+    QFileInfo fi(m_currentTab->filePath);
+    m_filterDlg->setWindowTitle(QString("数字滤波-%1").arg(fi.completeBaseName()));
     m_filterDlg->setMinimumSize(900, 700);
 
     // Clear member pointers on dialog close
@@ -4171,7 +4172,7 @@ void MainWindow::showMovingAverage()
     m_movingAvgDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
 
     QFileInfo fi(m_currentTab->filePath);
-    m_movingAvgDlg->setWindowTitle(QString("滑动平均 - %1").arg(fi.fileName()));
+    m_movingAvgDlg->setWindowTitle(QString("滑动平均-%1").arg(fi.completeBaseName()));
 
     connect(m_movingAvgDlg, &QDialog::finished, this, [this]() {
         m_movingAvgDlg = nullptr;
@@ -4353,7 +4354,7 @@ void MainWindow::showTraceEqualization()
     m_traceEqualDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
 
     QFileInfo fi(m_currentTab->filePath);
-    m_traceEqualDlg->setWindowTitle(QString("道间均衡 - %1").arg(fi.fileName()));
+    m_traceEqualDlg->setWindowTitle(QString("道间均衡-%1").arg(fi.completeBaseName()));
 
     connect(m_traceEqualDlg, &QDialog::finished, this, [this]() {
         m_traceEqualDlg = nullptr;
