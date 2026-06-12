@@ -2409,7 +2409,8 @@ void MainWindow::saveProcessedFile()
         updateChart(m_lastChartX);
     }
     m_oneClickApplied = false;
-    m_oneClickBtnApply->setText("应用");
+    if (m_oneClickBtnApply)
+        m_oneClickBtnApply->setText("应用");
 }
 
 void MainWindow::refreshImage()
