@@ -41,6 +41,7 @@
 #include <QCheckBox>
 #include <QTextStream>
 #include <QFormLayout>
+#include <QRegularExpression>
 #include <QWindow>
 #include <functional>
 #include <cmath>
@@ -2584,7 +2585,11 @@ void MainWindow::saveProcessedFile()
     QDir().mkpath(procDir);
 
     // 找到可用的文件名 原文件名_p01.DZT, _p02.DZT, ...
-    QString baseName = fi.completeBaseName();  // e.g. "SCAN001"
+    // 去掉末尾已有的 _p## 后缀，确保多次处理始终基于原始文件名递增
+    // 例如对 XXX_p01.DZT 再次处理，新文件应是 XXX_p02.DZT 而非 XXX_p01_p01.DZT
+    QString baseName = fi.completeBaseName();  // e.g. "SCAN001" 或 "SCAN001_p01"
+    static QRegularExpression reSuffix("_p\\d+$", QRegularExpression::CaseInsensitiveOption);
+    baseName.remove(reSuffix);
     int N = 1;
     QString outPath;
     do {
