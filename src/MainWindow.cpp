@@ -5132,32 +5132,25 @@ void MainWindow::applyKirchhoffMigration()
         }
     }
 
-    // std-based 缩放：输出 std 会被聚焦峰值拉大，scale 偏小，背景被压暗，峰值突出
-    double inMean = 0.0, inM2 = 0.0;
-    for (int i = 0; i < totalPixels; ++i) {
-        inMean += samples[i];
-        inM2 += samples[i] * samples[i];
-    }
-    inMean /= totalPixels;
-    double inVar = inM2 / totalPixels - inMean * inMean;
-    double inStd = std::sqrt(inVar > 0.0 ? inVar : 0.0);
+    // 直接缩放到显示满量程 ±2^23 = ±8388608
+    // refreshImage 中 LUT 映射为 lutIdx = pixelValue / 65536 + 128
+    // 只有数值覆盖 ±8388608 才能让最强信号映射到 LUT 的 0/255 极端色（黑/白）
+    // 用 99.5 分位数定标——避开极少数极端离群点，让 0.5% 顶部饱和到黑/白
+    std::vector<double> absOut(totalPixels);
+    for (int i = 0; i < totalPixels; ++i) absOut[i] = std::abs(out[i]);
+    size_t pIdx = static_cast<size_t>(totalPixels * 0.995);
+    if (pIdx >= totalPixels) pIdx = totalPixels - 1;
+    std::nth_element(absOut.begin(), absOut.begin() + pIdx, absOut.end());
+    double refAbs = absOut[pIdx];
 
-    double outMean = 0.0, outM2 = 0.0;
-    for (int i = 0; i < totalPixels; ++i) {
-        outMean += out[i];
-        outM2 += out[i] * out[i];
-    }
-    outMean /= totalPixels;
-    double outVar = outM2 / totalPixels - outMean * outMean;
-    double outStd = std::sqrt(outVar > 0.0 ? outVar : 0.0);
-
-    double scale = (outStd > 1e-9) ? (inStd / outStd) : 1.0;
+    const double displayMax = 8388607.0;
+    double scale = (refAbs > 1e-9) ? (displayMax / refAbs) : 1.0;
 
     char *data = m_rawData.data();
     for (int i = 0; i < totalPixels; ++i) {
-        double v = (out[i] - outMean) * scale + inMean;
-        if (v > 2147483647.0) v = 2147483647.0;
-        if (v < -2147483648.0) v = -2147483648.0;
+        double v = out[i] * scale;
+        if (v > 8388607.0) v = 8388607.0;
+        if (v < -8388608.0) v = -8388608.0;
         qint32 iv = static_cast<qint32>(std::round(v));
         int idx = i * 4;
         data[idx]   = iv & 0xFF;
