@@ -1528,27 +1528,22 @@ CustomTitleBar::CustomTitleBar(QWidget *parent)
     m_titleLabel->setStyleSheet("color: #444444; font-size: 13px; font-weight: 500;");
     layout->addWidget(m_titleLabel, 1);
 
-    // 系统按钮（右）
-    auto makeBtn = [](const QString &text, const QString &hoverColor) {
+    // 系统按钮（右）— 统一白底，hover 用同色浅灰
+    auto makeBtn = [](const QString &text) {
         QPushButton *btn = new QPushButton(text);
         btn->setFixedSize(46, 32);
         btn->setFocusPolicy(Qt::NoFocus);
         btn->setStyleSheet(QString(
-            "QPushButton { background: transparent; border: none; color: #444444; font-size: 14px; }"
-            "QPushButton:hover { background: %1; }"
-        ).arg(hoverColor));
+            "QPushButton { background: #ffffff; border: none; color: #444444; font-size: 14px; }"
+            "QPushButton:hover { background: #e5e5e5; color: #444444; }"
+            "QPushButton:pressed { background: #d0d0d0; }"
+        ));
         return btn;
     };
 
-    m_btnMin = makeBtn(QString::fromUtf8("\xE2\x80\x94"), "#e5e5e5");         // —
-    m_btnMax = makeBtn(QString::fromUtf8("\xE2\x96\xA1"), "#e5e5e5");         // □
-    m_btnClose = makeBtn(QString::fromUtf8("\xC3\x97"),  "#e81123");          // ×
-
-    // 关闭按钮 hover 时文字变白，配合红色背景
-    m_btnClose->setStyleSheet(QString(
-        "QPushButton { background: transparent; border: none; color: #444444; font-size: 14px; }"
-        "QPushButton:hover { background: #e81123; color: #ffffff; }"
-    ));
+    m_btnMin = makeBtn(QString::fromUtf8("\xE2\x80\x94"));    // —
+    m_btnMax = makeBtn(QString::fromUtf8("\xE2\x96\xA1"));    // □
+    m_btnClose = makeBtn(QString::fromUtf8("\xC3\x97"));      // ×
 
     layout->addWidget(m_btnMin);
     layout->addWidget(m_btnMax);
