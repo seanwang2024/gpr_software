@@ -117,6 +117,9 @@ class ImageLabel : public QLabel
 public:
     ImageLabel(QWidget *parent = nullptr);
     void setImage(const QImage &img);
+    void setHyperbolaTracking(bool on);
+    void setHyperbolaParams(double firstWave, double velocity, int width,
+                            double traceSpacing, double timePerSample);
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
@@ -138,6 +141,16 @@ private:
     float m_currentGainDb;
     int m_transformMode;
     QSize m_originalSize;
+
+    // Hyperbola overlay (Kirchhoff interactive fitting)
+    bool m_hyperbolaTracking = false;
+    bool m_showHyperbola = false;
+    QPoint m_hyperbolaApex;
+    double m_hypFirstWave = 27.0;
+    double m_hypVelocity = 0.106;      // m/ns
+    int m_hypWidth = 60;               // aperture (traces)
+    double m_hypTraceSpacing = 0.01;   // meters
+    double m_hypTimePerSample = 0.039; // ns
 };
 
 // Per-file data and widgets for each open tab
@@ -342,6 +355,18 @@ private:
     bool m_hilbertApplied = false;
     void showHilbertTransform();
     void applyHilbertTransform();
+
+    // Kirchhoff migration dialog pointers (non-modal)
+    QDialog *m_kirchhoffDlg = nullptr;
+    QDoubleSpinBox *m_kirchhoffFirstWaveSpin = nullptr;
+    QDoubleSpinBox *m_kirchhoffVelocitySpin = nullptr;
+    QSpinBox *m_kirchhoffWidthSpin = nullptr;
+    QDoubleSpinBox *m_kirchhoffSpacingSpin = nullptr;
+    QPushButton *m_kirchhoffBtnApply = nullptr;
+    bool m_kirchhoffApplied = false;
+    void showKirchhoffMigration();
+    void applyKirchhoffMigration();
+    void pushKirchhoffParamsToImage();
 
     // Processing range spinboxes (ribbon 数据处理 page)
     QSpinBox *m_startTraceSpin = nullptr;

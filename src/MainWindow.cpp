@@ -462,6 +462,27 @@ void ImageLabel::setImage(const QImage &img)
     emit imageChanged();
 }
 
+void ImageLabel::setHyperbolaTracking(bool on)
+{
+    m_hyperbolaTracking = on;
+    setMouseTracking(on);
+    if (!on) {
+        m_showHyperbola = false;
+        update();
+    }
+}
+
+void ImageLabel::setHyperbolaParams(double firstWave, double velocity, int width,
+                                    double traceSpacing, double timePerSample)
+{
+    m_hypFirstWave = firstWave;
+    m_hypVelocity = velocity;
+    m_hypWidth = width;
+    m_hypTraceSpacing = traceSpacing;
+    m_hypTimePerSample = (timePerSample > 1e-9) ? timePerSample : 1e-9;
+    if (m_showHyperbola) update();
+}
+
 void ImageLabel::mousePressEvent(QMouseEvent *event)
 {
     if (m_image.isNull()) {
@@ -489,6 +510,11 @@ void ImageLabel::mouseMoveEvent(QMouseEvent *event)
         int origY = (height() > 1) ? clampedY * (m_originalSize.height() - 1) / (height() - 1) : 0;
         QPoint origPos(event->pos().x(), origY);
         emit imageClicked(origPos);
+        update();
+    }
+    if (m_hyperbolaTracking && !m_image.isNull()) {
+        m_hyperbolaApex = event->pos();
+        m_showHyperbola = true;
         update();
     }
     QLabel::mouseMoveEvent(event);
@@ -522,6 +548,55 @@ void ImageLabel::paintEvent(QPaintEvent *event)
 
         painter.drawLine(0, y, width(), y);
         painter.drawLine(x, 0, x, height());
+    }
+
+    if (m_showHyperbola && !m_image.isNull() && m_hypVelocity > 1e-6) {
+        QPainter painter(this);
+        QPen pen(QColor(0, 255, 0), 2);
+        painter.setPen(pen);
+
+        int w = width();
+        int h = height();
+        int imgW = m_originalSize.width();
+        int imgH = m_originalSize.height();
+        if (w < 2 || h < 2 || imgW < 1 || imgH < 1) return;
+
+        // 鼠标 widget 坐标 -> 原始图像 (trace, sample) 坐标
+        int apexTrace = m_hyperbolaApex.x() * (imgW - 1) / (w - 1);
+        int apexSample = m_hyperbolaApex.y() * (imgH - 1) / (h - 1);
+
+        // 双曲线开口宽度（左右各 W/2 道）
+        int halfW = m_hypWidth / 2;
+
+        // 在 apex 处的双程走时（相对于首波）
+        double t0_ns = (apexSample - m_hypFirstWave) * m_hypTimePerSample;
+
+        QVector<QPoint> pts;
+        if (t0_ns > 0.0) {
+            for (int dx = -halfW; dx <= halfW; ++dx) {
+                int trace = apexTrace + dx;
+                if (trace < 0 || trace >= imgW) continue;
+                double dxMeters = dx * m_hypTraceSpacing;
+                // 双曲线方程: t(dx) = sqrt(t0^2 + (2*dx/v)^2)
+                double tNs = std::sqrt(t0_ns * t0_ns + std::pow(2.0 * dxMeters / m_hypVelocity, 2.0));
+                int sampleAtDx = static_cast<int>(m_hypFirstWave + tNs / m_hypTimePerSample + 0.5);
+                if (sampleAtDx < 0 || sampleAtDx >= imgH) continue;
+                // 反向映射回 widget 坐标
+                int pxX = trace * (w - 1) / (imgW - 1);
+                int pxY = sampleAtDx * (h - 1) / (imgH - 1);
+                pts.append(QPoint(pxX, pxY));
+            }
+        }
+        // 即便 t0 无效也画一个标记圆点（提示鼠标位置）
+        if (pts.size() >= 2) {
+            QPainterPath path;
+            path.moveTo(pts[0]);
+            for (int i = 1; i < pts.size(); ++i) path.lineTo(pts[i]);
+            painter.drawPath(path);
+        }
+        painter.setBrush(QColor(0, 255, 0, 180));
+        painter.setPen(QPen(QColor(0, 255, 0), 1));
+        painter.drawEllipse(m_hyperbolaApex, 4, 4);
     }
 }
 
@@ -2356,7 +2431,7 @@ void MainWindow::saveProcessedFile()
     if (!m_currentTab) return;
 
     // 确保增益已应用（仅旧的增益系统；一键处理已自己处理数据）
-    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied && !m_deconvApplied && !m_hilbertApplied) {
+    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied && !m_deconvApplied && !m_hilbertApplied && !m_kirchhoffApplied) {
         // 先应用增益
         m_currentTab->originalRawData = m_rawData;
         bool isLinear2 = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
@@ -3147,7 +3222,9 @@ void MainWindow::createMenuBar()
     g3row1->addWidget(btnHilbert);
     QHBoxLayout *g3row2 = new QHBoxLayout();
     g3row2->setSpacing(2);
-    g3row2->addWidget(makeTextBtn("克西霍夫"));
+    QToolButton *btnKirchhoff = makeTextBtn("克西霍夫");
+    connect(btnKirchhoff, &QToolButton::clicked, this, &MainWindow::showKirchhoffMigration);
+    g3row2->addWidget(btnKirchhoff);
     QToolButton *btnOneClickData = makeTextBtn("一键处理");
     connect(btnOneClickData, &QToolButton::clicked, this, &MainWindow::showOneClickProcess);
     g3row2->addWidget(btnOneClickData);
@@ -4803,6 +4880,278 @@ void MainWindow::applyMathOperation()
 
     m_progressBar->setValue(100);
     m_progressBar->setFormat("数学运算: 完成");
+    QCoreApplication::processEvents();
+
+    QTimer::singleShot(2000, this, [this]() {
+        m_progressBar->hide();
+        m_progressBar->setValue(0);
+    });
+}
+
+void MainWindow::pushKirchhoffParamsToImage()
+{
+    if (!imageLabel || !m_kirchhoffFirstWaveSpin) return;
+    double firstWave = m_kirchhoffFirstWaveSpin->value();
+    double vel = m_kirchhoffVelocitySpin->value();
+    int width = m_kirchhoffWidthSpin->value();
+    double spacingCm = m_kirchhoffSpacingSpin->value();
+    double tps = (m_pixelsPerRow > 0 && m_timeRange > 0) ? (m_timeRange / m_pixelsPerRow) : 0.039;
+    imageLabel->setHyperbolaParams(firstWave, vel, width, spacingCm * 0.01, tps);
+}
+
+void MainWindow::showKirchhoffMigration()
+{
+    if (!m_currentTab) return;
+
+    if (m_kirchhoffDlg) {
+        m_kirchhoffDlg->raise();
+        m_kirchhoffDlg->activateWindow();
+        return;
+    }
+
+    m_kirchhoffDlg = new QDialog(this);
+    m_kirchhoffDlg->setAttribute(Qt::WA_DeleteOnClose);
+    m_kirchhoffDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
+
+    QFileInfo fi(m_currentTab->filePath);
+    m_kirchhoffDlg->setWindowTitle(QString("克西霍夫-%1").arg(fi.completeBaseName()));
+
+    connect(m_kirchhoffDlg, &QDialog::finished, this, [this]() {
+        m_kirchhoffDlg = nullptr;
+        m_kirchhoffFirstWaveSpin = nullptr;
+        m_kirchhoffVelocitySpin = nullptr;
+        m_kirchhoffWidthSpin = nullptr;
+        m_kirchhoffSpacingSpin = nullptr;
+        m_kirchhoffBtnApply = nullptr;
+        m_kirchhoffApplied = false;
+        if (imageLabel) imageLabel->setHyperbolaTracking(false);
+    });
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(m_kirchhoffDlg);
+
+    // 参数设置 group
+    QGroupBox *paramGroup = new QGroupBox("参数设置");
+    QFormLayout *paramForm = new QFormLayout(paramGroup);
+
+    m_kirchhoffFirstWaveSpin = new QDoubleSpinBox();
+    m_kirchhoffFirstWaveSpin->setRange(0, 511);
+    m_kirchhoffFirstWaveSpin->setDecimals(0);
+    m_kirchhoffFirstWaveSpin->setValue(27);
+    paramForm->addRow("首波位置：", m_kirchhoffFirstWaveSpin);
+
+    m_kirchhoffVelocitySpin = new QDoubleSpinBox();
+    m_kirchhoffVelocitySpin->setRange(0.001, 1.0);
+    m_kirchhoffVelocitySpin->setDecimals(3);
+    m_kirchhoffVelocitySpin->setSuffix(" m/ns");
+    m_kirchhoffVelocitySpin->setValue(0.106);
+    paramForm->addRow("波 速：", m_kirchhoffVelocitySpin);
+
+    m_kirchhoffWidthSpin = new QSpinBox();
+    m_kirchhoffWidthSpin->setRange(2, 9999);
+    m_kirchhoffWidthSpin->setValue(60);
+    paramForm->addRow("双曲线宽：", m_kirchhoffWidthSpin);
+
+    m_kirchhoffSpacingSpin = new QDoubleSpinBox();
+    m_kirchhoffSpacingSpin->setRange(0.001, 1000.0);
+    m_kirchhoffSpacingSpin->setDecimals(3);
+    m_kirchhoffSpacingSpin->setSuffix(" cm");
+    m_kirchhoffSpacingSpin->setValue(1.0);
+    paramForm->addRow("道间距离：", m_kirchhoffSpacingSpin);
+    mainLayout->addWidget(paramGroup);
+
+    // Buttons
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    m_kirchhoffBtnApply = new QPushButton("应用");
+    QPushButton *btnOK = new QPushButton("确定");
+    QPushButton *btnCancel = new QPushButton("取消");
+    btnLayout->addWidget(m_kirchhoffBtnApply);
+    btnLayout->addWidget(btnOK);
+    btnLayout->addWidget(btnCancel);
+    btnLayout->addStretch();
+    mainLayout->addLayout(btnLayout);
+
+    // 参数变化时即时更新图片上的绿色双曲线
+    auto onParamChanged = [this]() {
+        pushKirchhoffParamsToImage();
+    };
+    connect(m_kirchhoffFirstWaveSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, onParamChanged);
+    connect(m_kirchhoffVelocitySpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, onParamChanged);
+    connect(m_kirchhoffWidthSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, onParamChanged);
+    connect(m_kirchhoffSpacingSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, onParamChanged);
+
+    connect(m_kirchhoffBtnApply, &QPushButton::clicked, this, [this]() {
+        applyKirchhoffMigration();
+    });
+
+    connect(btnOK, &QPushButton::clicked, this, [this]() {
+        if (!m_kirchhoffApplied)
+            applyKirchhoffMigration();
+        if (m_kirchhoffApplied)
+            saveProcessedFile();
+        if (m_kirchhoffDlg)
+            m_kirchhoffDlg->close();
+    });
+
+    connect(btnCancel, &QPushButton::clicked, this, [this]() {
+        if (m_kirchhoffApplied) {
+            m_rawData = m_currentTab->originalRawData;
+            m_currentTab->rawData = m_rawData;
+            m_currentTab->gainApplied = false;
+            m_kirchhoffApplied = false;
+            refreshImage();
+            updateChart(m_lastChartX);
+        }
+        if (m_kirchhoffDlg)
+            m_kirchhoffDlg->close();
+    });
+
+    // 启用图片上的绿色双曲线交互
+    pushKirchhoffParamsToImage();
+    if (imageLabel) imageLabel->setHyperbolaTracking(true);
+
+    m_kirchhoffDlg->show();
+}
+
+void MainWindow::applyKirchhoffMigration()
+{
+    if (!m_currentTab) return;
+
+    if (m_kirchhoffApplied) {
+        // Undo
+        m_rawData = m_currentTab->originalRawData;
+        m_currentTab->rawData = m_rawData;
+        m_currentTab->gainApplied = false;
+        m_kirchhoffApplied = false;
+        m_kirchhoffBtnApply->setText("应用");
+        refreshImage();
+        updateChart(m_lastChartX);
+        return;
+    }
+
+    m_currentTab->originalRawData = m_rawData;
+
+    int samplesPerTrace = m_pixelsPerRow;
+    int totalPixels = m_rawData.size() / 4;
+    int numTraces = totalPixels / samplesPerTrace;
+    if (numTraces == 0 || samplesPerTrace == 0) return;
+
+    double firstWave = m_kirchhoffFirstWaveSpin ? m_kirchhoffFirstWaveSpin->value() : 27.0;
+    double vel = m_kirchhoffVelocitySpin ? m_kirchhoffVelocitySpin->value() : 0.106;       // m/ns
+    int aperture = m_kirchhoffWidthSpin ? m_kirchhoffWidthSpin->value() : 60;              // traces
+    double spacingCm = m_kirchhoffSpacingSpin ? m_kirchhoffSpacingSpin->value() : 1.0;
+    double dxM = spacingCm * 0.01;                                                          // m
+    double tps = (m_timeRange > 0) ? (m_timeRange / samplesPerTrace) : 0.039;               // ns/sample
+    if (vel < 1e-6 || dxM < 1e-9 || tps < 1e-12) return;
+
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat("克西霍夫: 读取数据...");
+    m_progressBar->show();
+    QCoreApplication::processEvents();
+
+    const char *srcData = m_rawData.constData();
+    std::vector<double> samples(totalPixels);
+    double srcMin = std::numeric_limits<double>::max();
+    double srcMax = std::numeric_limits<double>::lowest();
+    for (int i = 0; i < totalPixels; ++i) {
+        int idx = i * 4;
+        qint32 v = (static_cast<quint8>(srcData[idx+3]) << 24) |
+                   (static_cast<quint8>(srcData[idx+2]) << 16) |
+                   (static_cast<quint8>(srcData[idx+1]) << 8) |
+                   (static_cast<quint8>(srcData[idx]));
+        samples[i] = static_cast<double>(v);
+        if (samples[i] < srcMin) srcMin = samples[i];
+        if (samples[i] > srcMax) srcMax = samples[i];
+    }
+
+    m_progressBar->setValue(10);
+    m_progressBar->setFormat("克西霍夫: 偏移求和... %p%");
+    QCoreApplication::processEvents();
+
+    int halfW = aperture / 2;
+    std::vector<double> out(totalPixels, 0.0);
+
+    // Kirchhoff 求和偏移 (时间域)：
+    // 对每个输出样元 (x_out, s_out)，从输入各道 (x_in) 的旅行时
+    //   τ(x_in) = sqrt(τ0^2 + (2*(x_in-x_out)*dx/v)^2)
+    // 其中 τ0 = (s_out - firstWave) * tps（输出点在首波之后的走时）
+    // 求和输入道在 τ 处的样本（线性插值）。
+    for (int xOut = 0; xOut < numTraces; ++xOut) {
+        for (int sOut = 0; sOut < samplesPerTrace; ++sOut) {
+            double tau0 = (sOut - firstWave) * tps;
+            if (tau0 <= 0.0) {
+                // 首波之上：直接保留原值
+                out[xOut * samplesPerTrace + sOut] = samples[xOut * samplesPerTrace + sOut];
+                continue;
+            }
+            double sum = 0.0;
+            double wsum = 0.0;
+            int xMin = std::max(0, xOut - halfW);
+            int xMax = std::min(numTraces - 1, xOut + halfW);
+            for (int xIn = xMin; xIn <= xMax; ++xIn) {
+                double dx = (xIn - xOut) * dxM;                      // 横向距离 m
+                double tauIn = std::sqrt(tau0 * tau0 + std::pow(2.0 * dx / vel, 2.0));  // ns
+                double sInF = firstWave + tauIn / tps;
+                if (sInF < 0.0 || sInF > samplesPerTrace - 1.001) continue;
+                int sI0 = static_cast<int>(sInF);
+                double frac = sInF - sI0;
+                double v0 = samples[xIn * samplesPerTrace + sI0];
+                double v1 = samples[xIn * samplesPerTrace + sI0 + 1];
+                double val = v0 + (v1 - v0) * frac;
+                // 权重: 倾斜因子 z/r * 1/sqrt(r) （Kirchhoff 标准加权）
+                double zM = vel * tau0 / 2.0;
+                double rM = std::sqrt(zM * zM + dx * dx);
+                if (rM < 1e-9) rM = 1e-9;
+                double w = (zM / rM) / std::sqrt(rM);
+                sum += val * w;
+                wsum += w;
+            }
+            out[xOut * samplesPerTrace + sOut] = (wsum > 1e-12) ? (sum / wsum) : 0.0;
+        }
+        if (xOut % qMax(1, numTraces / 20) == 0) {
+            m_progressBar->setValue(10 + 80 * xOut / numTraces);
+            QCoreApplication::processEvents();
+        }
+    }
+
+    // 归一化回原始 [srcMin, srcMax] 范围
+    double outMin = std::numeric_limits<double>::max();
+    double outMax = std::numeric_limits<double>::lowest();
+    for (int i = 0; i < totalPixels; ++i) {
+        if (out[i] < outMin) outMin = out[i];
+        if (out[i] > outMax) outMax = out[i];
+    }
+    double outRange = outMax - outMin;
+    double srcRange = srcMax - srcMin;
+    if (outRange < 1e-9) outRange = 1.0;
+    if (srcRange < 1e-9) srcRange = 1.0;
+
+    char *data = m_rawData.data();
+    for (int i = 0; i < totalPixels; ++i) {
+        double norm = (out[i] - outMin) / outRange;
+        double v = srcMin + norm * srcRange;
+        if (v > 2147483647.0) v = 2147483647.0;
+        if (v < -2147483648.0) v = -2147483648.0;
+        qint32 iv = static_cast<qint32>(std::round(v));
+        int idx = i * 4;
+        data[idx]   = iv & 0xFF;
+        data[idx+1] = (iv >> 8) & 0xFF;
+        data[idx+2] = (iv >> 16) & 0xFF;
+        data[idx+3] = (iv >> 24) & 0xFF;
+    }
+
+    m_currentTab->rawData = m_rawData;
+    m_kirchhoffApplied = true;
+    m_kirchhoffBtnApply->setText("撤销");
+
+    refreshImage();
+    updateChart(m_lastChartX);
+
+    if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
+        updateOneClickRefChart();
+    }
+
+    m_progressBar->setValue(100);
+    m_progressBar->setFormat("克西霍夫: 完成");
     QCoreApplication::processEvents();
 
     QTimer::singleShot(2000, this, [this]() {
