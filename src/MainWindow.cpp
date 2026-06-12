@@ -5519,8 +5519,6 @@ void MainWindow::applyDeconvolution()
 
     const char *srcData = m_rawData.constData();
     std::vector<double> samples(totalPixels);
-    double srcMin = std::numeric_limits<double>::max();
-    double srcMax = std::numeric_limits<double>::lowest();
     for (int i = 0; i < totalPixels; ++i) {
         int idx = i * 4;
         qint32 v = (static_cast<quint8>(srcData[idx+3]) << 24) |
@@ -5528,120 +5526,123 @@ void MainWindow::applyDeconvolution()
                    (static_cast<quint8>(srcData[idx+1]) << 8) |
                    (static_cast<quint8>(srcData[idx]));
         samples[i] = static_cast<double>(v);
-        if (samples[i] < srcMin) srcMin = samples[i];
-        if (samples[i] > srcMax) srcMax = samples[i];
     }
 
+    // 计算 input RMS（用于输出幅度匹配）
+    double inSqSum = 0.0;
+    for (int i = 0; i < totalPixels; ++i) inSqSum += samples[i] * samples[i];
+    double inRms = std::sqrt(inSqSum / totalPixels);
+
     m_progressBar->setValue(10);
-    m_progressBar->setFormat("反褶积: Wiener 预测算子... %p%");
+    m_progressBar->setFormat("反褶积: 全局自相关... %p%");
     QCoreApplication::processEvents();
 
-    // RADAN 风格预测反褶积 (Predictive Deconvolution)
-    // 对每条 trace:
-    //   1) 计算自相关 r[k] = E[x[n] x[n+k]]
+    // RADAN 风格 Wiener 预测反褶积
+    // 关键改进：使用所有 trace 平均的"全局自相关"求一个公共滤波器，
+    // 而非每条 trace 各自求——后者会导致横向不一致 + 弱信号 trace 噪声放大。
+    //   1) 全局自相关 r[k] = mean_t( E[x_t[n] x_t[n+k]] )
     //   2) 解 Wiener-Hopf 方程 R f = g, R[i][j] = r[|i-j|], g[i] = r[predStep+i]
     //   3) 残差输出 e[n] = x[n] - sum_{k=0}^{L-1} f[k] * x[n - predStep - k]
     int acorrLen = filterLen + predStep;
     std::vector<double> acorr(acorrLen, 0.0);
-    std::vector<double> filter(filterLen, 0.0);
-    std::vector<double> out(totalPixels, 0.0);
-    std::vector<std::vector<double>> A(filterLen, std::vector<double>(filterLen + 1, 0.0));
-
     for (int t = 0; t < numTraces; ++t) {
         double *tr = &samples[t * samplesPerTrace];
-
-        // 自相关
         for (int k = 0; k < acorrLen; ++k) {
             double sum = 0.0;
             int count = samplesPerTrace - k;
             for (int n = 0; n < count; ++n) {
                 sum += tr[n] * tr[n + k];
             }
-            acorr[k] = (count > 0) ? sum / count : 0.0;
+            acorr[k] += (count > 0) ? sum / count : 0.0;
         }
-
-        // 白噪声加成 0.1%，保证 Toeplitz 矩阵正定可解
-        if (acorr[0] > 0.0) {
-            acorr[0] *= (1.0 + 1e-3);
-        } else {
-            // 全零 trace，直接复制为 0
-            for (int n = 0; n < samplesPerTrace; ++n)
-                out[t * samplesPerTrace + n] = 0.0;
-            continue;
+        if (t % qMax(1, numTraces / 10) == 0) {
+            m_progressBar->setValue(10 + 20 * t / numTraces);
+            QCoreApplication::processEvents();
         }
+    }
+    for (int k = 0; k < acorrLen; ++k) acorr[k] /= numTraces;
 
-        // 构造增广矩阵 [R | g]
-        for (int i = 0; i < filterLen; ++i) {
-            for (int j = 0; j < filterLen; ++j) {
-                A[i][j] = acorr[std::abs(i - j)];
+    // 白噪声加成 0.1%，保证 Toeplitz 矩阵正定可解
+    if (acorr[0] > 0.0) acorr[0] *= (1.0 + 1e-3);
+
+    m_progressBar->setValue(35);
+    m_progressBar->setFormat("反褶积: Wiener 滤波器... %p%");
+    QCoreApplication::processEvents();
+
+    // 构造增广矩阵 [R | g]
+    std::vector<std::vector<double>> A(filterLen, std::vector<double>(filterLen + 1, 0.0));
+    for (int i = 0; i < filterLen; ++i) {
+        for (int j = 0; j < filterLen; ++j) {
+            A[i][j] = acorr[std::abs(i - j)];
+        }
+        A[i][filterLen] = acorr[predStep + i];
+    }
+
+    // 高斯消元 (部分主元)
+    for (int p = 0; p < filterLen; ++p) {
+        int maxRow = p;
+        for (int r = p + 1; r < filterLen; ++r) {
+            if (std::abs(A[r][p]) > std::abs(A[maxRow][p])) maxRow = r;
+        }
+        if (maxRow != p) std::swap(A[p], A[maxRow]);
+
+        if (std::abs(A[p][p]) < 1e-18) continue;
+
+        for (int r = p + 1; r < filterLen; ++r) {
+            double f = A[r][p] / A[p][p];
+            if (f == 0.0) continue;
+            for (int c = p; c <= filterLen; ++c) {
+                A[r][c] -= f * A[p][c];
             }
-            A[i][filterLen] = acorr[predStep + i];
         }
+    }
 
-        // 高斯消元 (部分主元)
-        for (int p = 0; p < filterLen; ++p) {
-            int maxRow = p;
-            for (int r = p + 1; r < filterLen; ++r) {
-                if (std::abs(A[r][p]) > std::abs(A[maxRow][p])) maxRow = r;
-            }
-            if (maxRow != p) std::swap(A[p], A[maxRow]);
-
-            if (std::abs(A[p][p]) < 1e-18) continue;
-
-            for (int r = p + 1; r < filterLen; ++r) {
-                double f = A[r][p] / A[p][p];
-                if (f == 0.0) continue;
-                for (int c = p; c <= filterLen; ++c) {
-                    A[r][c] -= f * A[p][c];
-                }
-            }
+    // 回代
+    std::vector<double> filter(filterLen, 0.0);
+    for (int i = filterLen - 1; i >= 0; --i) {
+        double s = A[i][filterLen];
+        for (int j = i + 1; j < filterLen; ++j) {
+            s -= A[i][j] * filter[j];
         }
+        filter[i] = (std::abs(A[i][i]) > 1e-18) ? s / A[i][i] : 0.0;
+    }
 
-        // 回代
-        for (int i = filterLen - 1; i >= 0; --i) {
-            double s = A[i][filterLen];
-            for (int j = i + 1; j < filterLen; ++j) {
-                s -= A[i][j] * filter[j];
-            }
-            filter[i] = (std::abs(A[i][i]) > 1e-18) ? s / A[i][i] : 0.0;
-        }
+    m_progressBar->setValue(45);
+    m_progressBar->setFormat("反褶积: 应用预测误差... %p%");
+    QCoreApplication::processEvents();
 
-        // 应用预测误差滤波：e[n] = x[n] - sum f[k] x[n - predStep - k]
+    // 应用全局 filter 到所有 trace
+    std::vector<double> out(totalPixels, 0.0);
+    for (int t = 0; t < numTraces; ++t) {
+        double *tr = &samples[t * samplesPerTrace];
         for (int n = 0; n < samplesPerTrace; ++n) {
             double pred = 0.0;
             for (int k = 0; k < filterLen; ++k) {
                 int idx = n - predStep - k;
-                if (idx >= 0) {
-                    pred += filter[k] * tr[idx];
-                }
+                if (idx >= 0) pred += filter[k] * tr[idx];
             }
             out[t * samplesPerTrace + n] = tr[n] - pred;
         }
-
         if (t % qMax(1, numTraces / 20) == 0) {
-            m_progressBar->setValue(10 + 80 * t / numTraces);
+            m_progressBar->setValue(45 + 45 * t / numTraces);
             QCoreApplication::processEvents();
         }
     }
 
-    // 归一化回原始 [srcMin, srcMax]，否则残差幅值与原图差太多图像看不清
-    double outMin = std::numeric_limits<double>::max();
-    double outMax = std::numeric_limits<double>::lowest();
-    for (int i = 0; i < totalPixels; ++i) {
-        if (out[i] < outMin) outMin = out[i];
-        if (out[i] > outMax) outMax = out[i];
-    }
-    double outRange = outMax - outMin;
-    double srcRange = srcMax - srcMin;
-    if (outRange < 1e-9) outRange = 1.0;
-    if (srcRange < 1e-9) srcRange = 1.0;
+    // 输出幅度匹配：scale = input_RMS / output_RMS
+    // 线性 min/max 归一化会把残差噪声拉伸到满量程，破坏相对幅度并放大噪声；
+    // RMS 匹配保留弱/强反射之间的相对能量结构，整体亮度与原图一致。
+    double outSqSum = 0.0;
+    for (int i = 0; i < totalPixels; ++i) outSqSum += out[i] * out[i];
+    double outRms = std::sqrt(outSqSum / totalPixels);
+    double scale = (outRms > 1e-9) ? inRms / outRms : 1.0;
 
     char *data = m_rawData.data();
     for (int i = 0; i < totalPixels; ++i) {
-        double norm = (out[i] - outMin) / outRange;  // 0..1
-        double v = srcMin + norm * srcRange;
-        if (v > 2147483647.0) v = 2147483647.0;
-        if (v < -2147483648.0) v = -2147483648.0;
+        double v = out[i] * scale;
+        // 显示 LUT 范围 ±2^23，钳位防止溢出
+        if (v > 8388607.0) v = 8388607.0;
+        if (v < -8388608.0) v = -8388608.0;
         qint32 iv = static_cast<qint32>(std::round(v));
         int idx = i * 4;
         data[idx]   = iv & 0xFF;
