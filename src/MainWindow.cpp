@@ -2432,7 +2432,7 @@ void MainWindow::saveProcessedFile()
     if (!m_currentTab) return;
 
     // 确保增益已应用（仅旧的增益系统；一键处理已自己处理数据）
-    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied && !m_deconvApplied && !m_hilbertApplied && !m_kirchhoffApplied) {
+    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied && !m_deconvApplied && !m_hilbertApplied && !m_kirchhoffApplied && !m_filterApplied) {
         // 先应用增益
         m_currentTab->originalRawData = m_rawData;
         bool isLinear2 = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
@@ -3731,7 +3731,18 @@ void MainWindow::showDigitalFilter()
         updateChart(m_lastChartX);
     });
 
-    connect(btnOK, &QPushButton::clicked, m_filterDlg, &QDialog::accept);
+    connect(btnOK, &QPushButton::clicked, this, [this]() {
+        // 若未应用，先触发应用（与其它处理对话框一致）
+        if (!m_filterApplied && m_filterBtnApply) {
+            m_filterBtnApply->click();
+        }
+        if (m_filterApplied) {
+            saveProcessedFile();
+        }
+        if (m_filterDlg) {
+            m_filterDlg->close();
+        }
+    });
 
     connect(btnCancel, &QPushButton::clicked, m_filterDlg, &QDialog::reject);
 
