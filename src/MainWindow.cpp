@@ -40,10 +40,12 @@
 #include <QCoreApplication>
 #include <QCheckBox>
 #include <QTextStream>
+#include <QFormLayout>
 #include <functional>
 #include <cmath>
 #include <complex>
 #include <vector>
+#include <limits>
 
 // --- FilterChartView: chart with draggable vertical marker lines ---
 class FilterChartView : public QChartView
@@ -2345,7 +2347,7 @@ void MainWindow::saveProcessedFile()
     if (!m_currentTab) return;
 
     // 确保增益已应用（仅旧的增益系统；一键处理已自己处理数据）
-    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied) {
+    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied) {
         // 先应用增益
         m_currentTab->originalRawData = m_rawData;
         bool isLinear2 = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
@@ -3125,7 +3127,9 @@ void MainWindow::createMenuBar()
     // Group 3: 其他处理
     QVBoxLayout *g3 = addGroup(dataLayout, "其他处理");
     QHBoxLayout *g3row1 = qobject_cast<QHBoxLayout*>(g3->itemAt(0)->layout());
-    g3row1->addWidget(makeTextBtn("数字运算"));
+    QToolButton *btnMathOp = makeTextBtn("数学运算");
+    connect(btnMathOp, &QToolButton::clicked, this, &MainWindow::showMathOperation);
+    g3row1->addWidget(btnMathOp);
     g3row1->addWidget(makeTextBtn("反褶积"));
     g3row1->addWidget(makeTextBtn("希尔伯特"));
     QHBoxLayout *g3row2 = new QHBoxLayout();
@@ -4531,6 +4535,261 @@ void MainWindow::applyTraceEqualization()
 
     m_progressBar->setValue(100);
     m_progressBar->setFormat("道间均衡: 完成");
+    QCoreApplication::processEvents();
+
+    QTimer::singleShot(2000, this, [this]() {
+        m_progressBar->hide();
+        m_progressBar->setValue(0);
+    });
+}
+
+void MainWindow::showMathOperation()
+{
+    if (!m_currentTab) return;
+
+    if (m_mathDlg) {
+        m_mathDlg->raise();
+        m_mathDlg->activateWindow();
+        return;
+    }
+
+    m_mathDlg = new QDialog(this);
+    m_mathDlg->setAttribute(Qt::WA_DeleteOnClose);
+    m_mathDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
+
+    QFileInfo fi(m_currentTab->filePath);
+    m_mathDlg->setWindowTitle(QString("数学运算-%1").arg(fi.completeBaseName()));
+
+    connect(m_mathDlg, &QDialog::finished, this, [this]() {
+        m_mathDlg = nullptr;
+        m_mathOpTypeCombo = nullptr;
+        m_mathNormalizeCombo = nullptr;
+        m_mathBtnApply = nullptr;
+        m_mathApplied = false;
+    });
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(m_mathDlg);
+
+    // 参数设置 group
+    QGroupBox *paramGroup = new QGroupBox("参数设置");
+    QFormLayout *paramForm = new QFormLayout(paramGroup);
+    m_mathOpTypeCombo = new QComboBox();
+    m_mathOpTypeCombo->addItem("差分");
+    m_mathOpTypeCombo->addItem("积分");
+    m_mathOpTypeCombo->addItem("平方");
+    m_mathOpTypeCombo->addItem("开方");
+    m_mathOpTypeCombo->addItem("对数");
+    m_mathOpTypeCombo->addItem("指数");
+    m_mathOpTypeCombo->setCurrentIndex(2);  // 默认 平方
+    paramForm->addRow("运算类型：", m_mathOpTypeCombo);
+
+    m_mathNormalizeCombo = new QComboBox();
+    m_mathNormalizeCombo->addItem("是");
+    m_mathNormalizeCombo->addItem("否");
+    m_mathNormalizeCombo->setCurrentIndex(0);  // 默认 是
+    paramForm->addRow("是否归一化：", m_mathNormalizeCombo);
+    mainLayout->addWidget(paramGroup);
+
+    // Buttons
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    m_mathBtnApply = new QPushButton("应用");
+    QPushButton *btnOK = new QPushButton("确定");
+    QPushButton *btnCancel = new QPushButton("取消");
+    btnLayout->addWidget(m_mathBtnApply);
+    btnLayout->addWidget(btnOK);
+    btnLayout->addWidget(btnCancel);
+    btnLayout->addStretch();
+    mainLayout->addLayout(btnLayout);
+
+    connect(m_mathBtnApply, &QPushButton::clicked, this, [this]() {
+        applyMathOperation();
+    });
+
+    connect(btnOK, &QPushButton::clicked, this, [this]() {
+        if (!m_mathApplied)
+            applyMathOperation();
+        if (m_mathApplied)
+            saveProcessedFile();
+        if (m_mathDlg)
+            m_mathDlg->close();
+    });
+
+    connect(btnCancel, &QPushButton::clicked, this, [this]() {
+        if (m_mathApplied) {
+            m_rawData = m_currentTab->originalRawData;
+            m_currentTab->rawData = m_rawData;
+            m_currentTab->gainApplied = false;
+            m_mathApplied = false;
+            refreshImage();
+            updateChart(m_lastChartX);
+        }
+        if (m_mathDlg)
+            m_mathDlg->close();
+    });
+
+    m_mathDlg->show();
+}
+
+void MainWindow::applyMathOperation()
+{
+    if (!m_currentTab) return;
+
+    if (m_mathApplied) {
+        // Undo
+        m_rawData = m_currentTab->originalRawData;
+        m_currentTab->rawData = m_rawData;
+        m_currentTab->gainApplied = false;
+        m_mathApplied = false;
+        m_mathBtnApply->setText("应用");
+        refreshImage();
+        updateChart(m_lastChartX);
+        return;
+    }
+
+    m_currentTab->originalRawData = m_rawData;
+
+    int samplesPerTrace = m_pixelsPerRow;
+    int totalPixels = m_rawData.size() / 4;
+    int numTraces = totalPixels / samplesPerTrace;
+    if (numTraces == 0 || samplesPerTrace == 0) return;
+
+    int opType = m_mathOpTypeCombo ? m_mathOpTypeCombo->currentIndex() : 2;
+    bool normalize = (m_mathNormalizeCombo && m_mathNormalizeCombo->currentIndex() == 0);
+
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat("数学运算: 读取数据...");
+    m_progressBar->show();
+    QCoreApplication::processEvents();
+
+    const char *srcData = m_rawData.constData();
+    std::vector<qint32> samples(totalPixels);
+    double srcMin = std::numeric_limits<double>::max();
+    double srcMax = std::numeric_limits<double>::lowest();
+    for (int i = 0; i < totalPixels; ++i) {
+        int idx = i * 4;
+        qint32 v = (static_cast<quint8>(srcData[idx+3]) << 24) |
+                   (static_cast<quint8>(srcData[idx+2]) << 16) |
+                   (static_cast<quint8>(srcData[idx+1]) << 8) |
+                   (static_cast<quint8>(srcData[idx]));
+        samples[i] = v;
+        double dv = static_cast<double>(v);
+        if (dv < srcMin) srcMin = dv;
+        if (dv > srcMax) srcMax = dv;
+    }
+
+    m_progressBar->setValue(10);
+    m_progressBar->setFormat("数学运算: 计算中... %p%");
+    QCoreApplication::processEvents();
+
+    std::vector<double> out(totalPixels, 0.0);
+    double outMin = std::numeric_limits<double>::max();
+    double outMax = std::numeric_limits<double>::lowest();
+
+    auto updateOutRange = [&](double v) {
+        if (v < outMin) outMin = v;
+        if (v > outMax) outMax = v;
+    };
+
+    for (int t = 0; t < numTraces; ++t) {
+        double acc = 0.0;  // running sum for 积分
+        double prev = static_cast<double>(samples[t * samplesPerTrace]);
+        for (int s = 0; s < samplesPerTrace; ++s) {
+            int i = t * samplesPerTrace + s;
+            double v = static_cast<double>(samples[i]);
+            double r = 0.0;
+            switch (opType) {
+                case 0: {  // 差分（中心差分；边界用单侧差分）
+                    if (s == 0) {
+                        double next = (samplesPerTrace > 1)
+                            ? static_cast<double>(samples[i + 1]) : v;
+                        r = next - v;
+                    } else if (s == samplesPerTrace - 1) {
+                        r = v - prev;
+                    } else {
+                        double next = static_cast<double>(samples[i + 1]);
+                        r = (next - prev) * 0.5;
+                    }
+                    break;
+                }
+                case 1: {  // 积分（沿 s 方向累加）
+                    acc += v;
+                    r = acc;
+                    break;
+                }
+                case 2: {  // 平方
+                    r = v * v;
+                    break;
+                }
+                case 3: {  // 开方（保留符号）
+                    r = (v >= 0.0) ? std::sqrt(v) : -std::sqrt(-v);
+                    break;
+                }
+                case 4: {  // 对数（自然对数；保留符号，幅值取绝对值）
+                    double a = std::abs(v);
+                    r = (a > 1e-9) ? ((v >= 0.0) ? std::log(a) : -std::log(a)) : 0.0;
+                    break;
+                }
+                case 5: {  // 指数（保留符号；为避免数值爆炸用 exp(v/scale)）
+                    // 用 srcMax 把指数范围限制在合理量级
+                    double base = (srcMax > 1.0) ? srcMax : 1.0;
+                    double ex = v / base;
+                    if (ex > 50.0) ex = 50.0;
+                    if (ex < -50.0) ex = -50.0;
+                    r = (v >= 0.0) ? std::exp(ex) : -std::exp(ex);
+                    break;
+                }
+                default:
+                    r = v;
+                    break;
+            }
+            out[i] = r;
+            updateOutRange(r);
+            prev = v;
+        }
+        if (t % qMax(1, numTraces / 20) == 0) {
+            m_progressBar->setValue(10 + 70 * t / numTraces);
+            QCoreApplication::processEvents();
+        }
+    }
+
+    // 归一化到原始 [srcMin, srcMax] 范围；若选"否"，则按 qint32 范围裁剪
+    double outRange = outMax - outMin;
+    double srcRange = srcMax - srcMin;
+    if (outRange < 1e-9) outRange = 1.0;
+    if (srcRange < 1e-9) srcRange = 1.0;
+
+    char *data = m_rawData.data();
+    for (int i = 0; i < totalPixels; ++i) {
+        double v = out[i];
+        if (normalize) {
+            // 线性映射到 [srcMin, srcMax]
+            double norm = (v - outMin) / outRange;  // 0..1
+            v = srcMin + norm * srcRange;
+        }
+        // qint32 范围裁剪
+        if (v > 2147483647.0) v = 2147483647.0;
+        if (v < -2147483648.0) v = -2147483648.0;
+        qint32 iv = static_cast<qint32>(std::round(v));
+        int idx = i * 4;
+        data[idx]   = iv & 0xFF;
+        data[idx+1] = (iv >> 8) & 0xFF;
+        data[idx+2] = (iv >> 16) & 0xFF;
+        data[idx+3] = (iv >> 24) & 0xFF;
+    }
+
+    m_currentTab->rawData = m_rawData;
+    m_mathApplied = true;
+    m_mathBtnApply->setText("撤销");
+
+    refreshImage();
+    updateChart(m_lastChartX);
+
+    if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
+        updateOneClickRefChart();
+    }
+
+    m_progressBar->setValue(100);
+    m_progressBar->setFormat("数学运算: 完成");
     QCoreApplication::processEvents();
 
     QTimer::singleShot(2000, this, [this]() {

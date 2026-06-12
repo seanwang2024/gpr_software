@@ -317,6 +317,15 @@ private:
     void showTraceEqualization();
     void applyTraceEqualization();
 
+    // Math operation dialog pointers (non-modal)
+    QDialog *m_mathDlg = nullptr;
+    QComboBox *m_mathOpTypeCombo = nullptr;
+    QComboBox *m_mathNormalizeCombo = nullptr;
+    QPushButton *m_mathBtnApply = nullptr;
+    bool m_mathApplied = false;
+    void showMathOperation();
+    void applyMathOperation();
+
     // Processing range spinboxes (ribbon 数据处理 page)
     QSpinBox *m_startTraceSpin = nullptr;
     QSpinBox *m_endTraceSpin = nullptr;
