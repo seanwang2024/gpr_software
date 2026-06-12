@@ -1511,14 +1511,15 @@ CustomTitleBar::CustomTitleBar(QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
 
-    // LOGO (左)
+    // LOGO (左) — 放大到 28px 高，宽度对齐 ribbon "开始" tab
     m_logoLabel = new QLabel;
+    m_logoLabel->setAlignment(Qt::AlignCenter);
     QPixmap logo(":/icons/resources/laurel_logo.png");
     if (!logo.isNull()) {
-        m_logoLabel->setPixmap(logo.scaledToHeight(22, Qt::SmoothTransformation));
+        m_logoLabel->setPixmap(logo.scaledToHeight(28, Qt::SmoothTransformation));
     }
-    m_logoLabel->setContentsMargins(12, 0, 12, 0);
-    m_logoLabel->setFixedWidth(logo.width() * 22 / qMax(1, logo.height()) + 24);
+    m_logoLabel->setContentsMargins(14, 2, 14, 2);
+    m_logoLabel->setFixedWidth(60);
     layout->addWidget(m_logoLabel);
 
     // 标题（居中、自适应）
@@ -1896,6 +1897,10 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
         updateRulers();
         resizeImageLabel();
     });
+
+    // 新建 tab 立即成为当前 tab → 同步标题（防止 currentChanged 信号未触发的边界情况）
+    m_currentTab = tab;
+    updateWindowTitle();
 
     return tab;
 }
@@ -2979,6 +2984,7 @@ void MainWindow::updateWindowTitle()
         text = QString::fromUtf8("劳雷AI数据处理-%1").arg(fname);
     }
     if (m_titleBar) m_titleBar->setTitleText(text);
+    setWindowTitle(text);  // 同步 OS 任务栏标题
 }
 
 void MainWindow::loadLUT(int index)
