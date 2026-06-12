@@ -5131,27 +5131,29 @@ void MainWindow::applyKirchhoffMigration()
         }
     }
 
-    // 用 std-based 标量缩放保留原始振幅分布
-    // （min/max 重映射会破坏相对振幅关系，导致弱信号被压平）
-    double inMean = 0.0, inM2 = 0.0;
-    for (int i = 0; i < totalPixels; ++i) {
-        inMean += samples[i];
-        inM2 += samples[i] * samples[i];
-    }
+    // 用 MAD (Median Absolute Deviation) 做缩放
+    // 聚焦后的绕射点是离群大值，会拉大 std 导致 scale 偏小、整图偏暗；
+    // MAD 反映典型（背景）振幅，对离群值不敏感，背景匹配输入后峰值自然突出。
+    auto medianAbs = [](std::vector<double>& vals, double mean) {
+        const size_t n = vals.size();
+        if (n == 0) return 0.0;
+        std::vector<double> absVals(n);
+        for (size_t i = 0; i < n; ++i) absVals[i] = std::abs(vals[i] - mean);
+        std::nth_element(absVals.begin(), absVals.begin() + n / 2, absVals.end());
+        return absVals[n / 2];
+    };
+
+    double inMean = 0.0;
+    for (int i = 0; i < totalPixels; ++i) inMean += samples[i];
     inMean /= totalPixels;
-    double inVar = inM2 / totalPixels - inMean * inMean;
-    double inStd = std::sqrt(inVar > 0.0 ? inVar : 0.0);
+    double inMad = medianAbs(samples, inMean);
 
-    double outMean = 0.0, outM2 = 0.0;
-    for (int i = 0; i < totalPixels; ++i) {
-        outMean += out[i];
-        outM2 += out[i] * out[i];
-    }
+    double outMean = 0.0;
+    for (int i = 0; i < totalPixels; ++i) outMean += out[i];
     outMean /= totalPixels;
-    double outVar = outM2 / totalPixels - outMean * outMean;
-    double outStd = std::sqrt(outVar > 0.0 ? outVar : 0.0);
+    double outMad = medianAbs(out, outMean);
 
-    double scale = (outStd > 1e-9) ? (inStd / outStd) : 1.0;
+    double scale = (outMad > 1e-9) ? (inMad / outMad) : 1.0;
 
     char *data = m_rawData.data();
     for (int i = 0; i < totalPixels; ++i) {
