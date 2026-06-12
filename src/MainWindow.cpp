@@ -3905,7 +3905,7 @@ void MainWindow::showBackgroundRemoval()
     m_bgRemovalDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
 
     QFileInfo fi(m_currentTab->filePath);
-    m_bgRemovalDlg->setWindowTitle(QString("背景消除 - %1").arg(fi.fileName()));
+    m_bgRemovalDlg->setWindowTitle(QString("背景消除-%1").arg(fi.completeBaseName()));
 
     connect(m_bgRemovalDlg, &QDialog::finished, this, [this]() {
         m_bgRemovalDlg = nullptr;
@@ -4528,7 +4528,8 @@ void MainWindow::showCorrectOffset()
     m_correctOffsetDlg = new QDialog(this);
     m_correctOffsetDlg->setAttribute(Qt::WA_DeleteOnClose);
     m_correctOffsetDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
-    m_correctOffsetDlg->setWindowTitle("校正参数");
+    QFileInfo fi(m_currentTab->filePath);
+    m_correctOffsetDlg->setWindowTitle(QString("校正零偏-%1").arg(fi.completeBaseName()));
 
     connect(m_correctOffsetDlg, &QDialog::finished, this, [this]() {
         m_correctOffsetDlg = nullptr;
