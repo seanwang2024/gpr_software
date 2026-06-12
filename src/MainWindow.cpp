@@ -1074,7 +1074,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_activeTabGroup = m_docTabWidget;
 
     // Left panel: stacked gain / zero-point pages
-    m_leftPanel = new QWidget;
+    m_leftPanel = new QWidget(this);
+    m_leftPanel->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
     QVBoxLayout *leftOuterLayout = new QVBoxLayout(m_leftPanel);
     leftOuterLayout->setContentsMargins(0, 0, 0, 0);
     leftOuterLayout->setSpacing(0);
@@ -2998,6 +2999,11 @@ void MainWindow::createMenuBar()
     connect(btnAdjGainStart, &QToolButton::clicked, this, [this]() {
         if (m_tabs.isEmpty()) return;
         m_leftStack->setCurrentWidget(m_gainPage);
+        if (m_currentTab) {
+            QFileInfo fi(m_currentTab->filePath);
+            m_leftPanel->setWindowTitle(QString("增益-%1").arg(fi.completeBaseName()));
+        }
+        m_leftPanel->setWindowIcon(QIcon(":/icons/resources/adjustgain.png"));
         m_leftPanel->setVisible(!m_leftPanel->isVisible());
         if (m_leftPanel->isVisible() && chartView) {
             chartView->setGainVisible(true);
@@ -3008,13 +3014,6 @@ void MainWindow::createMenuBar()
                 axisY->setLabelFormat("%d");
             }
             updateChart(m_lastChartX);
-            if (m_currentTab) {
-                QFileInfo fi(m_currentTab->filePath);
-                setWindowTitle(QString("增益-%1").arg(fi.completeBaseName()));
-                setWindowIcon(QIcon(":/icons/resources/adjustgain.png"));
-            }
-        } else {
-            setWindowTitle("DZT Image Viewer");
         }
     });
     processBtns->addWidget(btnAdjGainStart);
@@ -3073,6 +3072,11 @@ void MainWindow::createMenuBar()
     connect(btnAdjGain, &QToolButton::clicked, this, [this]() {
         if (m_tabs.isEmpty()) return;
         m_leftStack->setCurrentWidget(m_gainPage);
+        if (m_currentTab) {
+            QFileInfo fi(m_currentTab->filePath);
+            m_leftPanel->setWindowTitle(QString("增益-%1").arg(fi.completeBaseName()));
+        }
+        m_leftPanel->setWindowIcon(QIcon(":/icons/resources/adjustgain.png"));
         m_leftPanel->setVisible(!m_leftPanel->isVisible());
         if (m_leftPanel->isVisible() && chartView) {
             chartView->setGainVisible(true);
@@ -3083,13 +3087,6 @@ void MainWindow::createMenuBar()
                 axisY->setLabelFormat("%d");
             }
             updateChart(m_lastChartX);
-            if (m_currentTab) {
-                QFileInfo fi(m_currentTab->filePath);
-                setWindowTitle(QString("增益-%1").arg(fi.completeBaseName()));
-                setWindowIcon(QIcon(":/icons/resources/adjustgain.png"));
-            }
-        } else {
-            setWindowTitle("DZT Image Viewer");
         }
     });
     g2row1->addWidget(btnAdjGain);
