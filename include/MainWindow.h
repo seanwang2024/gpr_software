@@ -153,6 +153,27 @@ private:
     double m_hypTimePerSample = 0.039; // ns
 };
 
+// 自定义标题栏：LOGO + 居中标题 + 最小/最大/关闭按钮
+class CustomTitleBar : public QWidget
+{
+    Q_OBJECT
+
+public:
+    explicit CustomTitleBar(QWidget *parent = nullptr);
+    void setTitleText(const QString &text);
+
+protected:
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+
+private:
+    QLabel *m_logoLabel;
+    QLabel *m_titleLabel;
+    QPushButton *m_btnMin;
+    QPushButton *m_btnMax;
+    QPushButton *m_btnClose;
+};
+
 // Per-file data and widgets for each open tab
 struct TabData {
     QString filePath;
@@ -207,6 +228,8 @@ private:
     void resizeImageLabel();
     void resizeEvent(QResizeEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
+    void updateWindowTitle();
 
     // Tab management
     TabData* createTab(const QString &filePath, const QImage &image);
@@ -238,6 +261,7 @@ private:
     QTabWidget *ribbonTab;
     QLabel *welcomeLabel;
     QTabWidget *m_docTabWidget;
+    CustomTitleBar *m_titleBar = nullptr;
 
     // Tab group management (splitter)
     QSplitter *m_docSplitter = nullptr;

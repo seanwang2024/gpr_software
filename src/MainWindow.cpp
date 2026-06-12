@@ -41,11 +41,17 @@
 #include <QCheckBox>
 #include <QTextStream>
 #include <QFormLayout>
+#include <QWindow>
 #include <functional>
 #include <cmath>
 #include <complex>
 #include <vector>
 #include <limits>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <windowsx.h>
+#endif
 
 // --- FilterChartView: chart with draggable vertical marker lines ---
 class FilterChartView : public QChartView
@@ -1473,7 +1479,13 @@ MainWindow::MainWindow(QWidget *parent)
     mainLayout->addLayout(buttonLayout);
 
     setCentralWidget(centralWidget);
-    setWindowTitle("DZT Image Viewer");
+    setWindowTitle("劳雷AI数据处理");
+
+    // 自定义标题栏 + 无边框窗口
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    m_titleBar = new CustomTitleBar(this);
+    setMenuWidget(m_titleBar);
+
     resize(1200, 700);
 
     createMenuBar();
@@ -1485,6 +1497,96 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     qDeleteAll(m_tabs);
+}
+
+// --- CustomTitleBar: 自绘无边框窗口标题栏 ---
+CustomTitleBar::CustomTitleBar(QWidget *parent)
+    : QWidget(parent)
+{
+    setFixedHeight(32);
+    setMouseTracking(true);
+    setStyleSheet("background-color: #2b2b2b;");
+
+    QHBoxLayout *layout = new QHBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+
+    // LOGO (左)
+    m_logoLabel = new QLabel;
+    QPixmap logo(":/icons/resources/laurel_logo.png");
+    if (!logo.isNull()) {
+        m_logoLabel->setPixmap(logo.scaledToHeight(22, Qt::SmoothTransformation));
+    }
+    m_logoLabel->setContentsMargins(12, 0, 12, 0);
+    m_logoLabel->setFixedWidth(logo.width() * 22 / qMax(1, logo.height()) + 24);
+    layout->addWidget(m_logoLabel);
+
+    // 标题（居中、自适应）
+    m_titleLabel = new QLabel("劳雷AI数据处理");
+    m_titleLabel->setAlignment(Qt::AlignCenter);
+    m_titleLabel->setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500;");
+    layout->addWidget(m_titleLabel, 1);
+
+    // 系统按钮（右）
+    auto makeBtn = [](const QString &text, const QString &hoverColor) {
+        QPushButton *btn = new QPushButton(text);
+        btn->setFixedSize(46, 32);
+        btn->setFocusPolicy(Qt::NoFocus);
+        btn->setStyleSheet(QString(
+            "QPushButton { background: transparent; border: none; color: #ffffff; font-size: 14px; }"
+            "QPushButton:hover { background: %1; }"
+        ).arg(hoverColor));
+        return btn;
+    };
+
+    m_btnMin = makeBtn(QString::fromUtf8("\xE2\x80\x94"), "#3a3a3a");         // —
+    m_btnMax = makeBtn(QString::fromUtf8("\xE2\x96\xA1"), "#3a3a3a");         // □
+    m_btnClose = makeBtn(QString::fromUtf8("\xC3\x97"),  "#e81123");          // ×
+
+    layout->addWidget(m_btnMin);
+    layout->addWidget(m_btnMax);
+    layout->addWidget(m_btnClose);
+
+    connect(m_btnMin, &QPushButton::clicked, this, [this]() {
+        if (auto *w = window()) w->showMinimized();
+    });
+    connect(m_btnMax, &QPushButton::clicked, this, [this]() {
+        if (auto *w = window()) {
+            if (w->windowState() & Qt::WindowMaximized) w->showNormal();
+            else w->showMaximized();
+        }
+    });
+    connect(m_btnClose, &QPushButton::clicked, this, [this]() {
+        if (auto *w = window()) w->close();
+    });
+}
+
+void CustomTitleBar::setTitleText(const QString &text)
+{
+    m_titleLabel->setText(text);
+}
+
+void CustomTitleBar::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton) {
+        if (auto *w = window()) {
+            if (QWindow *wh = w->windowHandle()) {
+                wh->startSystemMove();
+            }
+        }
+    }
+    QWidget::mousePressEvent(event);
+}
+
+void CustomTitleBar::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton) {
+        if (auto *w = window()) {
+            if (w->windowState() & Qt::WindowMaximized) w->showNormal();
+            else w->showMaximized();
+        }
+    }
+    QWidget::mouseDoubleClickEvent(event);
 }
 
 // --- Tab management ---
@@ -1809,6 +1911,7 @@ void MainWindow::switchToTab(int index)
         m_timeRange = 20.0;
         m_depthRange = 1.25;
         updateTraceRange();
+        updateWindowTitle();
         return;
     }
 
@@ -1867,6 +1970,8 @@ void MainWindow::switchToTab(int index)
             resizeImageLabel();
         }
     });
+
+    updateWindowTitle();
 }
 
 void MainWindow::closeTab(int index)
@@ -1898,6 +2003,7 @@ void MainWindow::closeTab(int index)
     if (m_tabs.isEmpty()) {
         showWelcome();
     }
+    updateWindowTitle();
 }
 
 void MainWindow::showWelcome()
@@ -2828,6 +2934,45 @@ void MainWindow::resizeEvent(QResizeEvent *event)
 {
     QMainWindow::resizeEvent(event);
     resizeImageLabel();
+}
+
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+{
+#ifdef Q_OS_WIN
+    if (eventType == "windows_generic_MSG" && message) {
+        MSG *msg = reinterpret_cast<MSG*>(message);
+        if (msg->message == WM_NCHITTEST) {
+            const long borderWidth = 5;
+            long x = GET_X_LPARAM(msg->lParam);
+            long y = GET_Y_LPARAM(msg->lParam);
+            RECT winrect;
+            GetWindowRect(reinterpret_cast<HWND>(winId()), &winrect);
+            bool onLeft   = x <  winrect.left   + borderWidth;
+            bool onRight  = x >= winrect.right  - borderWidth;
+            bool onTop    = y <  winrect.top    + borderWidth;
+            bool onBottom = y >= winrect.bottom - borderWidth;
+            if (onTop    && onLeft)  { *result = HTTOPLEFT;     return true; }
+            if (onTop    && onRight) { *result = HTTOPRIGHT;    return true; }
+            if (onBottom && onLeft)  { *result = HTBOTTOMLEFT;  return true; }
+            if (onBottom && onRight) { *result = HTBOTTOMRIGHT; return true; }
+            if (onLeft)              { *result = HTLEFT;        return true; }
+            if (onRight)             { *result = HTRIGHT;       return true; }
+            if (onTop)               { *result = HTTOP;         return true; }
+            if (onBottom)            { *result = HTBOTTOM;      return true; }
+        }
+    }
+#endif
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+
+void MainWindow::updateWindowTitle()
+{
+    QString text = QString::fromUtf8("劳雷AI数据处理");
+    if (m_currentTab && !m_currentTab->filePath.isEmpty()) {
+        QString fname = QFileInfo(m_currentTab->filePath).completeBaseName();
+        text = QString::fromUtf8("劳雷AI数据处理-%1").arg(fname);
+    }
+    if (m_titleBar) m_titleBar->setTitleText(text);
 }
 
 void MainWindow::loadLUT(int index)
