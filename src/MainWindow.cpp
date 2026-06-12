@@ -4195,12 +4195,33 @@ void MainWindow::showMovingAverage()
         applyMovingAverage();
     });
 
-    // OK button: apply then save processed file
+    // OK button: apply then write processed file to proc/ dir.
+    // Current tab stays active and keeps showing the smoothed data — no new tab.
     connect(btnOK, &QPushButton::clicked, this, [this]() {
         if (!m_movingAvgApplied)
             applyMovingAverage();
-        if (m_movingAvgApplied)
-            saveProcessedFile();
+        if (m_movingAvgApplied && m_currentTab) {
+            QFileInfo fi(m_currentTab->filePath);
+            QString procDir = fi.absolutePath() + "/proc";
+            QDir().mkpath(procDir);
+            QString baseName = fi.completeBaseName();
+            int N = 1;
+            QString outPath;
+            do {
+                outPath = procDir + QString("/%1_p%2.DZT").arg(baseName).arg(N++, 2, 10, QChar('0'));
+            } while (QFile::exists(outPath));
+
+            QFile srcFile(m_currentTab->filePath);
+            QFile outFile(outPath);
+            if (srcFile.open(QIODevice::ReadOnly) && outFile.open(QIODevice::WriteOnly)) {
+                outFile.write(srcFile.read(m_currentTab->dataOffset));
+                srcFile.close();
+                outFile.write(m_rawData);
+                outFile.close();
+            } else {
+                QMessageBox::warning(this, "Error", "Failed to save processed file.");
+            }
+        }
         if (m_movingAvgDlg)
             m_movingAvgDlg->close();
     });
