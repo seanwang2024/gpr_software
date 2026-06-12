@@ -5135,10 +5135,10 @@ void MainWindow::applyKirchhoffMigration()
     // 直接缩放到显示满量程 ±2^23 = ±8388608
     // refreshImage 中 LUT 映射为 lutIdx = pixelValue / 65536 + 128
     // 只有数值覆盖 ±8388608 才能让最强信号映射到 LUT 的 0/255 极端色（黑/白）
-    // 用 99.5 分位数定标——避开极少数极端离群点，让 0.5% 顶部饱和到黑/白
+    // 用 99.99 分位数定标——仅 top 0.01% (~26 像素) 饱和到黑/白，避免过曝
     std::vector<double> absOut(totalPixels);
     for (int i = 0; i < totalPixels; ++i) absOut[i] = std::abs(out[i]);
-    size_t pIdx = static_cast<size_t>(totalPixels * 0.995);
+    size_t pIdx = static_cast<size_t>(totalPixels * 0.9999);
     if (pIdx >= totalPixels) pIdx = totalPixels - 1;
     std::nth_element(absOut.begin(), absOut.begin() + pIdx, absOut.end());
     double refAbs = absOut[pIdx];
