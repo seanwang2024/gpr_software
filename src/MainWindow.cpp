@@ -2331,7 +2331,7 @@ void MainWindow::saveProcessedFile()
     if (!m_currentTab) return;
 
     // 确保增益已应用（仅旧的增益系统；一键处理已自己处理数据）
-    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied) {
+    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied) {
         // 先应用增益
         m_currentTab->originalRawData = m_rawData;
         bool isLinear2 = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
@@ -3093,7 +3093,9 @@ void MainWindow::createMenuBar()
     QToolButton *btnMovingAvg = makeTextBtn("滑动平均");
     connect(btnMovingAvg, &QToolButton::clicked, this, &MainWindow::showMovingAverage);
     g2row2->addWidget(btnMovingAvg);
-    g2row2->addWidget(makeTextBtn("道间均衡"));
+    QToolButton *btnTraceEqual = makeTextBtn("道间均衡");
+    connect(btnTraceEqual, &QToolButton::clicked, this, &MainWindow::showTraceEqualization);
+    g2row2->addWidget(btnTraceEqual);
     g2->insertLayout(1, g2row2);
 
     // Group 3: 其他处理
@@ -4328,6 +4330,182 @@ void MainWindow::applyMovingAverage()
 
     m_progressBar->setValue(100);
     m_progressBar->setFormat("滑动平均: 完成");
+    QCoreApplication::processEvents();
+
+    QTimer::singleShot(2000, this, [this]() {
+        m_progressBar->hide();
+        m_progressBar->setValue(0);
+    });
+}
+
+void MainWindow::showTraceEqualization()
+{
+    if (!m_currentTab) return;
+
+    if (m_traceEqualDlg) {
+        m_traceEqualDlg->raise();
+        m_traceEqualDlg->activateWindow();
+        return;
+    }
+
+    m_traceEqualDlg = new QDialog(this);
+    m_traceEqualDlg->setAttribute(Qt::WA_DeleteOnClose);
+    m_traceEqualDlg->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
+
+    QFileInfo fi(m_currentTab->filePath);
+    m_traceEqualDlg->setWindowTitle(QString("道间均衡 - %1").arg(fi.fileName()));
+
+    connect(m_traceEqualDlg, &QDialog::finished, this, [this]() {
+        m_traceEqualDlg = nullptr;
+        m_traceEqualBtnApply = nullptr;
+        m_traceEqualApplied = false;
+    });
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(m_traceEqualDlg);
+
+    // Buttons
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    m_traceEqualBtnApply = new QPushButton("应用");
+    QPushButton *btnOK = new QPushButton("确定");
+    QPushButton *btnCancel = new QPushButton("取消");
+    btnLayout->addWidget(m_traceEqualBtnApply);
+    btnLayout->addWidget(btnOK);
+    btnLayout->addWidget(btnCancel);
+    btnLayout->addStretch();
+    mainLayout->addLayout(btnLayout);
+
+    connect(m_traceEqualBtnApply, &QPushButton::clicked, this, [this]() {
+        applyTraceEqualization();
+    });
+
+    connect(btnOK, &QPushButton::clicked, this, [this]() {
+        if (!m_traceEqualApplied)
+            applyTraceEqualization();
+        if (m_traceEqualApplied)
+            saveProcessedFile();
+        if (m_traceEqualDlg)
+            m_traceEqualDlg->close();
+    });
+
+    connect(btnCancel, &QPushButton::clicked, this, [this]() {
+        if (m_traceEqualApplied) {
+            m_rawData = m_currentTab->originalRawData;
+            m_currentTab->rawData = m_rawData;
+            m_currentTab->gainApplied = false;
+            m_traceEqualApplied = false;
+            refreshImage();
+            updateChart(m_lastChartX);
+        }
+        if (m_traceEqualDlg)
+            m_traceEqualDlg->close();
+    });
+
+    m_traceEqualDlg->show();
+}
+
+void MainWindow::applyTraceEqualization()
+{
+    if (!m_currentTab) return;
+
+    if (m_traceEqualApplied) {
+        m_rawData = m_currentTab->originalRawData;
+        m_currentTab->rawData = m_rawData;
+        m_currentTab->gainApplied = false;
+        m_traceEqualApplied = false;
+        m_traceEqualBtnApply->setText("应用");
+        refreshImage();
+        updateChart(m_lastChartX);
+        return;
+    }
+
+    m_currentTab->originalRawData = m_rawData;
+
+    int samplesPerTrace = m_pixelsPerRow;
+    int totalPixels = m_rawData.size() / 4;
+    int numTraces = totalPixels / samplesPerTrace;
+    if (numTraces == 0 || samplesPerTrace == 0) return;
+
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat("道间均衡: 读取数据...");
+    m_progressBar->show();
+    QCoreApplication::processEvents();
+
+    const char *srcData = m_rawData.constData();
+    std::vector<qint32> samples(totalPixels);
+    for (int i = 0; i < totalPixels; ++i) {
+        int idx = i * 4;
+        samples[i] = (static_cast<quint8>(srcData[idx+3]) << 24) |
+                     (static_cast<quint8>(srcData[idx+2]) << 16) |
+                     (static_cast<quint8>(srcData[idx+1]) << 8) |
+                     (static_cast<quint8>(srcData[idx]));
+    }
+
+    m_progressBar->setValue(10);
+    m_progressBar->setFormat("道间均衡: 计算 RMS... %p%");
+    QCoreApplication::processEvents();
+
+    // 每条 trace 的 RMS 振幅；参考值为所有 trace RMS 的均值
+    std::vector<double> rmsPerTrace(numTraces, 0.0);
+    double rmsSum = 0.0;
+    for (int t = 0; t < numTraces; ++t) {
+        double sumSq = 0.0;
+        const qint32 *tr = &samples[t * samplesPerTrace];
+        for (int s = 0; s < samplesPerTrace; ++s) {
+            double v = static_cast<double>(tr[s]);
+            sumSq += v * v;
+        }
+        double rms = std::sqrt(sumSq / samplesPerTrace);
+        rmsPerTrace[t] = rms;
+        rmsSum += rms;
+        if (t % qMax(1, numTraces / 20) == 0) {
+            m_progressBar->setValue(10 + 30 * t / numTraces);
+            QCoreApplication::processEvents();
+        }
+    }
+    double refRms = rmsSum / numTraces;
+    if (refRms <= 0.0) refRms = 1.0;
+
+    m_progressBar->setValue(40);
+    m_progressBar->setFormat("道间均衡: 缩放 trace... %p%");
+    QCoreApplication::processEvents();
+
+    // 按 refRms/rms_t 缩放每条 trace；RMS 极小的 trace 保持原值
+    for (int t = 0; t < numTraces; ++t) {
+        double scale = (rmsPerTrace[t] > 1e-9) ? (refRms / rmsPerTrace[t]) : 1.0;
+        qint32 *tr = &samples[t * samplesPerTrace];
+        for (int s = 0; s < samplesPerTrace; ++s) {
+            double scaled = static_cast<double>(tr[s]) * scale;
+            tr[s] = static_cast<qint32>(std::round(scaled));
+        }
+        if (t % qMax(1, numTraces / 20) == 0) {
+            m_progressBar->setValue(40 + 50 * t / numTraces);
+            QCoreApplication::processEvents();
+        }
+    }
+
+    char *data = m_rawData.data();
+    for (int i = 0; i < totalPixels; ++i) {
+        int idx = i * 4;
+        qint32 val = samples[i];
+        data[idx]   = val & 0xFF;
+        data[idx+1] = (val >> 8) & 0xFF;
+        data[idx+2] = (val >> 16) & 0xFF;
+        data[idx+3] = (val >> 24) & 0xFF;
+    }
+
+    m_currentTab->rawData = m_rawData;
+    m_traceEqualApplied = true;
+    m_traceEqualBtnApply->setText("撤销");
+
+    refreshImage();
+    updateChart(m_lastChartX);
+
+    if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
+        updateOneClickRefChart();
+    }
+
+    m_progressBar->setValue(100);
+    m_progressBar->setFormat("道间均衡: 完成");
     QCoreApplication::processEvents();
 
     QTimer::singleShot(2000, this, [this]() {

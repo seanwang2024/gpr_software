@@ -310,6 +310,13 @@ private:
     QPushButton *m_movingAvgBtnApply = nullptr;
     bool m_movingAvgApplied = false;
 
+    // Trace equalization dialog pointers (non-modal)
+    QDialog *m_traceEqualDlg = nullptr;
+    QPushButton *m_traceEqualBtnApply = nullptr;
+    bool m_traceEqualApplied = false;
+    void showTraceEqualization();
+    void applyTraceEqualization();
+
     // Processing range spinboxes (ribbon 数据处理 page)
     QSpinBox *m_startTraceSpin = nullptr;
     QSpinBox *m_endTraceSpin = nullptr;
