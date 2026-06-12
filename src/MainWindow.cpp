@@ -2512,6 +2512,7 @@ void MainWindow::updateRulers()
     int totalPixels = m_rawData.size() / 4;
     m_traceCount = totalPixels / m_pixelsPerRow;
     m_currentTab->traceCount = m_traceCount;
+    updateTraceRange();
 
     // Time range based on signal position
     float sigPos = m_currentTab->signalPosition;
