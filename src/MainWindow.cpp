@@ -577,8 +577,9 @@ void ImageLabel::paintEvent(QPaintEvent *event)
                 int trace = apexTrace + dx;
                 if (trace < 0 || trace >= imgW) continue;
                 double dxMeters = dx * m_hypTraceSpacing;
-                // 双曲线方程: t(dx) = sqrt(t0^2 + (2*dx/v)^2)
-                double tNs = std::sqrt(t0_ns * t0_ns + std::pow(2.0 * dxMeters / m_hypVelocity, 2.0));
+                // 双曲线方程: t(dx) = sqrt(t0^2 + (dx/v_mig)^2)
+                // v_mig 是等效偏移速度(已含发收双程因子)，业界商业GPR惯例
+                double tNs = std::sqrt(t0_ns * t0_ns + std::pow(dxMeters / m_hypVelocity, 2.0));
                 int sampleAtDx = static_cast<int>(m_hypFirstWave + tNs / m_hypTimePerSample + 0.5);
                 if (sampleAtDx < 0 || sampleAtDx >= imgH) continue;
                 // 反向映射回 widget 坐标
@@ -5078,8 +5079,9 @@ void MainWindow::applyKirchhoffMigration()
 
     // Kirchhoff 求和偏移 (时间域)，cos(θ) 倾斜因子加权平均：
     //   m(x_out, τ0) = Σ w·d / Σ w,   w = cos(θ) = z / r
-    //   τ(x_in) = sqrt(τ0^2 + (2·(x_in-x_out)·dx/v)^2)
-    //   z = v·τ0/2,  r = sqrt(z^2 + dx^2)
+    //   τ(x_in) = sqrt(τ0^2 + (dx/v_mig)^2)
+    //   z = v_mig·τ0/2,  r = sqrt(z^2 + dx^2)
+    // v_mig 为等效偏移速度(已含发收双程因子)，与商业GPR惯例一致
     // 远道 θ 大 → w 小 → 减少远道"拖尾"对聚焦峰的模糊
     // 相干绕射峰：N 道同极性叠加后再除 Σw → 振幅保留输入量级
     // 不做任何后处理缩放，输出直接进入显示 LUT（输入已 ±2^23 满量程）
@@ -5098,7 +5100,7 @@ void MainWindow::applyKirchhoffMigration()
             int xMax = std::min(numTraces - 1, xOut + halfW);
             for (int xIn = xMin; xIn <= xMax; ++xIn) {
                 double dx = (xIn - xOut) * dxM;
-                double arg = 2.0 * dx / vel;
+                double arg = dx / vel;
                 double tauIn = std::sqrt(tau0 * tau0 + arg * arg);  // ns
                 double sInF = firstWave + tauIn / tps;
                 if (sInF < 0.0 || sInF > samplesPerTrace - 1.001) continue;
