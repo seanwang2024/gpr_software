@@ -5050,8 +5050,6 @@ void MainWindow::applyKirchhoffMigration()
 
     const char *srcData = m_rawData.constData();
     std::vector<double> samples(totalPixels);
-    double srcMin = std::numeric_limits<double>::max();
-    double srcMax = std::numeric_limits<double>::lowest();
     for (int i = 0; i < totalPixels; ++i) {
         int idx = i * 4;
         qint32 v = (static_cast<quint8>(srcData[idx+3]) << 24) |
@@ -5059,8 +5057,15 @@ void MainWindow::applyKirchhoffMigration()
                    (static_cast<quint8>(srcData[idx+1]) << 8) |
                    (static_cast<quint8>(srcData[idx]));
         samples[i] = static_cast<double>(v);
-        if (samples[i] < srcMin) srcMin = samples[i];
-        if (samples[i] > srcMax) srcMax = samples[i];
+    }
+
+    // DC 去除：减去输入中位数（仪器偏移会使深部数据整体偏置 > 0，
+    // 算术平均保留该偏置导致深部灰偏白）。中位数对绕射峰鲁棒。
+    {
+        std::vector<double> tmp(samples);
+        std::nth_element(tmp.begin(), tmp.begin() + totalPixels / 2, tmp.end());
+        double inMedian = tmp[totalPixels / 2];
+        for (int i = 0; i < totalPixels; ++i) samples[i] -= inMedian;
     }
 
     m_progressBar->setValue(10);
@@ -5071,27 +5076,24 @@ void MainWindow::applyKirchhoffMigration()
     if (halfW < 1) halfW = 1;
     std::vector<double> out(totalPixels, 0.0);
 
-    // Kirchhoff 求和偏移 (时间域)，纯算术平均：
-    //   m(x_out, τ0) = (1/N) · Σ_{x_in} d(x_in, τ(x_in))
+    // Kirchhoff 求和偏移 (时间域)，cos(θ) 倾斜因子加权平均：
+    //   m(x_out, τ0) = Σ w·d / Σ w,   w = cos(θ) = z / r
     //   τ(x_in) = sqrt(τ0^2 + (2·(x_in-x_out)·dx/v)^2)
-    //
-    // 原始数据已在显示满量程 ±2^23 范围内（LUT 映射 pixelValue/65536+128）
-    // 算术平均保证：
-    //   - 相干绕射峰：N 道同极性叠加后再除 N → 振幅与输入一致
-    //   - 不相干噪声：方差减为 1/N → std 降为 1/sqrt(N)
-    //   - 峰/背景比提升 sqrt(N) 倍 → 高对比度，且不过曝
-    // 不做任何后处理缩放，输出直接进入显示 LUT。
+    //   z = v·τ0/2,  r = sqrt(z^2 + dx^2)
+    // 远道 θ 大 → w 小 → 减少远道"拖尾"对聚焦峰的模糊
+    // 相干绕射峰：N 道同极性叠加后再除 Σw → 振幅保留输入量级
+    // 不做任何后处理缩放，输出直接进入显示 LUT（输入已 ±2^23 满量程）
     for (int xOut = 0; xOut < numTraces; ++xOut) {
         for (int sOut = 0; sOut < samplesPerTrace; ++sOut) {
             int outIdx = xOut * samplesPerTrace + sOut;
             double tau0 = (sOut - firstWave) * tps;
             if (tau0 <= 0.0) {
-                // 首波之上：直接保留原值
                 out[outIdx] = samples[outIdx];
                 continue;
             }
+            double zM = vel * tau0 / 2.0;
             double sum = 0.0;
-            int count = 0;
+            double wsum = 0.0;
             int xMin = std::max(0, xOut - halfW);
             int xMax = std::min(numTraces - 1, xOut + halfW);
             for (int xIn = xMin; xIn <= xMax; ++xIn) {
@@ -5105,10 +5107,13 @@ void MainWindow::applyKirchhoffMigration()
                 double v0 = samples[xIn * samplesPerTrace + sI0];
                 double v1 = samples[xIn * samplesPerTrace + sI0 + 1];
                 double val = v0 + (v1 - v0) * frac;
-                sum += val;
-                count++;
+                double rM = std::sqrt(zM * zM + dx * dx);
+                if (rM < 1e-9) rM = 1e-9;
+                double w = zM / rM;  // cos(θ)
+                sum += val * w;
+                wsum += w;
             }
-            out[outIdx] = (count > 0) ? (sum / static_cast<double>(count)) : 0.0;
+            out[outIdx] = (wsum > 1e-12) ? (sum / wsum) : 0.0;
         }
         if (xOut % qMax(1, numTraces / 20) == 0) {
             m_progressBar->setValue(10 + 80 * xOut / numTraces);
