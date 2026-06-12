@@ -1712,6 +1712,7 @@ void MainWindow::switchToTab(int index)
         m_traceCount = 0;
         m_timeRange = 20.0;
         m_depthRange = 1.25;
+        updateTraceRange();
         return;
     }
 
@@ -1739,6 +1740,7 @@ void MainWindow::switchToTab(int index)
     m_traceCount = tab->traceCount;
     m_timeRange = tab->timeRange;
     m_depthRange = tab->depthRange;
+    updateTraceRange();
 
     scrollArea = tab->scrollArea;
     imageLabel = tab->imageLabel;
@@ -2409,9 +2411,21 @@ void MainWindow::saveProcessedFile()
         m_oneClickBtnApply->setText("应用");
 }
 
-void MainWindow::refreshImage()
+void MainWindow::updateTraceRange()
 {
-    if (!m_currentTab || m_rawData.isEmpty()) return;
+    int maxTrace = qMax(0, m_traceCount - 1);
+    if (m_startTraceSpin) {
+        m_startTraceSpin->setRange(0, maxTrace);
+        m_startTraceSpin->setValue(0);
+    }
+    if (m_endTraceSpin) {
+        m_endTraceSpin->setRange(0, maxTrace);
+        m_endTraceSpin->setValue(maxTrace);
+    }
+}
+
+void MainWindow::refreshImage()
+{    if (!m_currentTab || m_rawData.isEmpty()) return;
 
     const int pixelsPerRow = m_pixelsPerRow;
     int totalPixels = m_rawData.size() / 4;
@@ -3113,17 +3127,17 @@ void MainWindow::createMenuBar()
     QHBoxLayout *rangeRow1 = new QHBoxLayout();
     rangeRow1->setSpacing(4);
     rangeRow1->addWidget(new QLabel("起始道"));
-    QSpinBox *startTraceSpin = new QSpinBox();
-    startTraceSpin->setRange(0, 99999);
-    startTraceSpin->setValue(0);
-    startTraceSpin->setFixedWidth(70);
-    rangeRow1->addWidget(startTraceSpin);
+    m_startTraceSpin = new QSpinBox();
+    m_startTraceSpin->setRange(0, 0);
+    m_startTraceSpin->setValue(0);
+    m_startTraceSpin->setFixedWidth(70);
+    rangeRow1->addWidget(m_startTraceSpin);
     rangeRow1->addWidget(new QLabel("终止道"));
-    QSpinBox *endTraceSpin = new QSpinBox();
-    endTraceSpin->setRange(0, 99999);
-    endTraceSpin->setValue(99999);
-    endTraceSpin->setFixedWidth(70);
-    rangeRow1->addWidget(endTraceSpin);
+    m_endTraceSpin = new QSpinBox();
+    m_endTraceSpin->setRange(0, 0);
+    m_endTraceSpin->setValue(0);
+    m_endTraceSpin->setFixedWidth(70);
+    rangeRow1->addWidget(m_endTraceSpin);
 
     // Row 2: 起始点 / 终止点
     QHBoxLayout *rangeRow2 = new QHBoxLayout();

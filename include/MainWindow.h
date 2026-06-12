@@ -207,6 +207,7 @@ private:
     void showDigitalFilter();
     void showMovingAverage();
     void applyMovingAverage();
+    void updateTraceRange();
 
     // Shared/global widgets
     QPushButton *openButton;
@@ -308,6 +309,10 @@ private:
     QSpinBox *m_movingAvgWindowSpin = nullptr;
     QPushButton *m_movingAvgBtnApply = nullptr;
     bool m_movingAvgApplied = false;
+
+    // Processing range spinboxes (ribbon 数据处理 page)
+    QSpinBox *m_startTraceSpin = nullptr;
+    QSpinBox *m_endTraceSpin = nullptr;
 
     // Correct offset dialog pointers (non-modal)
     QDialog *m_correctOffsetDlg = nullptr;
