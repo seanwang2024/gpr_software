@@ -5071,18 +5071,16 @@ void MainWindow::applyKirchhoffMigration()
     if (halfW < 1) halfW = 1;
     std::vector<double> out(totalPixels, 0.0);
 
-    // Kirchhoff 求和偏移 (时间域)：
-    //   m(x_out, τ0) = Σ_{x_in} W · d(x_in, τ(x_in))
+    // Kirchhoff 求和偏移 (时间域)，纯算术平均：
+    //   m(x_out, τ0) = (1/N) · Σ_{x_in} d(x_in, τ(x_in))
     //   τ(x_in) = sqrt(τ0^2 + (2·(x_in-x_out)·dx/v)^2)
     //
-    // 权重 W = cos(θ) · Hann(相对位置)
-    //   - cos(θ) = z/r 倾斜因子（压制远道假频）
-    //   - Hann 窗使孔径边缘平滑过渡，避免突变截断假象
-    //
-    // 归一化用 1/sqrt(N) （N=参与求和道数）：
-    //   - 相干信号叠加 N 道得 N×振幅
-    //   - 不相干噪声叠加 N 道得 sqrt(N)×振幅
-    //   - 除 sqrt(N) 后信噪比增益为 sqrt(N)，聚焦能量保留
+    // 原始数据已在显示满量程 ±2^23 范围内（LUT 映射 pixelValue/65536+128）
+    // 算术平均保证：
+    //   - 相干绕射峰：N 道同极性叠加后再除 N → 振幅与输入一致
+    //   - 不相干噪声：方差减为 1/N → std 降为 1/sqrt(N)
+    //   - 峰/背景比提升 sqrt(N) 倍 → 高对比度，且不过曝
+    // 不做任何后处理缩放，输出直接进入显示 LUT。
     for (int xOut = 0; xOut < numTraces; ++xOut) {
         for (int sOut = 0; sOut < samplesPerTrace; ++sOut) {
             int outIdx = xOut * samplesPerTrace + sOut;
@@ -5092,7 +5090,6 @@ void MainWindow::applyKirchhoffMigration()
                 out[outIdx] = samples[outIdx];
                 continue;
             }
-            double zM = vel * tau0 / 2.0;
             double sum = 0.0;
             int count = 0;
             int xMin = std::max(0, xOut - halfW);
@@ -5108,23 +5105,10 @@ void MainWindow::applyKirchhoffMigration()
                 double v0 = samples[xIn * samplesPerTrace + sI0];
                 double v1 = samples[xIn * samplesPerTrace + sI0 + 1];
                 double val = v0 + (v1 - v0) * frac;
-
-                // 倾斜因子 cos(θ) = z / r
-                double rM = std::sqrt(zM * zM + dx * dx);
-                if (rM < 1e-9) rM = 1e-9;
-                double cosTheta = zM / rM;
-
-                // Hann 窗：中心 1.0，边缘 0.0
-                double relPos = std::abs(xIn - xOut) / static_cast<double>(halfW);
-                if (relPos > 1.0) relPos = 1.0;
-                double hannW = 0.5 * (1.0 + std::cos(M_PI * relPos));
-
-                sum += val * cosTheta * hannW;
+                sum += val;
                 count++;
             }
-            // 保留原始加权和（不除 sqrt(N)）—— 让聚焦后的绕射点保持高幅度
-            // 后续 std 缩放会把背景压暗，从而突出峰值，形成高对比度
-            out[outIdx] = (count > 0) ? sum : 0.0;
+            out[outIdx] = (count > 0) ? (sum / static_cast<double>(count)) : 0.0;
         }
         if (xOut % qMax(1, numTraces / 20) == 0) {
             m_progressBar->setValue(10 + 80 * xOut / numTraces);
@@ -5132,23 +5116,10 @@ void MainWindow::applyKirchhoffMigration()
         }
     }
 
-    // 直接缩放到显示满量程 ±2^23 = ±8388608
-    // refreshImage 中 LUT 映射为 lutIdx = pixelValue / 65536 + 128
-    // 只有数值覆盖 ±8388608 才能让最强信号映射到 LUT 的 0/255 极端色（黑/白）
-    // 用 99.999 分位数定标——仅 top 0.001% (~3 像素) 饱和到黑/白，避免过曝
-    std::vector<double> absOut(totalPixels);
-    for (int i = 0; i < totalPixels; ++i) absOut[i] = std::abs(out[i]);
-    size_t pIdx = static_cast<size_t>(totalPixels * 0.99999);
-    if (pIdx >= totalPixels) pIdx = totalPixels - 1;
-    std::nth_element(absOut.begin(), absOut.begin() + pIdx, absOut.end());
-    double refAbs = absOut[pIdx];
-
-    const double displayMax = 8388607.0;
-    double scale = (refAbs > 1e-9) ? (displayMax / refAbs) : 1.0;
-
+    // 无后处理缩放：输出已在 ±2^23 范围内，直接写入（仅做 qint32 截断保护）
     char *data = m_rawData.data();
     for (int i = 0; i < totalPixels; ++i) {
-        double v = out[i] * scale;
+        double v = out[i];
         if (v > 8388607.0) v = 8388607.0;
         if (v < -8388608.0) v = -8388608.0;
         qint32 iv = static_cast<qint32>(std::round(v));
