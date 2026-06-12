@@ -1457,6 +1457,7 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     tab->chartView->setMaximumWidth(300);
 
     tab->chartSeries = new QLineSeries();
+    tab->chartSeries->setPen(QPen(Qt::black, 1));
     tab->chartView->chart()->addSeries(tab->chartSeries);
     tab->chartView->chart()->legend()->hide();
     tab->chartView->setLineSeries(tab->chartSeries);
