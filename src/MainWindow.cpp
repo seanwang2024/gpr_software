@@ -1505,7 +1505,7 @@ CustomTitleBar::CustomTitleBar(QWidget *parent)
 {
     setFixedHeight(32);
     setMouseTracking(true);
-    setStyleSheet("background-color: #2b2b2b;");
+    setStyleSheet("background-color: #ffffff; border-bottom: 1px solid #e0e0e0;");
 
     QHBoxLayout *layout = new QHBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -1524,7 +1524,7 @@ CustomTitleBar::CustomTitleBar(QWidget *parent)
     // 标题（居中、自适应）
     m_titleLabel = new QLabel("劳雷AI数据处理");
     m_titleLabel->setAlignment(Qt::AlignCenter);
-    m_titleLabel->setStyleSheet("color: #ffffff; font-size: 13px; font-weight: 500;");
+    m_titleLabel->setStyleSheet("color: #444444; font-size: 13px; font-weight: 500;");
     layout->addWidget(m_titleLabel, 1);
 
     // 系统按钮（右）
@@ -1533,15 +1533,21 @@ CustomTitleBar::CustomTitleBar(QWidget *parent)
         btn->setFixedSize(46, 32);
         btn->setFocusPolicy(Qt::NoFocus);
         btn->setStyleSheet(QString(
-            "QPushButton { background: transparent; border: none; color: #ffffff; font-size: 14px; }"
+            "QPushButton { background: transparent; border: none; color: #444444; font-size: 14px; }"
             "QPushButton:hover { background: %1; }"
         ).arg(hoverColor));
         return btn;
     };
 
-    m_btnMin = makeBtn(QString::fromUtf8("\xE2\x80\x94"), "#3a3a3a");         // —
-    m_btnMax = makeBtn(QString::fromUtf8("\xE2\x96\xA1"), "#3a3a3a");         // □
+    m_btnMin = makeBtn(QString::fromUtf8("\xE2\x80\x94"), "#e5e5e5");         // —
+    m_btnMax = makeBtn(QString::fromUtf8("\xE2\x96\xA1"), "#e5e5e5");         // □
     m_btnClose = makeBtn(QString::fromUtf8("\xC3\x97"),  "#e81123");          // ×
+
+    // 关闭按钮 hover 时文字变白，配合红色背景
+    m_btnClose->setStyleSheet(QString(
+        "QPushButton { background: transparent; border: none; color: #444444; font-size: 14px; }"
+        "QPushButton:hover { background: #e81123; color: #ffffff; }"
+    ));
 
     layout->addWidget(m_btnMin);
     layout->addWidget(m_btnMax);
