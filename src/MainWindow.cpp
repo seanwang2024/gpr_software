@@ -1074,8 +1074,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_activeTabGroup = m_docTabWidget;
 
     // Left panel: stacked gain / zero-point pages
-    m_leftPanel = new QWidget(this);
-    m_leftPanel->setWindowFlags(Qt::Tool | Qt::WindowCloseButtonHint);
+    m_leftPanel = new QDialog(this);
+    m_leftPanel->setWindowFlags(Qt::Dialog | Qt::WindowCloseButtonHint);
     QVBoxLayout *leftOuterLayout = new QVBoxLayout(m_leftPanel);
     leftOuterLayout->setContentsMargins(0, 0, 0, 0);
     leftOuterLayout->setSpacing(0);

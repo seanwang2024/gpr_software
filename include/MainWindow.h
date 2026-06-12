@@ -214,7 +214,7 @@ private:
     QProgressBar *m_progressBar = nullptr;
     QLabel *coordinateLabel;
     QTreeWidget *gainTree;
-    QWidget *m_leftPanel;
+    QDialog *m_leftPanel;
     QStackedWidget *m_leftStack;
     QWidget *m_gainPage;
     QWidget *m_zeroPage;
