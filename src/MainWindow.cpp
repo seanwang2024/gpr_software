@@ -7,6 +7,7 @@
 #include <QDataStream>
 #include <QDebug>
 #include <QScrollArea>
+#include <QWheelEvent>
 #include <QPainter>
 #include <QMouseEvent>
 #include <QPen>
@@ -48,6 +49,49 @@
 #include <complex>
 #include <vector>
 #include <limits>
+
+// 可缩放滚动图像视图：Ctrl+滚轮缩放，普通滚轮滚动，拖拽平移
+namespace {
+class ZoomableImageView : public QScrollArea
+{
+public:
+    explicit ZoomableImageView(const QPixmap &pix, QWidget *parent = nullptr)
+        : QScrollArea(parent), m_orig(pix), m_zoom(1.0) {
+        m_label = new QLabel(this);
+        m_label->setAlignment(Qt::AlignCenter);
+        m_label->setStyleSheet("background: #202020;");
+        setBackgroundRole(QPalette::Dark);
+        setWidget(m_label);
+        setWidgetResizable(false);
+        setAlignment(Qt::AlignCenter);
+        applyZoom();
+    }
+protected:
+    void wheelEvent(QWheelEvent *event) override {
+        if (event->modifiers() & Qt::ControlModifier) {
+            double factor = (event->angleDelta().y() > 0) ? 1.20 : 1.0 / 1.20;
+            double newZoom = m_zoom * factor;
+            newZoom = qBound(0.1, newZoom, 10.0);
+            if (qAbs(newZoom - m_zoom) < 1e-4) { event->accept(); return; }
+            m_zoom = newZoom;
+            applyZoom();
+            event->accept();
+        } else {
+            QScrollArea::wheelEvent(event);
+        }
+    }
+private:
+    void applyZoom() {
+        QSize sz = m_orig.size() * m_zoom;
+        QPixmap pm = m_orig.scaled(sz, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        m_label->setPixmap(pm);
+        m_label->resize(pm.size());
+    }
+    QPixmap m_orig;
+    QLabel *m_label;
+    double m_zoom;
+};
+}
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -3624,7 +3668,8 @@ void MainWindow::drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &r
                                    const QList<int> &top1Ids, const QList<float> &confidences, cv::Mat &out)
 {
     full.copyTo(out);
-    cv::Scalar colors[3] = {{0, 0, 255}, {0, 200, 0}, {255, 100, 0}};
+    // BGR: cavities=红, intact=绿(不画), utilities=黄
+    cv::Scalar colors[3] = {{0, 0, 255}, {0, 200, 0}, {0, 255, 255}};
     int n = qMin(qMin(rects.size(), top1Ids.size()), confidences.size());
 
     // 按类别收集索引，按置信度排序，每类取前10
@@ -3663,7 +3708,7 @@ void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<int> &
                         .arg(QFileInfo(m_currentTab->filePath).completeBaseName()));
     QVBoxLayout *lay = new QVBoxLayout(dlg);
 
-    // 统计
+    // 统计 + 颜色图例
     QHash<int, int> counts;
     QHash<int, float> maxConf;
     for (int i = 0; i < top1Ids.size(); ++i) {
@@ -3673,27 +3718,36 @@ void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<int> &
         if (confidences[i] > maxConf.value(id, 0))
             maxConf[id] = confidences[i];
     }
-    QString summary = QString::fromUtf8("识别统计 (共 %1 窗口):  ").arg(top1Ids.size());
+    // 颜色图例：红=cavities 黄=utilities
+    QString colorNames[3] = {QString::fromUtf8("红色框"), QString::fromUtf8("绿色框"), QString::fromUtf8("黄色框")};
+    QString summary = QString::fromUtf8("识别统计 (共 %1 窗口):   ").arg(top1Ids.size());
     for (int i = 0; i < 3; ++i) {
-        summary += QString::fromUtf8("%1=%2(最高%3%)  ")
-                   .arg(m_yoloClasses[i]).arg(counts.value(i, 0))
+        if (i == 1) continue;  // intact 不画框不展示
+        summary += QString::fromUtf8("<span style='color:%2'>■</span> %1=%3(最高%4%)   ")
+                   .arg(m_yoloClasses[i])
+                   .arg(i == 0 ? "red" : (i == 2 ? "#c8a000" : "green"))
+                   .arg(counts.value(i, 0))
                    .arg(static_cast<int>(maxConf.value(i, 0) * 100));
     }
+    summary += QString::fromUtf8("<span style='color:#888'>（每类仅显示置信度最高的前10个框）</span>");
     QLabel *summaryLabel = new QLabel(summary);
-    summaryLabel->setStyleSheet("font-size: 14px; padding: 6px;");
+    summaryLabel->setStyleSheet("font-size: 13px; padding: 6px;");
+    summaryLabel->setTextFormat(Qt::RichText);
     lay->addWidget(summaryLabel);
+
+    // 操作提示
+    QLabel *hintLabel = new QLabel(QString::fromUtf8("Ctrl+滚轮缩放 | 普通滚轮上下滚动 | Shift+滚轮左右滚动"));
+    hintLabel->setStyleSheet("color: #666; font-size: 11px; padding: 2px 6px;");
+    lay->addWidget(hintLabel);
 
     // cv::Mat BGR → QImage RGB
     cv::Mat rgb;
     cv::cvtColor(annotated, rgb, cv::COLOR_BGR2RGB);
     QImage qimg(rgb.data, rgb.cols, rgb.rows, static_cast<int>(rgb.step), QImage::Format_RGB888);
-    QImage qimgCopy = qimg.copy();  // 深拷贝脱离 cv::Mat 生命周期
+    QImage qimgCopy = qimg.copy();
 
-    QLabel *imgLabel = new QLabel;
-    imgLabel->setPixmap(QPixmap::fromImage(qimgCopy)
-                        .scaledToWidth(1200, Qt::SmoothTransformation));
-    imgLabel->setAlignment(Qt::AlignCenter);
-    lay->addWidget(imgLabel, 1);
+    ZoomableImageView *imgView = new ZoomableImageView(QPixmap::fromImage(qimgCopy));
+    lay->addWidget(imgView, 1);
 
     // 按钮
     QHBoxLayout *btnRow = new QHBoxLayout;
