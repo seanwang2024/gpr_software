@@ -402,10 +402,10 @@ private:
     void showAIRecognition();
     void buildRadarCVMat(cv::Mat &out);
     void sliceAndSaveCrops(const cv::Mat &full, QList<cv::Rect> &rects, QStringList &paths);
-    void runInference(const QStringList &paths, QList<int> &top1Ids);
+    void runInference(const QStringList &paths, QList<int> &top1Ids, QList<float> &confidences);
     void drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &rects,
-                           const QList<int> &top1Ids, cv::Mat &out);
-    void showAIResultDialog(const cv::Mat &annotated, const QList<int> &top1Ids);
+                           const QList<int> &top1Ids, const QList<float> &confidences, cv::Mat &out);
+    void showAIResultDialog(const cv::Mat &annotated, const QList<int> &top1Ids, const QList<float> &confidences);
 
     // Processing range spinboxes (ribbon 数据处理 page)
     QSpinBox *m_startTraceSpin = nullptr;

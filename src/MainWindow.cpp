@@ -3526,20 +3526,21 @@ void MainWindow::showAIRecognition()
     QCoreApplication::processEvents();
 
     QList<int> top1Ids;
-    runInference(paths, top1Ids);
+    QList<float> confidences;
+    runInference(paths, top1Ids, confidences);
 
     m_progressBar->setValue(95);
     m_progressBar->setFormat(QString::fromUtf8("AI识别: 绘制结果..."));
     QCoreApplication::processEvents();
 
     cv::Mat annotated;
-    drawResultOverlay(full, rects, top1Ids, annotated);
+    drawResultOverlay(full, rects, top1Ids, confidences, annotated);
 
     m_progressBar->setValue(100);
     m_progressBar->setFormat(QString::fromUtf8("AI识别: 完成"));
     QCoreApplication::processEvents();
 
-    showAIResultDialog(annotated, top1Ids);
+    showAIResultDialog(annotated, top1Ids, confidences);
 
     // 1 秒后重置进度条
     QTimer::singleShot(1000, this, [this]() {
@@ -3579,7 +3580,6 @@ void MainWindow::sliceAndSaveCrops(const cv::Mat &full, QList<cv::Rect> &rects, 
 {
     QString cropsDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/gpr_ai_crops";
     QDir().mkpath(cropsDir);
-    // 清空旧切片
     QDir dir(cropsDir);
     for (const QFileInfo &f : dir.entryInfoList(QStringList() << "crop_*.jpg", QDir::Files)) {
         QFile::remove(f.absoluteFilePath());
@@ -3587,67 +3587,110 @@ void MainWindow::sliceAndSaveCrops(const cv::Mat &full, QList<cv::Rect> &rects, 
 
     int W = full.cols;
     int H = full.rows;
-    const int CROP_W = 640;
-    const int CROP_H = qMin(512, H);
+    const int WIN = 128;
+    const int STRIDE = 64;
 
-    for (int x0 = 0; x0 < W; x0 += CROP_W) {
-        int x = qMin(x0, qMax(0, W - CROP_W));   // 末片右移对齐避免黑边
-        cv::Rect roi(x, 0, CROP_W, CROP_H);
-        cv::Mat crop = full(roi).clone();
-        QString path = QString("%1/crop_%2.jpg").arg(cropsDir)
-                        .arg(rects.size(), 3, 10, QChar('0'));
-        std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 90};
-        cv::imwrite(path.toStdString(), crop, params);
-        rects.append(roi);
-        paths.append(path);
-        if (x0 + CROP_W >= W) break;
+    for (int y = 0; y + WIN <= H; y += STRIDE) {
+        for (int x = 0; x + WIN <= W; x += STRIDE) {
+            cv::Rect roi(x, y, WIN, WIN);
+            cv::Mat crop = full(roi).clone();
+            QString path = QString("%1/crop_%2.jpg").arg(cropsDir)
+                            .arg(rects.size(), 4, 10, QChar('0'));
+            std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 90};
+            cv::imwrite(path.toStdString(), crop, params);
+            rects.append(roi);
+            paths.append(path);
+        }
+        // 末列右移对齐
+        if (W > WIN && (W - WIN) % STRIDE != 0) {
+            int x = W - WIN;
+            if (x % STRIDE != 0) {
+                cv::Rect roi(x, y, WIN, WIN);
+                cv::Mat crop = full(roi).clone();
+                QString path = QString("%1/crop_%2.jpg").arg(cropsDir)
+                                .arg(rects.size(), 4, 10, QChar('0'));
+                std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 90};
+                cv::imwrite(path.toStdString(), crop, params);
+                rects.append(roi);
+                paths.append(path);
+            }
+        }
+    }
+    // 末行右移对齐
+    if (H > WIN && (H - WIN) % STRIDE != 0) {
+        int yLast = H - WIN;
+        for (int x = 0; x + WIN <= W; x += STRIDE) {
+            cv::Rect roi(x, yLast, WIN, WIN);
+            cv::Mat crop = full(roi).clone();
+            QString path = QString("%1/crop_%2.jpg").arg(cropsDir)
+                            .arg(rects.size(), 4, 10, QChar('0'));
+            std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 90};
+            cv::imwrite(path.toStdString(), crop, params);
+            rects.append(roi);
+            paths.append(path);
+        }
     }
 }
 
-void MainWindow::runInference(const QStringList &paths, QList<int> &top1Ids)
+void MainWindow::runInference(const QStringList &paths, QList<int> &top1Ids, QList<float> &confidences)
 {
     int N = paths.size();
     for (int i = 0; i < N; ++i) {
-        cv::Mat img = cv::imread(paths[i].toStdString());   // BGR uint8
+        cv::Mat img = cv::imread(paths[i].toStdString());
         if (img.empty()) {
             top1Ids.append(-1);
+            confidences.append(0.0f);
             continue;
         }
-        // ultralytics 分类 ONNX: RGB / [0,1] / 224×224
         cv::Mat blob = cv::dnn::blobFromImage(img, 1.0 / 255.0, cv::Size(224, 224),
                                               cv::Scalar(0, 0, 0),
                                               /*swapRB=*/true, /*crop=*/false, CV_32F);
         m_yoloNet.setInput(blob);
         cv::Mat out = m_yoloNet.forward();                  // 1×3 logits
-        cv::Point maxLoc;
-        cv::minMaxLoc(out.reshape(1, 1), nullptr, nullptr, nullptr, &maxLoc);
-        top1Ids.append(maxLoc.x);
+        cv::Mat probs = out.reshape(1, 1);                  // 1×3 row
 
-        m_progressBar->setValue(30 + 60 * (i + 1) / N);
-        m_progressBar->setFormat(QString::fromUtf8("AI识别: 推理 %1/%2").arg(i + 1).arg(N));
-        QCoreApplication::processEvents();
+        // softmax → confidence
+        double maxVal;
+        cv::Point maxLoc;
+        cv::minMaxLoc(probs, nullptr, &maxVal, nullptr, &maxLoc);
+        cv::Mat expProbs;
+        cv::exp(probs - maxVal, expProbs);                  // numerical stability
+        float softmaxSum = static_cast<float>(cv::sum(expProbs)[0]);
+        float conf = expProbs.at<float>(0, maxLoc.x) / softmaxSum;
+
+        top1Ids.append(maxLoc.x);
+        confidences.append(conf);
+
+        if ((i + 1) % 20 == 0 || i + 1 == N) {
+            m_progressBar->setValue(30 + 60 * (i + 1) / N);
+            m_progressBar->setFormat(QString::fromUtf8("AI识别: 推理 %1/%2").arg(i + 1).arg(N));
+            QCoreApplication::processEvents();
+        }
     }
 }
 
 void MainWindow::drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &rects,
-                                   const QList<int> &top1Ids, cv::Mat &out)
+                                   const QList<int> &top1Ids, const QList<float> &confidences, cv::Mat &out)
 {
     full.copyTo(out);
-    // BGR: cavities=红, intact=绿, utilities=蓝
-    cv::Scalar colors[3] = {{0, 0, 255}, {0, 255, 0}, {255, 0, 0}};
-    int n = qMin(rects.size(), top1Ids.size());
+    // BGR: cavities=红, utilities=蓝
+    cv::Scalar colors[3] = {{0, 0, 255}, {0, 200, 0}, {255, 100, 0}};
+    int n = qMin(qMin(rects.size(), top1Ids.size()), confidences.size());
     for (int i = 0; i < n; ++i) {
-        const cv::Rect &r = rects[i];
         int cid = top1Ids[i];
         if (cid < 0 || cid >= 3) continue;
+        if (cid == 1) continue;  // 跳过 intact（正常区域不画框）
+        const cv::Rect &r = rects[i];
+        float conf = confidences[i];
         cv::rectangle(out, r, colors[cid], 2);
-        std::string label = m_yoloClasses.value(cid).toStdString();
-        cv::putText(out, label, r.tl() + cv::Point(5, 28),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.9, colors[cid], 2);
+        QString label = QString("%1 %2%").arg(m_yoloClasses[cid])
+                        .arg(static_cast<int>(conf * 100));
+        cv::putText(out, label.toStdString(), r.tl() + cv::Point(3, 16),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.45, colors[cid], 1);
     }
 }
 
-void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<int> &top1Ids)
+void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<int> &top1Ids, const QList<float> &confidences)
 {
     QDialog *dlg = new QDialog(this);
     dlg->setWindowTitle(QString::fromUtf8("AI识别 - %1")
@@ -3656,10 +3699,19 @@ void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<int> &
 
     // 统计
     QHash<int, int> counts;
-    for (int id : top1Ids) if (id >= 0) counts[id]++;
-    QString summary = QString::fromUtf8("识别统计 (共 %1 片):  ").arg(top1Ids.size());
+    QHash<int, float> maxConf;
+    for (int i = 0; i < top1Ids.size(); ++i) {
+        int id = top1Ids[i];
+        if (id < 0) continue;
+        counts[id]++;
+        if (confidences[i] > maxConf.value(id, 0))
+            maxConf[id] = confidences[i];
+    }
+    QString summary = QString::fromUtf8("识别统计 (共 %1 窗口):  ").arg(top1Ids.size());
     for (int i = 0; i < 3; ++i) {
-        summary += QString::fromUtf8("%1=%2  ").arg(m_yoloClasses[i]).arg(counts.value(i, 0));
+        summary += QString::fromUtf8("%1=%2(最高%3%)  ")
+                   .arg(m_yoloClasses[i]).arg(counts.value(i, 0))
+                   .arg(static_cast<int>(maxConf.value(i, 0) * 100));
     }
     QLabel *summaryLabel = new QLabel(summary);
     summaryLabel->setStyleSheet("font-size: 14px; padding: 6px;");
