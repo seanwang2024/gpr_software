@@ -39,7 +39,8 @@ INCLUDEPATH += $$PWD/include
 # OpenCV 4.11.0 (static, world module with dnn)
 INCLUDEPATH += D:/opencv/install/include
 LIBS += -LD:/opencv/install/x64/mingw/staticlib -lopencv_world4110
-LIBS += -LD:/opencv/build/3rdparty/lib -llibprotobuf -lzlib -llibjpeg-turbo -llibpng -llibtiff -lIlmImf -llibopenjp2 -llibwebp
+LIBS += -LD:/opencv/build/3rdparty/lib
+LIBS += -llibprotobuf -llibwebp -lIlmImf -llibopenjp2 -llibtiff -llibjpeg-turbo -llibpng -lzlib
 #HEADERS += \
 #    include/MainWindow.h
 
