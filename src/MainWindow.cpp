@@ -3624,13 +3624,28 @@ void MainWindow::drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &r
                                    const QList<int> &top1Ids, const QList<float> &confidences, cv::Mat &out)
 {
     full.copyTo(out);
-    // BGR: cavities=红, utilities=蓝
     cv::Scalar colors[3] = {{0, 0, 255}, {0, 200, 0}, {255, 100, 0}};
     int n = qMin(qMin(rects.size(), top1Ids.size()), confidences.size());
+
+    // 按类别收集索引，按置信度排序，每类取前10
+    QHash<int, QList<int>> classIndices;
     for (int i = 0; i < n; ++i) {
         int cid = top1Ids[i];
-        if (cid < 0 || cid >= 3) continue;
-        if (cid == 1) continue;  // 跳过 intact（正常区域不画框）
+        if (cid == 1 || cid < 0 || cid >= 3) continue;  // 跳过 intact
+        classIndices[cid].append(i);
+    }
+
+    QList<int> drawList;
+    for (int cid : classIndices.keys()) {
+        QList<int> &idxs = classIndices[cid];
+        std::sort(idxs.begin(), idxs.end(), [&](int a, int b) {
+            return confidences[a] > confidences[b];
+        });
+        drawList.append(idxs.mid(0, 10));
+    }
+
+    for (int i : drawList) {
+        int cid = top1Ids[i];
         const cv::Rect &r = rects[i];
         float conf = confidences[i];
         cv::rectangle(out, r, colors[cid], 2);
