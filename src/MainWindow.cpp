@@ -42,6 +42,7 @@
 #include <QTextStream>
 #include <QFormLayout>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QWindow>
 #include <functional>
 #include <cmath>
@@ -3455,13 +3456,256 @@ void MainWindow::createMenuBar()
     // Group: AI处理
     QVBoxLayout *aiGroup = addGroup(aiLayout, "AI处理");
     QHBoxLayout *aiRow1 = qobject_cast<QHBoxLayout*>(aiGroup->itemAt(0)->layout());
-    aiRow1->addWidget(makeTextBtn("AI识别"));
+    QToolButton *btnAIRecognize = makeTextBtn("AI识别");
+    connect(btnAIRecognize, &QToolButton::clicked, this, &MainWindow::showAIRecognition);
+    aiRow1->addWidget(btnAIRecognize);
     aiRow1->addWidget(makeTextBtn("AI报告"));
 
     aiLayout->addStretch();
     ribbonTab->addTab(aiPage, "AI处理");
 
     qobject_cast<QVBoxLayout*>(centralWidget()->layout())->insertWidget(0, ribbonTab);
+}
+
+// ==================== AI 识别 (YOLOv8 classification) ====================
+
+void MainWindow::showAIRecognition()
+{
+    if (!m_currentTab) {
+        QMessageBox::warning(this, QString::fromUtf8("AI识别"),
+                             QString::fromUtf8("请先打开 DZT 文件"));
+        return;
+    }
+
+    // 懒加载 ONNX
+    if (!m_yoloNetLoaded) {
+        QString appDir = QCoreApplication::applicationDirPath();
+        QStringList candidates = {
+            appDir + "/AI/yolo_gpr_cls.onnx",                       // 部署后
+            appDir + "/../AI/yolo_gpr_cls.onnx",                    // build 目录 dev
+            QDir::currentPath() + "/AI/yolo_gpr_cls.onnx",
+            "D:/gpr_software/AI/yolo_gpr_cls.onnx"                  // 兜底绝对路径
+        };
+        QString onnxPath;
+        for (const QString &p : candidates) {
+            if (QFile::exists(p)) { onnxPath = p; break; }
+        }
+        if (onnxPath.isEmpty()) {
+            QMessageBox::critical(this, QString::fromUtf8("AI识别"),
+                                  QString::fromUtf8("未找到 ONNX 模型文件 yolo_gpr_cls.onnx\n"
+                                                    "请确认 AI/ 目录下存在该文件"));
+            return;
+        }
+        try {
+            m_yoloNet = cv::dnn::readNetFromONNX(onnxPath.toStdString());
+            m_yoloNet.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
+            m_yoloNet.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+            m_yoloNetLoaded = true;
+        } catch (const cv::Exception &e) {
+            QMessageBox::critical(this, QString::fromUtf8("AI识别"),
+                                  QString::fromUtf8("加载 ONNX 失败:\n%1").arg(QString::fromStdString(e.what())));
+            return;
+        }
+    }
+
+    m_progressBar->setRange(0, 100);
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat(QString::fromUtf8("AI识别: 构建图像..."));
+    m_progressBar->show();
+    QCoreApplication::processEvents();
+
+    cv::Mat full;
+    buildRadarCVMat(full);
+    m_progressBar->setValue(10);
+    QCoreApplication::processEvents();
+
+    QList<cv::Rect> rects;
+    QStringList paths;
+    sliceAndSaveCrops(full, rects, paths);
+    m_progressBar->setValue(30);
+    QCoreApplication::processEvents();
+
+    QList<int> top1Ids;
+    runInference(paths, top1Ids);
+
+    m_progressBar->setValue(95);
+    m_progressBar->setFormat(QString::fromUtf8("AI识别: 绘制结果..."));
+    QCoreApplication::processEvents();
+
+    cv::Mat annotated;
+    drawResultOverlay(full, rects, top1Ids, annotated);
+
+    m_progressBar->setValue(100);
+    m_progressBar->setFormat(QString::fromUtf8("AI识别: 完成"));
+    QCoreApplication::processEvents();
+
+    showAIResultDialog(annotated, top1Ids);
+
+    // 1 秒后重置进度条
+    QTimer::singleShot(1000, this, [this]() {
+        m_progressBar->setValue(0);
+        m_progressBar->setFormat("");
+    });
+}
+
+void MainWindow::buildRadarCVMat(cv::Mat &out)
+{
+    int traces = m_currentTab->traceCount;          // 宽
+    int samples = m_pixelsPerRow;                   // 512 高
+    out = cv::Mat::zeros(samples, traces, CV_8UC3); // OpenCV: Mat(rows=高, cols=宽)
+    const char *data = m_rawData.constData();
+    int dataSize = m_rawData.size();
+    for (int y = 0; y < traces; ++y) {              // 道循环 (横向)
+        for (int x = 0; x < samples; ++x) {         // 采样循环 (纵向)
+            int dataIdx = (y * m_pixelsPerRow + x) * 4;
+            if (dataIdx + 4 > dataSize) break;
+            qint32 val = (static_cast<quint8>(data[dataIdx+3]) << 24) |
+                         (static_cast<quint8>(data[dataIdx+2]) << 16) |
+                         (static_cast<quint8>(data[dataIdx+1]) << 8) |
+                         (static_cast<quint8>(data[dataIdx]));
+            int lutIdx = val / 65536 + 128;
+            if (lutIdx < 0) lutIdx = 0;
+            else if (lutIdx > 255) lutIdx = 255;
+            QRgb rgb = m_lut[lutIdx];
+            // m_lut 是 0xffRRGGBB；OpenCV Vec3b 是 BGR
+            out.at<cv::Vec3b>(x, y) = cv::Vec3b(static_cast<uchar>(qBlue(rgb)),
+                                                static_cast<uchar>(qGreen(rgb)),
+                                                static_cast<uchar>(qRed(rgb)));
+        }
+    }
+}
+
+void MainWindow::sliceAndSaveCrops(const cv::Mat &full, QList<cv::Rect> &rects, QStringList &paths)
+{
+    QString cropsDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/gpr_ai_crops";
+    QDir().mkpath(cropsDir);
+    // 清空旧切片
+    QDir dir(cropsDir);
+    for (const QFileInfo &f : dir.entryInfoList(QStringList() << "crop_*.jpg", QDir::Files)) {
+        QFile::remove(f.absoluteFilePath());
+    }
+
+    int W = full.cols;
+    int H = full.rows;
+    const int CROP_W = 640;
+    const int CROP_H = qMin(512, H);
+
+    for (int x0 = 0; x0 < W; x0 += CROP_W) {
+        int x = qMin(x0, qMax(0, W - CROP_W));   // 末片右移对齐避免黑边
+        cv::Rect roi(x, 0, CROP_W, CROP_H);
+        cv::Mat crop = full(roi).clone();
+        QString path = QString("%1/crop_%2.jpg").arg(cropsDir)
+                        .arg(rects.size(), 3, 10, QChar('0'));
+        std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 90};
+        cv::imwrite(path.toStdString(), crop, params);
+        rects.append(roi);
+        paths.append(path);
+        if (x0 + CROP_W >= W) break;
+    }
+}
+
+void MainWindow::runInference(const QStringList &paths, QList<int> &top1Ids)
+{
+    int N = paths.size();
+    for (int i = 0; i < N; ++i) {
+        cv::Mat img = cv::imread(paths[i].toStdString());   // BGR uint8
+        if (img.empty()) {
+            top1Ids.append(-1);
+            continue;
+        }
+        // ultralytics 分类 ONNX: RGB / [0,1] / 224×224
+        cv::Mat blob = cv::dnn::blobFromImage(img, 1.0 / 255.0, cv::Size(224, 224),
+                                              cv::Scalar(0, 0, 0),
+                                              /*swapRB=*/true, /*crop=*/false, CV_32F);
+        m_yoloNet.setInput(blob);
+        cv::Mat out = m_yoloNet.forward();                  // 1×3 logits
+        cv::Point maxLoc;
+        cv::minMaxLoc(out.reshape(1, 1), nullptr, nullptr, nullptr, &maxLoc);
+        top1Ids.append(maxLoc.x);
+
+        m_progressBar->setValue(30 + 60 * (i + 1) / N);
+        m_progressBar->setFormat(QString::fromUtf8("AI识别: 推理 %1/%2").arg(i + 1).arg(N));
+        QCoreApplication::processEvents();
+    }
+}
+
+void MainWindow::drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &rects,
+                                   const QList<int> &top1Ids, cv::Mat &out)
+{
+    full.copyTo(out);
+    // BGR: cavities=红, intact=绿, utilities=蓝
+    cv::Scalar colors[3] = {{0, 0, 255}, {0, 255, 0}, {255, 0, 0}};
+    int n = qMin(rects.size(), top1Ids.size());
+    for (int i = 0; i < n; ++i) {
+        const cv::Rect &r = rects[i];
+        int cid = top1Ids[i];
+        if (cid < 0 || cid >= 3) continue;
+        cv::rectangle(out, r, colors[cid], 2);
+        std::string label = m_yoloClasses.value(cid).toStdString();
+        cv::putText(out, label, r.tl() + cv::Point(5, 28),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.9, colors[cid], 2);
+    }
+}
+
+void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<int> &top1Ids)
+{
+    QDialog *dlg = new QDialog(this);
+    dlg->setWindowTitle(QString::fromUtf8("AI识别 - %1")
+                        .arg(QFileInfo(m_currentTab->filePath).completeBaseName()));
+    QVBoxLayout *lay = new QVBoxLayout(dlg);
+
+    // 统计
+    QHash<int, int> counts;
+    for (int id : top1Ids) if (id >= 0) counts[id]++;
+    QString summary = QString::fromUtf8("识别统计 (共 %1 片):  ").arg(top1Ids.size());
+    for (int i = 0; i < 3; ++i) {
+        summary += QString::fromUtf8("%1=%2  ").arg(m_yoloClasses[i]).arg(counts.value(i, 0));
+    }
+    QLabel *summaryLabel = new QLabel(summary);
+    summaryLabel->setStyleSheet("font-size: 14px; padding: 6px;");
+    lay->addWidget(summaryLabel);
+
+    // cv::Mat BGR → QImage RGB
+    cv::Mat rgb;
+    cv::cvtColor(annotated, rgb, cv::COLOR_BGR2RGB);
+    QImage qimg(rgb.data, rgb.cols, rgb.rows, static_cast<int>(rgb.step), QImage::Format_RGB888);
+    QImage qimgCopy = qimg.copy();  // 深拷贝脱离 cv::Mat 生命周期
+
+    QLabel *imgLabel = new QLabel;
+    imgLabel->setPixmap(QPixmap::fromImage(qimgCopy)
+                        .scaledToWidth(1200, Qt::SmoothTransformation));
+    imgLabel->setAlignment(Qt::AlignCenter);
+    lay->addWidget(imgLabel, 1);
+
+    // 按钮
+    QHBoxLayout *btnRow = new QHBoxLayout;
+    btnRow->addStretch();
+    QPushButton *btnSave = new QPushButton(QString::fromUtf8("保存为 JPG"));
+    QPushButton *btnClose = new QPushButton(QString::fromUtf8("关闭"));
+    btnRow->addWidget(btnSave);
+    btnRow->addWidget(btnClose);
+    lay->addLayout(btnRow);
+
+    // 保存：源 DZT 同级 AI/<basename>_ai_result.jpg
+    QObject::connect(btnSave, &QPushButton::clicked, [annotated, this]() {
+        QFileInfo fi(m_currentTab->filePath);
+        QString outDir = fi.absolutePath() + "/AI";
+        QDir().mkpath(outDir);
+        QString outPath = outDir + "/" + fi.completeBaseName() + "_ai_result.jpg";
+        std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 95};
+        if (cv::imwrite(outPath.toStdString(), annotated, params)) {
+            QMessageBox::information(this, QString::fromUtf8("AI识别"),
+                                     QString::fromUtf8("已保存:\n%1").arg(outPath));
+        } else {
+            QMessageBox::warning(this, QString::fromUtf8("AI识别"),
+                                 QString::fromUtf8("保存失败: %1").arg(outPath));
+        }
+    });
+    QObject::connect(btnClose, &QPushButton::clicked, dlg, &QDialog::accept);
+
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->resize(1280, 720);
+    dlg->show();
 }
 
 void MainWindow::showDigitalFilter()

@@ -16,7 +16,17 @@ find_package(Qt6 REQUIRED COMPONENTS Core Widgets Charts Quick QuickWidgets Quic
 set(OpenCV_DIR "D:/opencv/install/x64/mingw/staticlib" CACHE PATH "OpenCV config path")
 find_package(OpenCV REQUIRED)
 # Override to use the single world static lib instead of individual modules
-set(OpenCV_LIBS "D:/opencv/install/x64/mingw/staticlib/libopencv_world4110.a")
+set(OpenCV_LIBS
+    "D:/opencv/install/x64/mingw/staticlib/libopencv_world4110.a"
+    "D:/opencv/build/3rdparty/lib/liblibprotobuf.a"
+    "D:/opencv/build/3rdparty/lib/liblibwebp.a"
+    "D:/opencv/build/3rdparty/lib/libIlmImf.a"
+    "D:/opencv/build/3rdparty/lib/liblibopenjp2.a"
+    "D:/opencv/build/3rdparty/lib/liblibtiff.a"
+    "D:/opencv/build/3rdparty/lib/liblibjpeg-turbo.a"
+    "D:/opencv/build/3rdparty/lib/liblibpng.a"
+    "D:/opencv/build/3rdparty/lib/libzlib.a"
+)
 
 set(SOURCES
     src/main.cpp
