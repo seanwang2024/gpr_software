@@ -3446,6 +3446,21 @@ void MainWindow::createMenuBar()
     dataLayout->addStretch();
     ribbonTab->addTab(dataPage, "数据处理");
 
+    // --- Tab: AI处理 ---
+    QWidget *aiPage = new QWidget();
+    QHBoxLayout *aiLayout = new QHBoxLayout(aiPage);
+    aiLayout->setContentsMargins(4, 2, 4, 2);
+    aiLayout->setSpacing(8);
+
+    // Group: AI处理
+    QVBoxLayout *aiGroup = addGroup(aiLayout, "AI处理");
+    QHBoxLayout *aiRow1 = qobject_cast<QHBoxLayout*>(aiGroup->itemAt(0)->layout());
+    aiRow1->addWidget(makeTextBtn("AI识别"));
+    aiRow1->addWidget(makeTextBtn("AI报告"));
+
+    aiLayout->addStretch();
+    ribbonTab->addTab(aiPage, "AI处理");
+
     qobject_cast<QVBoxLayout*>(centralWidget()->layout())->insertWidget(0, ribbonTab);
 }
 
