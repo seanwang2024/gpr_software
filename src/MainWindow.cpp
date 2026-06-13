@@ -42,7 +42,6 @@
 #include <QTextStream>
 #include <QFormLayout>
 #include <QRegularExpression>
-#include <QStandardPaths>
 #include <QWindow>
 #include <functional>
 #include <cmath>
@@ -3520,14 +3519,13 @@ void MainWindow::showAIRecognition()
     QCoreApplication::processEvents();
 
     QList<cv::Rect> rects;
-    QStringList paths;
-    sliceAndSaveCrops(full, rects, paths);
+    sliceAndSaveCrops(full, rects);
     m_progressBar->setValue(30);
     QCoreApplication::processEvents();
 
     QList<int> top1Ids;
     QList<float> confidences;
-    runInference(paths, top1Ids, confidences);
+    runInference(full, rects, top1Ids, confidences);
 
     m_progressBar->setValue(95);
     m_progressBar->setFormat(QString::fromUtf8("AI识别: 绘制结果..."));
@@ -3576,92 +3574,45 @@ void MainWindow::buildRadarCVMat(cv::Mat &out)
     }
 }
 
-void MainWindow::sliceAndSaveCrops(const cv::Mat &full, QList<cv::Rect> &rects, QStringList &paths)
+void MainWindow::sliceAndSaveCrops(const cv::Mat &full, QList<cv::Rect> &rects)
 {
-    QString cropsDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/gpr_ai_crops";
-    QDir().mkpath(cropsDir);
-    QDir dir(cropsDir);
-    for (const QFileInfo &f : dir.entryInfoList(QStringList() << "crop_*.jpg", QDir::Files)) {
-        QFile::remove(f.absoluteFilePath());
-    }
-
     int W = full.cols;
     int H = full.rows;
-    const int WIN = 128;
-    const int STRIDE = 64;
+    const int WIN = 32;
+    const int STRIDE = 16;
 
-    for (int y = 0; y + WIN <= H; y += STRIDE) {
-        for (int x = 0; x + WIN <= W; x += STRIDE) {
-            cv::Rect roi(x, y, WIN, WIN);
-            cv::Mat crop = full(roi).clone();
-            QString path = QString("%1/crop_%2.jpg").arg(cropsDir)
-                            .arg(rects.size(), 4, 10, QChar('0'));
-            std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 90};
-            cv::imwrite(path.toStdString(), crop, params);
-            rects.append(roi);
-            paths.append(path);
-        }
-        // 末列右移对齐
-        if (W > WIN && (W - WIN) % STRIDE != 0) {
-            int x = W - WIN;
-            if (x % STRIDE != 0) {
-                cv::Rect roi(x, y, WIN, WIN);
-                cv::Mat crop = full(roi).clone();
-                QString path = QString("%1/crop_%2.jpg").arg(cropsDir)
-                                .arg(rects.size(), 4, 10, QChar('0'));
-                std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 90};
-                cv::imwrite(path.toStdString(), crop, params);
-                rects.append(roi);
-                paths.append(path);
-            }
-        }
-    }
-    // 末行右移对齐
-    if (H > WIN && (H - WIN) % STRIDE != 0) {
-        int yLast = H - WIN;
-        for (int x = 0; x + WIN <= W; x += STRIDE) {
-            cv::Rect roi(x, yLast, WIN, WIN);
-            cv::Mat crop = full(roi).clone();
-            QString path = QString("%1/crop_%2.jpg").arg(cropsDir)
-                            .arg(rects.size(), 4, 10, QChar('0'));
-            std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 90};
-            cv::imwrite(path.toStdString(), crop, params);
-            rects.append(roi);
-            paths.append(path);
+    for (int y = 0; y <= H - WIN; y += STRIDE) {
+        for (int x = 0; x <= W - WIN; x += STRIDE) {
+            rects.append(cv::Rect(x, y, WIN, WIN));
         }
     }
 }
 
-void MainWindow::runInference(const QStringList &paths, QList<int> &top1Ids, QList<float> &confidences)
+void MainWindow::runInference(const cv::Mat &full, const QList<cv::Rect> &rects, QList<int> &top1Ids, QList<float> &confidences)
 {
-    int N = paths.size();
+    int N = rects.size();
+    int reportInterval = qMax(1, N / 100);
     for (int i = 0; i < N; ++i) {
-        cv::Mat img = cv::imread(paths[i].toStdString());
-        if (img.empty()) {
-            top1Ids.append(-1);
-            confidences.append(0.0f);
-            continue;
-        }
-        cv::Mat blob = cv::dnn::blobFromImage(img, 1.0 / 255.0, cv::Size(224, 224),
+        cv::Mat crop = full(rects[i]).clone();
+        cv::Mat blob = cv::dnn::blobFromImage(crop, 1.0 / 255.0, cv::Size(224, 224),
                                               cv::Scalar(0, 0, 0),
                                               /*swapRB=*/true, /*crop=*/false, CV_32F);
         m_yoloNet.setInput(blob);
-        cv::Mat out = m_yoloNet.forward();                  // 1×3 logits
-        cv::Mat probs = out.reshape(1, 1);                  // 1×3 row
+        cv::Mat out = m_yoloNet.forward();
+        cv::Mat probs = out.reshape(1, 1);
 
-        // softmax → confidence
         double maxVal;
         cv::Point maxLoc;
         cv::minMaxLoc(probs, nullptr, &maxVal, nullptr, &maxLoc);
         cv::Mat expProbs;
-        cv::exp(probs - maxVal, expProbs);                  // numerical stability
+        cv::exp(probs - maxVal, expProbs);
         float softmaxSum = static_cast<float>(cv::sum(expProbs)[0]);
         float conf = expProbs.at<float>(0, maxLoc.x) / softmaxSum;
 
         top1Ids.append(maxLoc.x);
         confidences.append(conf);
 
-        if ((i + 1) % 20 == 0 || i + 1 == N) {
+        if ((i + 1) % reportInterval == 0 || i + 1 == N) {
             m_progressBar->setValue(30 + 60 * (i + 1) / N);
             m_progressBar->setFormat(QString::fromUtf8("AI识别: 推理 %1/%2").arg(i + 1).arg(N));
             QCoreApplication::processEvents();
