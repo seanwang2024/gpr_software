@@ -8,6 +8,8 @@
 #include <QDebug>
 #include <QScrollArea>
 #include <QWheelEvent>
+#include <QTextEdit>
+#include <QSplitter>
 #include <QPainter>
 #include <QMouseEvent>
 #include <QPen>
@@ -3582,7 +3584,7 @@ void MainWindow::showAIRecognition()
     m_progressBar->setFormat(QString::fromUtf8("AI识别: 完成"));
     QCoreApplication::processEvents();
 
-    showAIResultDialog(annotated, top1Ids, confidences);
+    showAIResultDialog(annotated, rects, top1Ids, confidences);
 
     // 1 秒后重置进度条
     QTimer::singleShot(1000, this, [this]() {
@@ -3668,15 +3670,15 @@ void MainWindow::drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &r
                                    const QList<int> &top1Ids, const QList<float> &confidences, cv::Mat &out)
 {
     full.copyTo(out);
-    // BGR: cavities=红, intact=绿(不画), utilities=黄
-    cv::Scalar colors[3] = {{0, 0, 255}, {0, 200, 0}, {0, 255, 255}};
+    // BGR: cavities=红, intact=蓝, utilities=黄
+    cv::Scalar colors[3] = {{0, 0, 255}, {255, 0, 0}, {0, 255, 255}};
     int n = qMin(qMin(rects.size(), top1Ids.size()), confidences.size());
 
     // 按类别收集索引，按置信度排序，每类取前10
     QHash<int, QList<int>> classIndices;
     for (int i = 0; i < n; ++i) {
         int cid = top1Ids[i];
-        if (cid == 1 || cid < 0 || cid >= 3) continue;  // 跳过 intact
+        if (cid < 0 || cid >= 3) continue;  // 三类都画
         classIndices[cid].append(i);
     }
 
@@ -3701,14 +3703,15 @@ void MainWindow::drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &r
     }
 }
 
-void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<int> &top1Ids, const QList<float> &confidences)
+void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<cv::Rect> &rects,
+                                    const QList<int> &top1Ids, const QList<float> &confidences)
 {
     QDialog *dlg = new QDialog(this);
     dlg->setWindowTitle(QString::fromUtf8("AI识别 - %1")
                         .arg(QFileInfo(m_currentTab->filePath).completeBaseName()));
     QVBoxLayout *lay = new QVBoxLayout(dlg);
 
-    // 统计 + 颜色图例
+    // 统计 + 颜色图例（三类全显示）
     QHash<int, int> counts;
     QHash<int, float> maxConf;
     for (int i = 0; i < top1Ids.size(); ++i) {
@@ -3718,14 +3721,12 @@ void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<int> &
         if (confidences[i] > maxConf.value(id, 0))
             maxConf[id] = confidences[i];
     }
-    // 颜色图例：红=cavities 黄=utilities
-    QString colorNames[3] = {QString::fromUtf8("红色框"), QString::fromUtf8("绿色框"), QString::fromUtf8("黄色框")};
+    // 颜色图例：cavities=红, intact=蓝, utilities=黄
+    QString cssColor[3] = {"red", "blue", "#c8a000"};
     QString summary = QString::fromUtf8("识别统计 (共 %1 窗口):   ").arg(top1Ids.size());
     for (int i = 0; i < 3; ++i) {
-        if (i == 1) continue;  // intact 不画框不展示
         summary += QString::fromUtf8("<span style='color:%2'>■</span> %1=%3(最高%4%)   ")
-                   .arg(m_yoloClasses[i])
-                   .arg(i == 0 ? "red" : (i == 2 ? "#c8a000" : "green"))
+                   .arg(m_yoloClasses[i]).arg(cssColor[i])
                    .arg(counts.value(i, 0))
                    .arg(static_cast<int>(maxConf.value(i, 0) * 100));
     }
@@ -3747,7 +3748,54 @@ void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<int> &
     QImage qimgCopy = qimg.copy();
 
     ZoomableImageView *imgView = new ZoomableImageView(QPixmap::fromImage(qimgCopy));
-    lay->addWidget(imgView, 1);
+
+    // 右侧文本面板：每类 top-10 的位置(道/采样)和置信度
+    QTextEdit *detailPanel = new QTextEdit;
+    detailPanel->setReadOnly(true);
+    detailPanel->setStyleSheet("font-family: Consolas, monospace; font-size: 12px;");
+    detailPanel->setMaximumWidth(360);
+
+    QString colorNameZh[3] = {QString::fromUtf8("红色"), QString::fromUtf8("蓝色"), QString::fromUtf8("黄色")};
+    QString html;
+    int n = qMin(qMin(rects.size(), top1Ids.size()), confidences.size());
+    for (int cid = 0; cid < 3; ++cid) {
+        // 收集该类索引并按置信度降序
+        QList<int> idxs;
+        for (int i = 0; i < n; ++i) {
+            if (top1Ids[i] == cid) idxs.append(i);
+        }
+        std::sort(idxs.begin(), idxs.end(), [&](int a, int b) {
+            return confidences[a] > confidences[b];
+        });
+        html += QString::fromUtf8("<b><span style='color:%1'>%2框 %3</span></b> (共%4个，显示前%5)<br>")
+                .arg(cssColor[cid]).arg(colorNameZh[cid]).arg(m_yoloClasses[cid])
+                .arg(counts.value(cid, 0)).arg(qMin(10, idxs.size()));
+        html += QString::fromUtf8("<span style='color:#888'>序号  道    采样   置信度</span><br>");
+        int showN = qMin(10, idxs.size());
+        for (int k = 0; k < showN; ++k) {
+            int i = idxs[k];
+            const cv::Rect &r = rects[i];
+            // 中心点 = trace, sample
+            int trace = r.x + r.width / 2;
+            int sample = r.y + r.height / 2;
+            html += QString::fromUtf8("%1 &nbsp;%2 &nbsp;%3 &nbsp;%4%<br>")
+                    .arg(k + 1, 3)
+                    .arg(trace, 5)
+                    .arg(sample, 5)
+                    .arg(static_cast<int>(confidences[i] * 100), 3);
+        }
+        html += "<br>";
+    }
+    detailPanel->setHtml(html);
+
+    // 图像 + 文本面板 横向布局
+    QSplitter *splitter = new QSplitter(Qt::Horizontal);
+    splitter->addWidget(imgView);
+    splitter->addWidget(detailPanel);
+    splitter->setStretchFactor(0, 1);
+    splitter->setStretchFactor(1, 0);
+    splitter->setSizes({900, 360});
+    lay->addWidget(splitter, 1);
 
     // 按钮
     QHBoxLayout *btnRow = new QHBoxLayout;
