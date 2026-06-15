@@ -3938,10 +3938,8 @@ void MainWindow::generateReport(const cv::Mat &annotated, const QList<cv::Rect> 
         html += "</table><br>";
     }
 
-    // 嵌入图片
+    // 嵌入图片标题（图片标签在下面计算页面宽度后再插入）
     html += QString::fromUtf8("<h2 style='font-size:14pt;'>带识别框的雷达剖面图</h2>");
-    html += "<img src='annotated.jpg' width='100%' />";
-    html += "</body></html>";
 
     // 准备图片资源 (cv::Mat BGR → QImage RGB 深拷贝)
     cv::Mat rgb;
@@ -3950,21 +3948,30 @@ void MainWindow::generateReport(const cv::Mat &annotated, const QList<cv::Rect> 
     QImage qimgCopy = qimg.copy();
     QPixmap pixmap = QPixmap::fromImage(qimgCopy);
 
-    // 限制图片宽度防止 PDF 文件过大
-    const int MAX_IMG_WIDTH = 1600;
-    if (pixmap.width() > MAX_IMG_WIDTH) {
-        pixmap = pixmap.scaledToWidth(MAX_IMG_WIDTH, Qt::SmoothTransformation);
-    }
-
-    QTextDocument doc;
-    doc.addResource(QTextDocument::ImageResource, QUrl("annotated.jpg"), pixmap.toImage());
-    doc.setHtml(html);
-
     QPrinter printer(QPrinter::PrinterResolution);
     printer.setOutputFormat(QPrinter::PdfFormat);
     printer.setOutputFileName(pdfPath);
     printer.setPageSize(QPageSize(QPageSize::A4));
     printer.setPageMargins(QMarginsF(20, 20, 20, 20), QPageLayout::Millimeter);
+
+    // 计算页面可用宽度（设备像素），据此缩放图片并设置 HTML 像素宽度
+    // QTextDocument 不支持 width='100%'，必须用具体像素值
+    QSizeF pageRectPx = printer.pageRect(QPrinter::DevicePixel).size();
+    int availWidth = static_cast<int>(pageRectPx.width());
+
+    // 高 DPI 下原始 annotated 像素宽度可能远大于 availWidth，预先缩到不超页面宽
+    if (pixmap.width() > availWidth) {
+        pixmap = pixmap.scaledToWidth(availWidth, Qt::SmoothTransformation);
+    }
+
+    // 重新拼接图片标签：用具体像素宽度（pixmap 当前宽度）
+    html += QString("<img src='annotated.jpg' width='%1' />").arg(pixmap.width());
+    html += "</body></html>";
+
+    QTextDocument doc;
+    doc.setPageSize(pageRectPx);
+    doc.addResource(QTextDocument::ImageResource, QUrl("annotated.jpg"), pixmap.toImage());
+    doc.setHtml(html);
 
     doc.print(&printer);
 
