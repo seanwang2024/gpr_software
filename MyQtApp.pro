@@ -1,4 +1,4 @@
-QT       += core gui charts quick quickwidgets quick3d
+QT       += core gui charts quick quickwidgets quick3d printsupport
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 # Add C++17 support

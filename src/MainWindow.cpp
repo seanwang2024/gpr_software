@@ -46,6 +46,8 @@
 #include <QFormLayout>
 #include <QRegularExpression>
 #include <QWindow>
+#include <QPrinter>
+#include <QTextDocument>
 #include <functional>
 #include <cmath>
 #include <complex>
@@ -3801,8 +3803,10 @@ void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<cv::Re
     QHBoxLayout *btnRow = new QHBoxLayout;
     btnRow->addStretch();
     QPushButton *btnSave = new QPushButton(QString::fromUtf8("保存为 JPG"));
+    QPushButton *btnReport = new QPushButton(QString::fromUtf8("生成报告"));
     QPushButton *btnClose = new QPushButton(QString::fromUtf8("关闭"));
     btnRow->addWidget(btnSave);
+    btnRow->addWidget(btnReport);
     btnRow->addWidget(btnClose);
     lay->addLayout(btnRow);
 
@@ -3821,11 +3825,151 @@ void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<cv::Re
                                  QString::fromUtf8("保存失败: %1").arg(outPath));
         }
     });
+    QObject::connect(btnReport, &QPushButton::clicked,
+                     [annotated, rects, top1Ids, confidences, this]() {
+                         generateReport(annotated, rects, top1Ids, confidences);
+                     });
     QObject::connect(btnClose, &QPushButton::clicked, dlg, &QDialog::accept);
 
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->resize(1280, 720);
     dlg->show();
+}
+
+void MainWindow::generateReport(const cv::Mat &annotated, const QList<cv::Rect> &rects,
+                                const QList<int> &top1Ids, const QList<float> &confidences)
+{
+    if (!m_currentTab) return;
+
+    QFileInfo fi(m_currentTab->filePath);
+    QString reportDir = fi.absolutePath() + "/report";
+    QDir().mkpath(reportDir);
+
+    // 找下一个可用的 report_##.pdf 文件名（01-999）
+    QString pdfPath;
+    for (int i = 1; i <= 999; ++i) {
+        QString candidate = QString("%1/report_%2.pdf")
+                                .arg(reportDir)
+                                .arg(i, 2, 10, QChar('0'));
+        if (!QFile::exists(candidate)) {
+            pdfPath = candidate;
+            break;
+        }
+    }
+    if (pdfPath.isEmpty()) {
+        QMessageBox::warning(this, QString::fromUtf8("AI识别"),
+                             QString::fromUtf8("无法创建报告文件：已存在 999 份报告"));
+        return;
+    }
+
+    // 统计
+    QHash<int, int> counts;
+    QHash<int, float> maxConf;
+    int n = qMin(qMin(rects.size(), top1Ids.size()), confidences.size());
+    for (int i = 0; i < n; ++i) {
+        int id = top1Ids[i];
+        if (id < 0) continue;
+        counts[id]++;
+        if (confidences[i] > maxConf.value(id, 0))
+            maxConf[id] = confidences[i];
+    }
+
+    QString colorNameZh[3] = {QString::fromUtf8("红色"),
+                              QString::fromUtf8("蓝色"),
+                              QString::fromUtf8("黄色")};
+    QString cssColor[3] = {"red", "blue", "#c8a000"};
+
+    // 构建 HTML
+    QString html;
+    html += "<html><head><meta charset='utf-8'></head><body>";
+    html += QString::fromUtf8("<h1 style='text-align:center; font-size:22pt;'>地质雷达探测报告</h1>");
+    html += "<hr>";
+    html += QString::fromUtf8("<p style='font-size:11pt;'><b>数据文件：</b>%1</p>").arg(fi.fileName());
+    html += QString::fromUtf8("<p style='font-size:11pt;'><b>生成时间：</b>%1</p>")
+                .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"));
+    html += "<hr>";
+
+    // 分类统计表
+    html += QString::fromUtf8("<h2 style='font-size:14pt;'>识别结果统计</h2>");
+    html += QString::fromUtf8("<p style='font-size:11pt;'>共识别 %1 个窗口</p>").arg(top1Ids.size());
+    html += "<table border='1' cellspacing='0' cellpadding='6' "
+            "style='border-collapse:collapse; font-size:11pt;'>";
+    html += QString::fromUtf8("<tr><th>类别</th><th>框颜色</th><th>数量</th><th>最高置信度</th></tr>");
+    for (int i = 0; i < 3; ++i) {
+        html += QString::fromUtf8(
+                    "<tr><td>%1</td>"
+                    "<td><span style='color:%2;'>■</span> %3</td>"
+                    "<td>%4</td><td>%5%</td></tr>")
+                    .arg(m_yoloClasses[i])
+                    .arg(cssColor[i])
+                    .arg(colorNameZh[i])
+                    .arg(counts.value(i, 0))
+                    .arg(static_cast<int>(maxConf.value(i, 0) * 100));
+    }
+    html += "</table><br>";
+
+    // 每类 top-10 详细
+    html += QString::fromUtf8("<h2 style='font-size:14pt;'>各类别置信度前10位置详情</h2>");
+    for (int cid = 0; cid < 3; ++cid) {
+        QList<int> idxs;
+        for (int i = 0; i < n; ++i) {
+            if (top1Ids[i] == cid) idxs.append(i);
+        }
+        std::sort(idxs.begin(), idxs.end(), [&](int a, int b) {
+            return confidences[a] > confidences[b];
+        });
+        html += QString::fromUtf8("<h3 style='color:%1; font-size:12pt;'>%2框 %3 "
+                                  "(共%4个，显示前%5)</h3>")
+                    .arg(cssColor[cid]).arg(colorNameZh[cid]).arg(m_yoloClasses[cid])
+                    .arg(counts.value(cid, 0)).arg(qMin(10, idxs.size()));
+        html += "<table border='1' cellspacing='0' cellpadding='4' "
+                "style='border-collapse:collapse; font-size:10pt;'>";
+        html += QString::fromUtf8("<tr><th>序号</th><th>道(横向)</th><th>采样(纵向)</th><th>置信度</th></tr>");
+        int showN = qMin(10, idxs.size());
+        for (int k = 0; k < showN; ++k) {
+            int i = idxs[k];
+            const cv::Rect &r = rects[i];
+            int trace = r.x + r.width / 2;
+            int sample = r.y + r.height / 2;
+            html += QString::fromUtf8("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4%</td></tr>")
+                        .arg(k + 1).arg(trace).arg(sample)
+                        .arg(static_cast<int>(confidences[i] * 100));
+        }
+        html += "</table><br>";
+    }
+
+    // 嵌入图片
+    html += QString::fromUtf8("<h2 style='font-size:14pt;'>带识别框的雷达剖面图</h2>");
+    html += "<img src='annotated.jpg' width='100%' />";
+    html += "</body></html>";
+
+    // 准备图片资源 (cv::Mat BGR → QImage RGB 深拷贝)
+    cv::Mat rgb;
+    cv::cvtColor(annotated, rgb, cv::COLOR_BGR2RGB);
+    QImage qimg(rgb.data, rgb.cols, rgb.rows, static_cast<int>(rgb.step), QImage::Format_RGB888);
+    QImage qimgCopy = qimg.copy();
+    QPixmap pixmap = QPixmap::fromImage(qimgCopy);
+
+    // 限制图片宽度防止 PDF 文件过大
+    const int MAX_IMG_WIDTH = 1600;
+    if (pixmap.width() > MAX_IMG_WIDTH) {
+        pixmap = pixmap.scaledToWidth(MAX_IMG_WIDTH, Qt::SmoothTransformation);
+    }
+
+    QTextDocument doc;
+    doc.addResource(QTextDocument::ImageResource, QUrl("annotated.jpg"), pixmap.toImage());
+    doc.setHtml(html);
+
+    QPrinter printer(QPrinter::PrinterResolution);
+    printer.setOutputFormat(QPrinter::PdfFormat);
+    printer.setOutputFileName(pdfPath);
+    printer.setPageSize(QPageSize(QPageSize::A4));
+    printer.setPageMargins(QMarginsF(20, 20, 20, 20), QPageLayout::Millimeter);
+
+    doc.print(&printer);
+
+    QMessageBox::information(this, QString::fromUtf8("AI识别"),
+                             QString::fromUtf8("报告已生成:\n%1").arg(pdfPath));
 }
 
 void MainWindow::showDigitalFilter()

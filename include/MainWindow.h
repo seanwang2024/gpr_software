@@ -407,6 +407,8 @@ private:
                            const QList<int> &top1Ids, const QList<float> &confidences, cv::Mat &out);
     void showAIResultDialog(const cv::Mat &annotated, const QList<cv::Rect> &rects,
                             const QList<int> &top1Ids, const QList<float> &confidences);
+    void generateReport(const cv::Mat &annotated, const QList<cv::Rect> &rects,
+                        const QList<int> &top1Ids, const QList<float> &confidences);
 
     // Processing range spinboxes (ribbon 数据处理 page)
     QSpinBox *m_startTraceSpin = nullptr;
