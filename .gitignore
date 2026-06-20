@@ -65,8 +65,11 @@ cmake-build-*
 # Local configuration file for absolute paths
 config.pri
 
-#other dirs and files 
+#other dirs and files
 .claude*/
 specs*/
 CLAUDE.md
 docs*/
+
+# Training datasets and large data (local only, not pushed)
+GPR_data/
