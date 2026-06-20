@@ -11,7 +11,16 @@
       "Bash(C:/Qt/Tools/mingw1310_64/bin/mingw32-make.exe -j8)",
       "Bash(C:/Qt/Tools/mingw1630_64/bin/mingw32-make.exe -j8)",
       "Bash(cmake --build D:/gpr_software/build)",
-      "Bash(powershell *)"
+      "Bash(powershell *)",
+      "Bash(git *)",
+      "Read(//d/opencv/modules/dnn/include/opencv2/**)",
+      "Read(//d/opencv/**)",
+      "Bash(cmake --build . --target install -- -j4)",
+      "Bash(cmake --build . --target opencv_world --config Release -- -j4)",
+      "Bash(grep -E --line-buffered \"Built target|Error|error:|fatal|undefined reference|ninja: build halted|Generating|Linking|\\\\.o$|\\\\.cpp\\\\.obj$|^\\\\[1[0-9][0-9]/[0-9]+\\\\]|^\\\\[[0-9]+/[0-9]+\\\\] \\(Linking|Building CXX|Building RC\\)\")",
+      "Bash(grep -rn \"Module \\\\${the_module} can not be built\" D:/opencv/cmake/)",
+      "Bash(cmake -G \"MinGW Makefiles\" -DBUILD_LIST=\"core,imgproc,imgcodecs,highgui,dnn\" .)",
+      "Bash(cmake ..)"
     ]
   }
 }

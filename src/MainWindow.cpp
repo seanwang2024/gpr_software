@@ -2056,6 +2056,7 @@ void MainWindow::closeTab(int index)
         m_tabGroups.removeOne(srcGroup);
         delete srcGroup;
         m_activeTabGroup = m_docTabWidget;
+        collapseEmptySplitters();
     }
 
     if (m_tabs.isEmpty()) {
@@ -2123,6 +2124,91 @@ void MainWindow::splitHorizontal(QTabWidget *srcGroup, int tabIdx)
 
     newGroup->setCurrentIndex(0);
     m_activeTabGroup = newGroup;
+}
+
+void MainWindow::splitVertical(QTabWidget *srcGroup, int tabIdx)
+{
+    if (!srcGroup || tabIdx < 0 || tabIdx >= srcGroup->count()) return;
+
+    // Get the page and title from source group
+    QWidget *page = srcGroup->widget(tabIdx);
+    QString title = srcGroup->tabText(tabIdx);
+    srcGroup->removeTab(tabIdx);
+
+    // Create new tab group (same setup as splitHorizontal)
+    QTabWidget *newGroup = new QTabWidget(this);
+    newGroup->setTabsClosable(true);
+    newGroup->setDocumentMode(true);
+    newGroup->setStyleSheet(
+        "QTabWidget::pane { border: none; }"
+        "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
+        "QTabBar::tab:selected { background: #ffffff; font-weight: bold; }"
+    );
+    newGroup->tabBar()->installEventFilter(this);
+
+    connect(newGroup, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
+    connect(newGroup, &QTabWidget::currentChanged, this, &MainWindow::switchToTab);
+
+    newGroup->addTab(page, title);
+    m_tabGroups.append(newGroup);
+
+    // Find srcGroup's parent splitter and its position. When a vertical
+    // split is requested on a group already nested in a horizontal pair,
+    // this correctly nests deeper instead of always touching the top splitter.
+    QSplitter *parentSplitter = qobject_cast<QSplitter*>(srcGroup->parentWidget());
+    if (!parentSplitter) parentSplitter = m_docSplitter;
+    int pos = parentSplitter->indexOf(srcGroup);
+
+    // Build a horizontal sub-splitter holding [srcGroup, newGroup] side by side.
+    QSplitter *hSplitter = new QSplitter(Qt::Horizontal, this);
+    hSplitter->setChildrenCollapsible(false);
+
+    // Replace srcGroup's slot with the horizontal splitter, then drop the two
+    // groups into it (replaceWidget reparents srcGroup out, so we re-add it).
+    parentSplitter->replaceWidget(pos, hSplitter);
+    hSplitter->addWidget(srcGroup);
+    hSplitter->addWidget(newGroup);
+
+    // Equal stretch + half/half sizes within the side-by-side pair
+    hSplitter->setStretchFactor(0, 1);
+    hSplitter->setStretchFactor(1, 1);
+    int w = hSplitter->width();
+    if (w < 100) w = 800;
+    hSplitter->setSizes({ w / 2, w / 2 });
+
+    newGroup->setCurrentIndex(0);
+    m_activeTabGroup = newGroup;
+}
+
+void MainWindow::collapseEmptySplitters()
+{
+    // After a group is deleted (closeTab or drag-drop), a nested horizontal
+    // sub-splitter may be left with 0 or 1 groups. Remove empties and promote
+    // any single remaining child back up into its grandparent splitter so the
+    // layout never keeps a redundant one-group splitter. Handles arbitrary depth.
+    while (true) {
+        auto subs = m_docSplitter->findChildren<QSplitter*>();
+        QSplitter *victim = nullptr;
+        for (QSplitter *s : subs) {
+            if (s->count() <= 1) { victim = s; break; }
+        }
+        if (!victim) break;
+
+        if (victim->count() == 0) {
+            delete victim;
+            continue;
+        }
+        // Single child: promote it into the grandparent, then drop the splitter.
+        QWidget *only = victim->widget(0);
+        QSplitter *grandparent = qobject_cast<QSplitter*>(victim->parentWidget());
+        if (grandparent) {
+            int idx = grandparent->indexOf(victim);
+            grandparent->replaceWidget(idx, only);
+        } else {
+            only->setParent(nullptr);
+        }
+        delete victim;
+    }
 }
 
 void MainWindow::showFileHeader()
@@ -2868,12 +2954,14 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 if (idx >= 0) {
                     QMenu menu;
                     QAction *actH = menu.addAction(QString::fromUtf8("新水平选项卡组(&H)"));
-                    menu.addAction(QString::fromUtf8("新垂直选项卡组(&V)"));
+                    QAction *actV = menu.addAction(QString::fromUtf8("新垂直选项卡组(&V)"));
                     menu.addSeparator();
                     menu.addAction(QString::fromUtf8("取消(&C)"));
                     QAction *chosen = menu.exec(ctx->globalPos());
                     if (chosen == actH) {
                         splitHorizontal(srcGroup, idx);
+                    } else if (chosen == actV) {
+                        splitVertical(srcGroup, idx);
                     }
                 }
                 return true;
@@ -2979,6 +3067,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                     if (m_dragSrcGroup->count() == 0 && m_dragSrcGroup != m_docTabWidget) {
                         m_tabGroups.removeOne(m_dragSrcGroup);
                         delete m_dragSrcGroup;
+                        collapseEmptySplitters();
                     }
                     m_activeTabGroup = dstGroup;
                     updateGroupStyles(dstGroup, m_tabGroups);

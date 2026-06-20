@@ -1,0 +1,25 @@
+GPR Dataset Split Statistics
+==================================================
+
+cavities:
+  train : 504 images
+  val   : 64 images
+  test  : 64 images
+
+intact:
+  train : 780 images
+  val   : 104 images
+  test  : 91 images
+
+utilities:
+  train : 735 images
+  val   : 91 images
+  test  : 91 images
+
+==================================================
+TOTAL:
+  train : 2019 images
+  val   : 259 images
+  test  : 246 images
+
+Grand total: 2524 images

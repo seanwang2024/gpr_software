@@ -271,6 +271,8 @@ private:
     QVector<QTabWidget*> m_tabGroups;
     QTabWidget *m_activeTabGroup = nullptr;
     void splitHorizontal(QTabWidget *srcGroup, int tabIdx);
+    void splitVertical(QTabWidget *srcGroup, int tabIdx);
+    void collapseEmptySplitters();
 
     // Tab drag state
     QTabWidget *m_dragSrcGroup = nullptr;

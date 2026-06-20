@@ -30,7 +30,7 @@
     <Setting>
       <name>DisplayViews</name>
       <state>0</state>
-      <value>1</value>
+      <value>5</value>
     </Setting>
     <Setting>
       <name>PickType</name>
@@ -63,6 +63,16 @@
       <value>0</value>
     </Setting>
   </GlobalProperties>
+  <ChannelProperties>
+    <channel>0</channel>
+    <centerFreqMHz>0</centerFreqMHz>
+    <inLineOffset>0.0000000</inLineOffset>
+    <crossLineOffset>0.0000000</crossLineOffset>
+    <displayGain>0.0000000</displayGain>
+    <antBaseGainAdj>0.0000000</antBaseGainAdj>
+    <bistaticSep>0.0000000</bistaticSep>
+    <antennaModelID>0</antennaModelID>
+  </ChannelProperties>
   <File>
     <scanRange>0,1732</scanRange>
     <name>PRV01__072 P_1.DZT</name>
