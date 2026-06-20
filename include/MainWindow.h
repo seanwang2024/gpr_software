@@ -222,6 +222,7 @@ private slots:
 
 private:
     QImage loadDZTFile(const QString &filePath);
+    void openDztFile(const QString &filePath);
     void updateCoordinateLabel(int x, int y);
     qint32 getPixelValue(int x, int y);
     void updateChart(int xValue);
@@ -230,6 +231,8 @@ private:
     void updateRulers();
     void resizeImageLabel();
     void resizeEvent(QResizeEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     void updateWindowTitle();

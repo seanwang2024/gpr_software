@@ -1,5 +1,9 @@
 #include "MainWindow.h"
 #include <QFileDialog>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QMessageBox>
@@ -1532,6 +1536,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     setCentralWidget(centralWidget);
     setWindowTitle("劳雷AI数据处理");
+    setAcceptDrops(true);
 
     // 自定义标题栏 + 无边框窗口
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
@@ -2406,17 +2411,13 @@ void MainWindow::showFileHeader()
 
 // --- File operations ---
 
-void MainWindow::onOpenFile()
+void MainWindow::openDztFile(const QString &filePath)
 {
-    QString fileName = QFileDialog::getOpenFileName(this,
-        "Open DZT File", "",
-        "DZT Files (*.dzt);;All Files (*)");
+    if (filePath.isEmpty()) return;
 
-    if (fileName.isEmpty()) return;
-
-    QImage image = loadDZTFile(fileName);
+    QImage image = loadDZTFile(filePath);
     if (image.isNull()) {
-        QMessageBox::warning(this, "Error", "Failed to load DZT file.");
+        QMessageBox::warning(this, "Error", "Failed to load DZT file:\n" + filePath);
         return;
     }
 
@@ -2428,7 +2429,55 @@ void MainWindow::onOpenFile()
     if (!m_tabGroups.contains(m_activeTabGroup))
         m_activeTabGroup = m_docTabWidget;
 
-    createTab(fileName, image);
+    createTab(filePath, image);
+}
+
+void MainWindow::onOpenFile()
+{
+    QString fileName = QFileDialog::getOpenFileName(this,
+        "Open DZT File", "",
+        "DZT Files (*.dzt);;All Files (*)");
+
+    if (fileName.isEmpty()) return;
+    openDztFile(fileName);
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event)
+{
+    // Accept the drag only if it carries at least one .dzt file
+    if (event->mimeData()->hasUrls()) {
+        const QList<QUrl> urls = event->mimeData()->urls();
+        for (const QUrl &url : urls) {
+            QString path = url.toLocalFile();
+            if (!path.isEmpty() &&
+                QFileInfo(path).suffix().compare("dzt", Qt::CaseInsensitive) == 0) {
+                event->acceptProposedAction();
+                return;
+            }
+        }
+    }
+    event->ignore();
+}
+
+void MainWindow::dropEvent(QDropEvent *event)
+{
+    if (!event->mimeData()->hasUrls()) {
+        event->ignore();
+        return;
+    }
+
+    bool opened = false;
+    const QList<QUrl> urls = event->mimeData()->urls();
+    for (const QUrl &url : urls) {
+        QString path = url.toLocalFile();
+        if (path.isEmpty()) continue;
+        if (QFileInfo(path).suffix().compare("dzt", Qt::CaseInsensitive) != 0) continue;
+        openDztFile(path);   // supports dropping multiple files -> one tab each
+        opened = true;
+    }
+
+    if (opened) event->acceptProposedAction();
+    else event->ignore();
 }
 
 void MainWindow::onImageClicked(const QPoint &pos)
