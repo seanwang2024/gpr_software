@@ -3085,6 +3085,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                                         chartView = t->chartView;
                                         chartSeries = t->chartSeries;
                                         m_btnApply->setText(t->gainApplied ? "撤销" : "应用");
+                                        updateWindowTitle();   // 切换活动标签页时同步窗口标题(覆盖 currentChanged 不触发的情形)
                                     }
                                     if (m_oneClickDlg && m_oneClickDlg->isVisible()) {
                                         QString fname = QFileInfo(t->filePath).fileName();
