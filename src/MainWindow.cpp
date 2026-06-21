@@ -1530,7 +1530,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     QHBoxLayout *buttonLayout = new QHBoxLayout();
     buttonLayout->addWidget(m_progressBar);
+    buttonLayout->addStretch(1);
+    coordinateLabel->setAlignment(Qt::AlignCenter);
     buttonLayout->addWidget(coordinateLabel);
+    buttonLayout->addStretch(1);
 
     mainLayout->addLayout(buttonLayout);
 
