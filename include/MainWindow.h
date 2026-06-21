@@ -222,6 +222,8 @@ public:
 
 private slots:
     void onOpenFile();
+    void showAbout();
+    void showUpgrade();
     void onImageClicked(const QPoint &pos);
 
 private:

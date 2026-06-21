@@ -4,6 +4,9 @@
 #include <QDropEvent>
 #include <QMimeData>
 #include <QUrl>
+#include <QDialog>
+#include <QProgressBar>
+#include <QPlainTextEdit>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QMessageBox>
@@ -2246,6 +2249,106 @@ void MainWindow::moveTabToGroup(QTabWidget *srcGroup, int tabIdx, QTabWidget *ds
     updateWindowTitle();
 }
 
+void MainWindow::showAbout()
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString::fromUtf8("关于"));
+    dlg.setFixedSize(440, 230);
+    QVBoxLayout *main = new QVBoxLayout(&dlg);
+    main->setContentsMargins(24, 20, 24, 16);
+    main->setSpacing(10);
+
+    QHBoxLayout *top = new QHBoxLayout();
+    top->setSpacing(16);
+    QLabel *logo = new QLabel;
+    logo->setPixmap(QIcon(":/icons/resources/icon_fileheader_64.png").pixmap(64, 64));
+    logo->setFixedSize(64, 64);
+    top->addWidget(logo, 0, Qt::AlignTop);
+
+    QVBoxLayout *txt = new QVBoxLayout();
+    txt->setSpacing(4);
+    QLabel *name = new QLabel(QString::fromUtf8("劳雷AI数据处理"));
+    QFont nf = name->font(); nf.setPointSize(15); nf.setBold(true); name->setFont(nf);
+    QLabel *ver = new QLabel(QString::fromUtf8("版本 1.0.0"));
+    QLabel *cpy = new QLabel(QString::fromUtf8("版权 © 2026 劳雷"));
+    QLabel *url = new QLabel(QString::fromUtf8("<a href=\"https://www.laurel.com.cn\">https://www.laurel.com.cn</a>"));
+    url->setOpenExternalLinks(true);
+    url->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    ver->setStyleSheet("color:#333;");
+    cpy->setStyleSheet("color:#333;");
+    url->setStyleSheet("color:#0066cc;");
+    txt->addWidget(name); txt->addWidget(ver); txt->addWidget(cpy);
+    txt->addSpacing(4); txt->addWidget(url);
+    top->addLayout(txt);
+    top->addStretch();
+    main->addLayout(top);
+    main->addStretch();
+
+    QHBoxLayout *btns = new QHBoxLayout();
+    btns->addStretch();
+    QPushButton *close = new QPushButton(QString::fromUtf8("关闭"));
+    close->setFixedSize(84, 30);
+    btns->addWidget(close);
+    main->addLayout(btns);
+    connect(close, &QPushButton::clicked, &dlg, &QDialog::accept);
+    dlg.exec();
+}
+
+void MainWindow::showUpgrade()
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString::fromUtf8("升级"));
+    dlg.setFixedSize(460, 300);
+    QVBoxLayout *main = new QVBoxLayout(&dlg);
+    main->setContentsMargins(24, 20, 24, 16);
+    main->setSpacing(10);
+
+    QLabel *title = new QLabel(QString::fromUtf8("软件升级"));
+    QFont tf = title->font(); tf.setPointSize(13); tf.setBold(true); title->setFont(tf);
+    main->addWidget(title);
+
+    QLabel *cur = new QLabel(QString::fromUtf8("当前版本:1.0.0"));
+    QLabel *latest = new QLabel(QString::fromUtf8("最新版本:--(尚未检查)"));
+    latest->setStyleSheet("color:#666;");
+    main->addWidget(cur);
+    main->addWidget(latest);
+
+    QProgressBar *bar = new QProgressBar;
+    bar->setRange(0, 100); bar->setValue(0);
+    main->addWidget(bar);
+
+    QPlainTextEdit *notes = new QPlainTextEdit;
+    notes->setReadOnly(true);
+    notes->setPlainText(QString::fromUtf8("更新内容:\n(点击\"检查更新\"查询最新版本信息)"));
+    main->addWidget(notes);
+
+    QHBoxLayout *btns = new QHBoxLayout();
+    btns->addStretch();
+    QPushButton *check = new QPushButton(QString::fromUtf8("检查更新"));
+    QPushButton *upgrade = new QPushButton(QString::fromUtf8("立即升级"));
+    QPushButton *close = new QPushButton(QString::fromUtf8("关闭"));
+    upgrade->setEnabled(false);
+    check->setFixedSize(92, 30);
+    upgrade->setFixedSize(92, 30);
+    close->setFixedSize(92, 30);
+    btns->addWidget(check); btns->addWidget(upgrade); btns->addWidget(close);
+    main->addLayout(btns);
+
+    // 注:无内置升级服务器,"检查更新"为占位逻辑(本地即最新),接入真实升级服务时替换
+    QObject::connect(check, &QPushButton::clicked, [latest, notes, bar, upgrade]() {
+        latest->setText(QString::fromUtf8("最新版本:1.0.0"));
+        latest->setStyleSheet("color:#008800;");
+        notes->setPlainText(QString::fromUtf8("已是最新版本,无需升级。"));
+        bar->setValue(100); bar->setFormat(QString::fromUtf8("已是最新"));
+        upgrade->setEnabled(false);
+    });
+    QObject::connect(upgrade, &QPushButton::clicked, [bar]() {
+        bar->setRange(0, 0); bar->setFormat(QString::fromUtf8("下载中..."));
+    });
+    QObject::connect(close, &QPushButton::clicked, &dlg, &QDialog::accept);
+    dlg.exec();
+}
+
 void MainWindow::showFileHeader()
 {
     if (!m_currentTab) return;
@@ -3558,6 +3661,16 @@ void MainWindow::createMenuBar()
     processBtns->addWidget(btnDigFilterStart);
     connect(btnDigFilterStart, &QToolButton::clicked, this, &MainWindow::showDigitalFilter);
     processBtns->addWidget(makeBtn(":/icons/resources/batch.png", "批处理"));
+
+    // 其他 group
+    QVBoxLayout *otherGroup = addGroup(startLayout, QString::fromUtf8("其他"));
+    QHBoxLayout *otherBtns = qobject_cast<QHBoxLayout*>(otherGroup->itemAt(0)->layout());
+    QToolButton *btnAbout = makeBtn(":/icons/resources/icon_about_64.png", QString::fromUtf8("关于"));
+    QToolButton *btnUpgrade = makeBtn(":/icons/resources/icon_upgrade_64.png", QString::fromUtf8("升级"));
+    otherBtns->addWidget(btnAbout);
+    otherBtns->addWidget(btnUpgrade);
+    connect(btnAbout, &QToolButton::clicked, this, &MainWindow::showAbout);
+    connect(btnUpgrade, &QToolButton::clicked, this, &MainWindow::showUpgrade);
 
     startLayout->addStretch();
     ribbonTab->addTab(startPage, "开始");
