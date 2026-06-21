@@ -1883,6 +1883,7 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
             }
             // Switch the tab group's current tab
             if (ownerGroup) ownerGroup->setCurrentIndex(ownerGroup->indexOf(tab->page));
+            updateWindowTitle();   // 点击图像激活该文件时同步窗口标题
         }
         // Always update group styles: clicking this window makes it active
         if (ownerGroup) updateGroupStyles(ownerGroup, m_tabGroups);
