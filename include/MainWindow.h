@@ -26,6 +26,7 @@
 #include <QStackedWidget>
 #include <QCheckBox>
 #include <QSplitter>
+#include <QNetworkAccessManager>
 
 QT_BEGIN_NAMESPACE
 class QChart;
@@ -260,6 +261,7 @@ private:
     // Shared/global widgets
     QPushButton *openButton;
     QProgressBar *m_progressBar = nullptr;
+    QNetworkAccessManager *m_net = nullptr;  // 升级用网络管理器(成员级,生命周期不随对话框)
     bool m_upgradeRestart = false;  // 升级下载完成:exec()返回后据此退出应用(模态内 quit 不可靠)
     QLabel *coordinateLabel;
     QTreeWidget *gainTree;

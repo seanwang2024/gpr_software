@@ -1537,6 +1537,7 @@ MainWindow::MainWindow(QWidget *parent)
     coordinateLabel->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px; font-family: monospace;");
 
     m_progressBar = new QProgressBar(this);
+    m_net = new QNetworkAccessManager(this);
     m_progressBar->setRange(0, 100);
     m_progressBar->setValue(0);
     m_progressBar->setTextVisible(true);
@@ -2337,16 +2338,15 @@ void MainWindow::showUpgrade()
     QHBoxLayout *btns = new QHBoxLayout();
     btns->addStretch();
     QPushButton *check = new QPushButton(QString::fromUtf8("检查更新"));
-    QPushButton *upgrade = new QPushButton(QString::fromUtf8("立即升级"));
+    QPushButton *upgrade = new QPushButton(QString::fromUtf8("立即升级后重启程序"));
     QPushButton *close = new QPushButton(QString::fromUtf8("关闭"));
     upgrade->setEnabled(false);
     check->setFixedSize(92, 30);
-    upgrade->setFixedSize(92, 30);
+    upgrade->setFixedSize(150, 30);
     close->setFixedSize(92, 30);
     btns->addWidget(check); btns->addWidget(upgrade); btns->addWidget(close);
     main->addLayout(btns);
 
-    QNetworkAccessManager nam(&dlg);
     QString latestVer;    // 检查更新后得到的服务端最新版本
     QString downloadUrl;  // 服务端返回的下载地址
 
@@ -2374,7 +2374,7 @@ void MainWindow::showUpgrade()
         QNetworkRequest req{QUrl(QString::fromUtf8(APP_UPDATE_URL))};
         req.setHeader(QNetworkRequest::UserAgentHeader, QString("MyQtApp/") + APP_VERSION);
         req.setTransferTimeout(10000);
-        QNetworkReply *r = nam.get(req);
+        QNetworkReply *r = m_net->get(req);
         QObject::connect(r, &QNetworkReply::finished, [&, r]() {
             bool ok = (r->error() == QNetworkReply::NoError);
             QByteArray data = ok ? r->readAll() : QByteArray();
@@ -2407,71 +2407,99 @@ void MainWindow::showUpgrade()
         });
     });
 
-    // 立即升级: 下载最新 exe 到"下载"目录,完成后打开该目录(由用户手动替换)
+    // 立即升级: 用成员 QNetworkAccessManager 下载到临时文件,完成后生成"覆盖+重启"批处理并退出本程序
     QObject::connect(upgrade, &QPushButton::clicked, [&]() {
         if (downloadUrl.isEmpty()) return;
         check->setEnabled(false); upgrade->setEnabled(false);
         bar->setRange(0, 100); bar->setValue(0);
         bar->setFormat(QString::fromUtf8("下载中 %p%"));
 
-        const QString appPath = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());  // 强制反斜杠(cmd copy 需要)
-        // 生成更新批处理:由 PowerShell 下载 → 等本程序退出 → 覆盖 exe → 重启 → 自删。
-        // 下载放到独立进程,避免应用内网络回调的对象生命周期崩溃。
-        const QString batPath = QDir::tempPath() + "/gpr_updater.bat";
-        QString bat = QString::fromUtf8(
-            "@echo off\r\n"
-            "setlocal enabledelayedexpansion\r\n"
-            "set \"URL=__URL__\"\r\n"
-            "set \"APP=__APP__\"\r\n"
-            "set \"NEW=%TEMP%\\MyQtApp_upgrade.exe\"\r\n"
-            "set \"LOG=%TEMP%\\gpr_update.log\"\r\n"
-            ">\"%LOG%\" echo === gpr_updater %date% %time%\r\n"
-            ">>\"%LOG%\" echo APP=%APP%\r\n"
-            ">>\"%LOG%\" echo URL=%URL%\r\n"
-            ">>\"%LOG%\" echo NEW=%NEW%\r\n"
-            "powershell -NoProfile -ExecutionPolicy Bypass -Command \"try{Invoke-WebRequest -Uri '%URL%' -OutFile '%NEW%' -UseBasicParsing}catch{exit 1}\"\r\n"
-            "set \"PSERR=%errorlevel%\"\r\n"
-            ">>\"%LOG%\" echo PSERR=%PSERR%\r\n"
-            "if not \"%PSERR%\"==\"0\" ( >>\"%LOG%\" echo ABORT_PS_FAIL & exit /b 1 )\r\n"
-            "set /a tries=0\r\n"
-            ":wait\r\n"
-            "copy /y \"%NEW%\" \"%APP%\" >nul 2>&1 && goto ok\r\n"
-            "set /a tries+=1\r\n"
-            "if !tries! geq 60 goto fail\r\n"
-            "ping 127.0.0.1 -n 2 >nul\r\n"
-            "goto wait\r\n"
-            ":ok\r\n"
-            ">>\"%LOG%\" echo OK_copied_after_%tries%_tries\r\n"
-            "del /f /q \"%NEW%\" >nul 2>&1\r\n"
-            "start \"\" \"%APP%\"\r\n"
-            "del /f /q \"%~f0\" 2>nul\r\n"
-            "exit /b\r\n"
-            ":fail\r\n"
-            ">>\"%LOG%\" echo FAIL_copy_after_60_tries\r\n"
-            "del /f /q \"%NEW%\" >nul 2>&1\r\n"
-            "del /f /q \"%~f0\" 2>nul\r\n"
-            "exit /b\r\n"
-        );
-        bat.replace(QString::fromUtf8("__URL__"), downloadUrl);
-        bat.replace(QString::fromUtf8("__APP__"), appPath);
+        const QString appPath = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
+        const QString newPath = QDir::tempPath() + "/MyQtApp_upgrade.exe";
 
-        QFile bf(batPath);
-        if (!bf.open(QIODevice::WriteOnly | QIODevice::Truncate) || bf.write(bat.toLocal8Bit()) < 0) {
-            notes->setPlainText(QString::fromUtf8("无法创建更新脚本。"));
+        QNetworkRequest req{QUrl(downloadUrl)};
+        req.setHeader(QNetworkRequest::UserAgentHeader, QString("MyQtApp/") + APP_VERSION);
+        QNetworkReply *r = m_net->get(req);   // 成员 nam:生命周期不随对话框,避免销毁时崩溃
+        QFile *f = new QFile(newPath);          // 无父对象,finished 里 deleteLater(磁盘文件保留供批处理 copy)
+        if (!f->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            notes->setPlainText(QString::fromUtf8("无法写入临时文件:\n") + newPath);
+            r->abort(); r->deleteLater(); f->deleteLater();
             check->setEnabled(true);
             return;
         }
-        bf.close();
+        QObject::connect(r, &QNetworkReply::downloadProgress, [bar](qint64 got, qint64 tot) {
+            if (tot > 0) bar->setValue(static_cast<int>(got * 100 / tot));
+        });
+        QObject::connect(r, &QNetworkReply::readyRead, [r, f]() {
+            f->write(r->readAll());
+        });
+        QObject::connect(r, &QNetworkReply::finished, [&, r, f, appPath, newPath]() {
+            f->write(r->readAll());
+            f->close();
+            bool ok = (r->error() == QNetworkReply::NoError);
+            QString err = r->errorString();
+            f->deleteLater();
+            r->deleteLater();
+            if (!ok) {
+                QFile::remove(newPath);
+                notes->setPlainText(QString::fromUtf8("下载失败:") + err);
+                bar->setFormat(QString::fromUtf8("失败"));
+                check->setEnabled(true);
+                return;
+            }
+            bar->setValue(100); bar->setFormat(QString::fromUtf8("完成"));
 
-        notes->setPlainText(QString::fromUtf8("正在升级:下载→关闭本程序→覆盖→重启,请稍候..."));
-        bool launched = QProcess::startDetached("cmd.exe", QStringList{"/c", batPath});
-        if (!launched) {
-            notes->setPlainText(QString::fromUtf8("无法启动更新脚本。"));
-            check->setEnabled(true);
-            return;
-        }
-        m_upgradeRestart = true;   // exec()返回后据此退出整个应用
-        dlg.accept();
+            // 覆盖+重启批处理(下载已在应用内完成):等本程序退出 → copy → start → 自删
+            const QString batPath = QDir::tempPath() + "/gpr_updater.bat";
+            QString bat = QString::fromUtf8(
+                "@echo off\r\n"
+                "setlocal enabledelayedexpansion\r\n"
+                "set \"APP=__APP__\"\r\n"
+                "set \"NEW=__NEW__\"\r\n"
+                "set \"LOG=%TEMP%\\gpr_update.log\"\r\n"
+                ">\"%LOG%\" echo === gpr_updater %date% %time%\r\n"
+                ">>\"%LOG%\" echo APP=%APP%\r\n"
+                ">>\"%LOG%\" echo NEW=%NEW%\r\n"
+                "set /a tries=0\r\n"
+                ":wait\r\n"
+                "copy /y \"%NEW%\" \"%APP%\" >nul 2>&1 && goto ok\r\n"
+                "set /a tries+=1\r\n"
+                "if !tries! geq 60 goto fail\r\n"
+                "ping 127.0.0.1 -n 2 >nul\r\n"
+                "goto wait\r\n"
+                ":ok\r\n"
+                ">>\"%LOG%\" echo OK_copied_after_%tries%_tries\r\n"
+                "del /f /q \"%NEW%\" >nul 2>&1\r\n"
+                "start \"\" \"%APP%\"\r\n"
+                "del /f /q \"%~f0\" 2>nul\r\n"
+                "exit /b\r\n"
+                ":fail\r\n"
+                ">>\"%LOG%\" echo FAIL_copy_after_60_tries\r\n"
+                "del /f /q \"%NEW%\" >nul 2>&1\r\n"
+                "del /f /q \"%~f0\" 2>nul\r\n"
+                "exit /b\r\n"
+            );
+            bat.replace(QString::fromUtf8("__APP__"), appPath);
+            bat.replace(QString::fromUtf8("__NEW__"), QDir::toNativeSeparators(newPath));
+
+            QFile bf(batPath);
+            if (!bf.open(QIODevice::WriteOnly | QIODevice::Truncate) || bf.write(bat.toLocal8Bit()) < 0) {
+                notes->setPlainText(QString::fromUtf8("无法创建更新脚本。"));
+                check->setEnabled(true);
+                return;
+            }
+            bf.close();
+
+            notes->setPlainText(QString::fromUtf8("下载完成,正在关闭本程序、覆盖 exe 并重启..."));
+            bool launched = QProcess::startDetached("cmd.exe", QStringList{"/c", batPath});
+            if (!launched) {
+                notes->setPlainText(QString::fromUtf8("无法启动更新脚本。"));
+                check->setEnabled(true);
+                return;
+            }
+            m_upgradeRestart = true;   // exec()返回后据此退出整个应用
+            dlg.accept();
+        });
     });
 
     QObject::connect(close, &QPushButton::clicked, &dlg, &QDialog::accept);
