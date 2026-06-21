@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "version.h"
 #include <QFileDialog>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -2269,7 +2270,7 @@ void MainWindow::showAbout()
     txt->setSpacing(4);
     QLabel *name = new QLabel(QString::fromUtf8("劳雷AI数据处理"));
     QFont nf = name->font(); nf.setPointSize(15); nf.setBold(true); name->setFont(nf);
-    QLabel *ver = new QLabel(QString::fromUtf8("版本 1.0.0"));
+    QLabel *ver = new QLabel(QString::fromUtf8("版本 ") + APP_VERSION);
     QLabel *cpy = new QLabel(QString::fromUtf8("版权 © 2026 劳雷"));
     QLabel *url = new QLabel(QString::fromUtf8("<a href=\"https://www.laurel.com.cn\">https://www.laurel.com.cn</a>"));
     url->setOpenExternalLinks(true);
@@ -2307,7 +2308,7 @@ void MainWindow::showUpgrade()
     QFont tf = title->font(); tf.setPointSize(13); tf.setBold(true); title->setFont(tf);
     main->addWidget(title);
 
-    QLabel *cur = new QLabel(QString::fromUtf8("当前版本:1.0.0"));
+    QLabel *cur = new QLabel(QString::fromUtf8("当前版本:") + APP_VERSION);
     QLabel *latest = new QLabel(QString::fromUtf8("最新版本:--(尚未检查)"));
     latest->setStyleSheet("color:#666;");
     main->addWidget(cur);
@@ -2336,7 +2337,7 @@ void MainWindow::showUpgrade()
 
     // 注:无内置升级服务器,"检查更新"为占位逻辑(本地即最新),接入真实升级服务时替换
     QObject::connect(check, &QPushButton::clicked, [latest, notes, bar, upgrade]() {
-        latest->setText(QString::fromUtf8("最新版本:1.0.0"));
+        latest->setText(QString::fromUtf8("最新版本:") + APP_VERSION);
         latest->setStyleSheet("color:#008800;");
         notes->setPlainText(QString::fromUtf8("已是最新版本,无需升级。"));
         bar->setValue(100); bar->setFormat(QString::fromUtf8("已是最新"));
