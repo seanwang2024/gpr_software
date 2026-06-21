@@ -2447,47 +2447,51 @@ void MainWindow::showUpgrade()
                 return;
             }
             bar->setValue(100); bar->setFormat(QString::fromUtf8("完成"));
-
-            // 更新批处理:轮询 copy(本程序退出后才能覆盖运行中的 exe)→ 删临时 → 启动新 exe → 自删
-            const QString batPath = QDir::tempPath() + "/gpr_updater.bat";
-            const QString bat =
-                "@echo off\r\n"
-                "setlocal enabledelayedexpansion\r\n"
-                "set \"APP=%~1\"\r\n"
-                "set \"NEW=%~2\"\r\n"
-                "set /a tries=0\r\n"
-                ":wait\r\n"
-                "copy /y \"%NEW%\" \"%APP%\" >nul 2>&1 && goto ok\r\n"
-                "set /a tries+=1\r\n"
-                "if !tries! geq 60 goto fail\r\n"
-                "ping 127.0.0.1 -n 2 >nul\r\n"
-                "goto wait\r\n"
-                ":ok\r\n"
-                "del /f /q \"%NEW%\" >nul 2>&1\r\n"
-                "start \"\" \"%APP%\"\r\n"
-                "del /f /q \"%~f0\" 2>nul\r\n"
-                "exit /b\r\n"
-                ":fail\r\n"
-                "del /f /q \"%NEW%\" >nul 2>&1\r\n"
-                "del /f /q \"%~f0\" 2>nul\r\n"
-                "exit /b\r\n";
-            QFile bf(batPath);
-            if (!bf.open(QIODevice::WriteOnly | QIODevice::Truncate) || bf.write(bat.toLatin1()) < 0) {
-                notes->setPlainText(QString::fromUtf8("无法创建更新脚本,请手动替换:\n") + newPath);
-                check->setEnabled(true);
-                return;
-            }
-            bf.close();
-
             notes->setPlainText(QString::fromUtf8("下载完成,正在关闭本程序、覆盖 exe 并重启..."));
-            bool launched = QProcess::startDetached("cmd.exe", QStringList{"/c", batPath, appPath, newPath});
-            if (!launched) {
-                notes->setPlainText(QString::fromUtf8("无法启动更新脚本,请手动替换:\n") + newPath);
-                check->setEnabled(true);
-                return;
-            }
-            m_upgradeRestart = true;    // 标记:exec()返回后退出应用(模态内直接 quit 不可靠)
-            dlg.accept();               // 关闭模态对话框,使 exec() 返回
+
+            // 延后到 finished 槽返回后再执行:避免在 network 回调内退出/销毁导致崩溃
+            QTimer::singleShot(0, &dlg, [&, appPath, newPath]() {
+                // 更新批处理:轮询 copy(本程序退出后才能覆盖运行中的 exe)→ 删临时 → 启动新 exe → 自删
+                const QString batPath = QDir::tempPath() + "/gpr_updater.bat";
+                const QString bat =
+                    "@echo off\r\n"
+                    "setlocal enabledelayedexpansion\r\n"
+                    "set \"APP=%~1\"\r\n"
+                    "set \"NEW=%~2\"\r\n"
+                    "set /a tries=0\r\n"
+                    ":wait\r\n"
+                    "copy /y \"%NEW%\" \"%APP%\" >nul 2>&1 && goto ok\r\n"
+                    "set /a tries+=1\r\n"
+                    "if !tries! geq 60 goto fail\r\n"
+                    "ping 127.0.0.1 -n 2 >nul\r\n"
+                    "goto wait\r\n"
+                    ":ok\r\n"
+                    "del /f /q \"%NEW%\" >nul 2>&1\r\n"
+                    "start \"\" \"%APP%\"\r\n"
+                    "del /f /q \"%~f0\" 2>nul\r\n"
+                    "exit /b\r\n"
+                    ":fail\r\n"
+                    "del /f /q \"%NEW%\" >nul 2>&1\r\n"
+                    "del /f /q \"%~f0\" 2>nul\r\n"
+                    "exit /b\r\n";
+                QFile bf(batPath);
+                if (!bf.open(QIODevice::WriteOnly | QIODevice::Truncate) || bf.write(bat.toLatin1()) < 0) {
+                    notes->setPlainText(QString::fromUtf8("无法创建更新脚本,请手动替换:\n") + newPath);
+                    check->setEnabled(true);
+                    return;
+                }
+                bf.close();
+
+                // 先启动批处理(独立进程),再关闭并退出本程序;即使退出异常,批处理仍会完成替换+重启
+                bool launched = QProcess::startDetached("cmd.exe", QStringList{"/c", batPath, appPath, newPath});
+                if (!launched) {
+                    notes->setPlainText(QString::fromUtf8("无法启动更新脚本,请手动替换:\n") + newPath);
+                    check->setEnabled(true);
+                    return;
+                }
+                m_upgradeRestart = true;    // 标记:exec()返回后退出应用
+                dlg.accept();               // 关闭模态对话框,使 exec() 返回
+            });
         });
     });
 
