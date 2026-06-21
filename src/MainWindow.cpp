@@ -2223,6 +2223,28 @@ void MainWindow::collapseEmptySplitters()
     }
 }
 
+void MainWindow::moveTabToGroup(QTabWidget *srcGroup, int tabIdx, QTabWidget *dstGroup)
+{
+    if (!srcGroup || !dstGroup || srcGroup == dstGroup) return;
+    if (tabIdx < 0 || tabIdx >= srcGroup->count()) return;
+
+    QWidget *page = srcGroup->widget(tabIdx);
+    QString title = srcGroup->tabText(tabIdx);
+    srcGroup->removeTab(tabIdx);
+    dstGroup->addTab(page, title);
+    dstGroup->setCurrentIndex(dstGroup->count() - 1);
+
+    // 源组移空(且非原始组)则删除并折叠残留空 splitter
+    if (srcGroup->count() == 0 && srcGroup != m_docTabWidget) {
+        m_tabGroups.removeOne(srcGroup);
+        delete srcGroup;
+        collapseEmptySplitters();
+    }
+    m_activeTabGroup = dstGroup;
+    updateGroupStyles(dstGroup, m_tabGroups);
+    updateWindowTitle();
+}
+
 void MainWindow::showFileHeader()
 {
     if (!m_currentTab) return;
@@ -3030,15 +3052,54 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 int idx = tabBar->tabAt(ctx->pos());
                 if (idx >= 0) {
                     QMenu menu;
-                    QAction *actH = menu.addAction(QString::fromUtf8("新水平选项卡组(&H)"));
-                    QAction *actV = menu.addAction(QString::fromUtf8("新垂直选项卡组(&V)"));
-                    menu.addSeparator();
+                    QAction *actPrev = nullptr, *actNext = nullptr;
+                    QAction *actNewH = nullptr, *actNewV = nullptr;
+                    QTabWidget *prevGrp = nullptr, *nextGrp = nullptr;
+
+                    // 前提:源组有 2 个及以上文件才允许分割/移动
+                    if (srcGroup->count() >= 2) {
+                        // 定位源组在父 splitter 中的相邻"组"及排列方向
+                        QSplitter *parent = qobject_cast<QSplitter*>(srcGroup->parentWidget());
+                        if (!parent) parent = m_docSplitter;
+                        int sidx = parent->indexOf(srcGroup);
+                        for (int i = sidx - 1; i >= 0 && !prevGrp; --i)
+                            prevGrp = qobject_cast<QTabWidget*>(parent->widget(i));
+                        for (int i = sidx + 1; i < parent->count() && !nextGrp; ++i)
+                            nextGrp = qobject_cast<QTabWidget*>(parent->widget(i));
+                        // 父 splitter 垂直堆叠 → 水平选项卡组(上/下);水平并排 → 垂直选项卡组(左/右)
+                        bool horizLayout = (parent->orientation() == Qt::Vertical);
+
+                        // 仅当存在 2+ 组且有相邻组时提供"移动"
+                        if (m_tabGroups.size() >= 2 && (prevGrp || nextGrp)) {
+                            if (horizLayout) {
+                                if (prevGrp) actPrev = menu.addAction(QString::fromUtf8("移到上一个选项卡组"));
+                                if (nextGrp) actNext = menu.addAction(QString::fromUtf8("移到下一个选项卡组"));
+                            } else {
+                                if (prevGrp) actPrev = menu.addAction(QString::fromUtf8("移到左一个选项卡组"));
+                                if (nextGrp) actNext = menu.addAction(QString::fromUtf8("移到右一个选项卡组"));
+                            }
+                            menu.addSeparator();
+                        }
+
+                        // 已有分组:只能新建同向;仅 1 组:水平/垂直可选
+                        if (m_tabGroups.size() >= 2) {
+                            if (horizLayout) actNewH = menu.addAction(QString::fromUtf8("新建水平选项卡组"));
+                            else             actNewV = menu.addAction(QString::fromUtf8("新建垂直选项卡组"));
+                        } else {
+                            actNewH = menu.addAction(QString::fromUtf8("新建水平选项卡组"));
+                            actNewV = menu.addAction(QString::fromUtf8("新建垂直选项卡组"));
+                        }
+                        menu.addSeparator();
+                    }
+
                     menu.addAction(QString::fromUtf8("取消(&C)"));
                     QAction *chosen = menu.exec(ctx->globalPos());
-                    if (chosen == actH) {
-                        splitHorizontal(srcGroup, idx);
-                    } else if (chosen == actV) {
-                        splitVertical(srcGroup, idx);
+                    if (chosen) {
+                        if (chosen == actPrev && prevGrp) moveTabToGroup(srcGroup, idx, prevGrp);
+                        else if (chosen == actNext && nextGrp) moveTabToGroup(srcGroup, idx, nextGrp);
+                        else if (chosen == actNewH) splitHorizontal(srcGroup, idx);
+                        else if (chosen == actNewV) splitVertical(srcGroup, idx);
+                        // 取消:仅关闭菜单,不做任何操作
                     }
                 }
                 return true;

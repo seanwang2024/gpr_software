@@ -280,6 +280,7 @@ private:
     void splitHorizontal(QTabWidget *srcGroup, int tabIdx);
     void splitVertical(QTabWidget *srcGroup, int tabIdx);
     void collapseEmptySplitters();
+    void moveTabToGroup(QTabWidget *srcGroup, int tabIdx, QTabWidget *dstGroup);
 
     // Tab drag state
     QTabWidget *m_dragSrcGroup = nullptr;
