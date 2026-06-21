@@ -2449,56 +2449,61 @@ void MainWindow::showUpgrade()
             }
             bar->setValue(100); bar->setFormat(QString::fromUtf8("完成"));
 
-            // 覆盖+重启批处理(下载已在应用内完成):等本程序退出 → copy → start → 自删
-            const QString batPath = QDir::tempPath() + "/gpr_updater.bat";
-            QString bat = QString::fromUtf8(
-                "@echo off\r\n"
-                "setlocal enabledelayedexpansion\r\n"
-                "set \"APP=__APP__\"\r\n"
-                "set \"NEW=__NEW__\"\r\n"
-                "set \"LOG=%TEMP%\\gpr_update.log\"\r\n"
-                ">\"%LOG%\" echo === gpr_updater %date% %time%\r\n"
-                ">>\"%LOG%\" echo APP=%APP%\r\n"
-                ">>\"%LOG%\" echo NEW=%NEW%\r\n"
-                "set /a tries=0\r\n"
-                ":wait\r\n"
-                "copy /y \"%NEW%\" \"%APP%\" >nul 2>&1 && goto ok\r\n"
-                "set /a tries+=1\r\n"
-                "if !tries! geq 60 goto fail\r\n"
-                "ping 127.0.0.1 -n 2 >nul\r\n"
-                "goto wait\r\n"
-                ":ok\r\n"
-                ">>\"%LOG%\" echo OK_copied_after_%tries%_tries\r\n"
-                "del /f /q \"%NEW%\" >nul 2>&1\r\n"
-                "start \"\" \"%APP%\"\r\n"
-                "del /f /q \"%~f0\" 2>nul\r\n"
-                "exit /b\r\n"
-                ":fail\r\n"
-                ">>\"%LOG%\" echo FAIL_copy_after_60_tries\r\n"
-                "del /f /q \"%NEW%\" >nul 2>&1\r\n"
-                "del /f /q \"%~f0\" 2>nul\r\n"
-                "exit /b\r\n"
-            );
-            bat.replace(QString::fromUtf8("__APP__"), appPath);
-            bat.replace(QString::fromUtf8("__NEW__"), QDir::toNativeSeparators(newPath));
+            // 询问用户:立即重启 / 下次启动再用(避免下载太快、突然关闭被误以为闪退)
+            QMessageBox choice(&dlg);
+            choice.setWindowTitle(QString::fromUtf8("升级"));
+            choice.setText(QString::fromUtf8("新版本已下载完成。是否立即重启程序以使用新版本?"));
+            QPushButton *btnNow = choice.addButton(QString::fromUtf8("立即重启"), QMessageBox::AcceptRole);
+            choice.addButton(QString::fromUtf8("下次启动再用"), QMessageBox::RejectRole);
+            choice.exec();
+            bool restartNow = (choice.clickedButton() == btnNow);
 
-            QFile bf(batPath);
-            if (!bf.open(QIODevice::WriteOnly | QIODevice::Truncate) || bf.write(bat.toLocal8Bit()) < 0) {
-                notes->setPlainText(QString::fromUtf8("无法创建更新脚本。"));
-                check->setEnabled(true);
-                return;
+            if (restartNow) {
+                // 覆盖+重启批处理:等本程序退出 → copy → start → 自删
+                const QString batPath = QDir::tempPath() + "/gpr_updater.bat";
+                QString bat = QString::fromUtf8(
+                    "@echo off\r\n"
+                    "setlocal enabledelayedexpansion\r\n"
+                    "set \"APP=__APP__\"\r\n"
+                    "set \"NEW=__NEW__\"\r\n"
+                    "set \"LOG=%TEMP%\\gpr_update.log\"\r\n"
+                    ">\"%LOG%\" echo === gpr_updater %date% %time% restart\r\n"
+                    ">>\"%LOG%\" echo APP=%APP%\r\n"
+                    "set /a tries=0\r\n"
+                    ":wait\r\n"
+                    "copy /y \"%NEW%\" \"%APP%\" >nul 2>&1 && goto ok\r\n"
+                    "set /a tries+=1\r\n"
+                    "if !tries! geq 60 goto fail\r\n"
+                    "ping 127.0.0.1 -n 2 >nul\r\n"
+                    "goto wait\r\n"
+                    ":ok\r\n"
+                    ">>\"%LOG%\" echo OK_copied_after_%tries%_tries\r\n"
+                    "del /f /q \"%NEW%\" >nul 2>&1\r\n"
+                    "start \"\" \"%APP%\"\r\n"
+                    "del /f /q \"%~f0\" 2>nul\r\n"
+                    "exit /b\r\n"
+                    ":fail\r\n"
+                    ">>\"%LOG%\" echo FAIL_copy_after_60_tries\r\n"
+                    "del /f /q \"%~f0\" 2>nul\r\n"
+                    "exit /b\r\n"
+                );
+                bat.replace(QString::fromUtf8("__APP__"), appPath);
+                bat.replace(QString::fromUtf8("__NEW__"), QDir::toNativeSeparators(newPath));
+                QFile bf(batPath);
+                if (bf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                    bf.write(bat.toLocal8Bit()); bf.close();
+                    QProcess::startDetached("cmd.exe", QStringList{"/c", batPath});
+                }
+                notes->setPlainText(QString::fromUtf8("正在关闭本程序、覆盖 exe 并重启..."));
+                m_upgradeRestart = true;   // exec()返回后据此退出整个应用
+                dlg.accept();
+            } else {
+                // 下次启动再用:记下待应用,本程序正常退出时由 closeEvent 写"仅覆盖"批处理
+                m_pendingUpgradeNewPath = newPath;
+                m_pendingUpgradeAppPath = appPath;
+                notes->setPlainText(QString::fromUtf8("已下载。将在本程序退出后自动替换为最新版本,下次启动即生效。"));
+                dlg.accept();   // 关闭升级对话框,本程序继续运行(不退出)
             }
-            bf.close();
-
-            notes->setPlainText(QString::fromUtf8("下载完成,正在关闭本程序、覆盖 exe 并重启..."));
-            bool launched = QProcess::startDetached("cmd.exe", QStringList{"/c", batPath});
-            if (!launched) {
-                notes->setPlainText(QString::fromUtf8("无法启动更新脚本。"));
-                check->setEnabled(true);
-                return;
-            }
-            m_upgradeRestart = true;   // exec()返回后据此退出整个应用
-            dlg.accept();
         });
     });
 
@@ -2508,6 +2513,50 @@ void MainWindow::showUpgrade()
         m_upgradeRestart = false;
         QCoreApplication::quit();
     }
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    // 若有"下次启动再用"的待应用升级:启动"等退出→覆盖(不重启)→自删"批处理,
+    // 本程序退出后自动替换 exe,无后台常驻进程。
+    if (!m_pendingUpgradeNewPath.isEmpty()) {
+        const QString batPath = QDir::tempPath() + "/gpr_updater.bat";
+        QString bat = QString::fromUtf8(
+            "@echo off\r\n"
+            "setlocal enabledelayedexpansion\r\n"
+            "set \"APP=__APP__\"\r\n"
+            "set \"NEW=__NEW__\"\r\n"
+            "set \"LOG=%TEMP%\\gpr_update.log\"\r\n"
+            ">\"%LOG%\" echo === gpr_updater %date% %time% later\r\n"
+            ">>\"%LOG%\" echo APP=%APP%\r\n"
+            "set /a tries=0\r\n"
+            ":wait\r\n"
+            "copy /y \"%NEW%\" \"%APP%\" >nul 2>&1 && goto ok\r\n"
+            "set /a tries+=1\r\n"
+            "if !tries! geq 60 goto fail\r\n"
+            "ping 127.0.0.1 -n 2 >nul\r\n"
+            "goto wait\r\n"
+            ":ok\r\n"
+            ">>\"%LOG%\" echo OK_copied_after_%tries%_tries\r\n"
+            "del /f /q \"%NEW%\" >nul 2>&1\r\n"
+            "del /f /q \"%~f0\" 2>nul\r\n"
+            "exit /b\r\n"
+            ":fail\r\n"
+            ">>\"%LOG%\" echo FAIL_copy_after_60_tries\r\n"
+            "del /f /q \"%~f0\" 2>nul\r\n"
+            "exit /b\r\n"
+        );
+        bat.replace(QString::fromUtf8("__APP__"), m_pendingUpgradeAppPath);
+        bat.replace(QString::fromUtf8("__NEW__"), QDir::toNativeSeparators(m_pendingUpgradeNewPath));
+        QFile bf(batPath);
+        if (bf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            bf.write(bat.toLocal8Bit()); bf.close();
+            QProcess::startDetached("cmd.exe", QStringList{"/c", batPath});
+        }
+        m_pendingUpgradeNewPath.clear();
+        m_pendingUpgradeAppPath.clear();
+    }
+    QMainWindow::closeEvent(event);
 }
 
 void MainWindow::showFileHeader()

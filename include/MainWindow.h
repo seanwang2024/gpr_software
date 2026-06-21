@@ -15,6 +15,7 @@
 #include <QPen>
 #include <QSlider>
 #include <QContextMenuEvent>
+#include <QCloseEvent>
 #include <QChartView>
 #include <QLineSeries>
 #include <QValueAxis>
@@ -240,6 +241,7 @@ private:
     void resizeEvent(QResizeEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     void updateWindowTitle();
@@ -263,6 +265,8 @@ private:
     QProgressBar *m_progressBar = nullptr;
     QNetworkAccessManager *m_net = nullptr;  // 升级用网络管理器(成员级,生命周期不随对话框)
     bool m_upgradeRestart = false;  // 升级下载完成:exec()返回后据此退出应用(模态内 quit 不可靠)
+    QString m_pendingUpgradeNewPath;   // "下次启动再用":待应用的临时下载文件路径
+    QString m_pendingUpgradeAppPath;   // 对应的应用 exe 路径
     QLabel *coordinateLabel;
     QTreeWidget *gainTree;
     QDialog *m_leftPanel;
