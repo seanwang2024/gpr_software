@@ -2429,10 +2429,10 @@ void MainWindow::showUpgrade()
         QObject::connect(r, &QNetworkReply::downloadProgress, [&](qint64 got, qint64 tot) {
             if (tot > 0) bar->setValue(static_cast<int>(got * 100 / tot));
         });
-        QObject::connect(r, &QNetworkReply::readyRead, [&]() {
+        QObject::connect(r, &QNetworkReply::readyRead, [r, f]() {
             f->write(r->readAll());
         });
-        QObject::connect(r, &QNetworkReply::finished, [&]() {
+        QObject::connect(r, &QNetworkReply::finished, [&, r, f, savePath, saveDir]() {
             f->write(r->readAll());
             f->close();
             bool ok = (r->error() == QNetworkReply::NoError);
