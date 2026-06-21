@@ -193,6 +193,10 @@ struct TabData {
     bool zeroApplied = false;
     int zeroSkipRows = 0;
     float signalPosition = 0.0f;  // rhf_position from offset 22
+    QByteArray header;            // 前 1024 字节原始文件头(保留所有文件头信息)
+    int nsamp = 512;              // 采样点数/扫描 (offset 4)
+    float headerRange = 20.0f;    // 记录长度 ns (offset 26)
+    float epsr = 1.0f;            // 介电常数 (offset 54)
 
     QWidget *page = nullptr;
     QScrollArea *scrollArea = nullptr;
@@ -310,6 +314,10 @@ private:
     double m_timeRange;
     double m_depthRange;
     float m_signalPos = 0.0f;  // rhf_position from current file
+    QByteArray m_header;          // 当前文件原始头(1024B)
+    float m_headerRange = 20.0f;  // 记录长度 ns (offset 26)
+    float m_epsr = 1.0f;          // 介电常数 (offset 54)
+    int m_nsamp = 512;            // 采样点数 (offset 4)
 
     // Zero-point spinboxes & button
     QDoubleSpinBox *m_zeroOffsetSpin = nullptr;

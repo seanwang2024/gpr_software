@@ -859,7 +859,7 @@ void VRulerWidget::paintEvent(QPaintEvent *)
         p.drawLine(0, 0, 0, imgH);
 
     if (m_direction == Left) {
-        double majorInterval = 2.5;
+        double majorInterval = niceInterval(range, 8);   // 自适应:按当前时间范围选合适刻度
         double minorInterval = majorInterval / 10.0;
 
         double firstMinor = ceil(m_minVal / minorInterval) * minorInterval;
@@ -880,10 +880,10 @@ void VRulerWidget::paintEvent(QPaintEvent *)
             int textY = (imgH > 16) ? qBound(0, y - 8, imgH - 16) : qMax(0, y - 8);
             p.drawText(QRect(20, textY, w - 30, 16),
                        Qt::AlignRight | Qt::AlignVCenter,
-                       QString::number(val, 'f', 1));
+                       QString::number(val, 'f', 2));
         }
     } else {
-        double majorInterval = 0.25;
+        double majorInterval = niceInterval(range, 8);   // 自适应:按当前深度范围选合适刻度
         double minorInterval = majorInterval / 10.0;
 
         double firstMinor = ceil(m_minVal / minorInterval) * minorInterval;
@@ -904,7 +904,7 @@ void VRulerWidget::paintEvent(QPaintEvent *)
             int textY = (imgH > 16) ? qBound(0, y - 8, imgH - 16) : qMax(0, y - 8);
             p.drawText(QRect(8, textY, w - 20, 16),
                        Qt::AlignLeft | Qt::AlignVCenter,
-                       QString::number(val, 'f', 2));
+                       QString::number(val, 'f', 3));
         }
     }
 }
@@ -1680,6 +1680,10 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     tab->timeRange = m_timeRange;
     tab->depthRange = m_depthRange;
     tab->signalPosition = m_signalPos;
+    tab->header = m_header;
+    tab->nsamp = m_nsamp;
+    tab->headerRange = m_headerRange;
+    tab->epsr = m_epsr;
 
     // Page widget
     tab->page = new QWidget();
@@ -2501,13 +2505,17 @@ void MainWindow::updateCoordinateLabel(int x, int y)
     if (x < 0 || y < 0) return;
 
     qint32 pixelValue = getPixelValue(x, y);
-    double normalizedValue = static_cast<double>(pixelValue) / (256.0 * 256.0 * 2.0);
+    // 双程走时/深度:按当前左/右标尺范围随采样点 y 线性换算
+    double twt   = m_pixelsPerRow ? y * m_timeRange  / m_pixelsPerRow : 0.0;   // 双程走时 ns
+    double depth = m_pixelsPerRow ? y * m_depthRange / m_pixelsPerRow : 0.0;   // 深度 m(按右RANGE换算)
+    int amp = pixelValue / 256;                                                // 振幅÷256(整数,保留符号)
 
-    coordinateLabel->setText(QString("坐标: X=%1, Y=%2 | Pixel值: %3 | 归一化值: %4")
+    coordinateLabel->setText(QString::fromUtf8("道号: %1 | 采样点数: %2 | 双程走时: %3 ns | 深度: %4 m | 振幅: %5")
                            .arg(x)
                            .arg(y)
-                           .arg(pixelValue)
-                           .arg(normalizedValue, 0, 'f', 6));
+                           .arg(twt, 0, 'f', 2)
+                           .arg(depth, 0, 'f', 3)
+                           .arg(amp));
 
     updateChart(x);
 }
@@ -2637,6 +2645,18 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     m_signalPos = 0.0f;
     file.read(reinterpret_cast<char*>(&m_signalPos), 4);
     qDebug() << "loadDZTFile: signalPos=" << m_signalPos;
+
+    // Preserve full header + parse record length / dielectric / samples-per-scan
+    file.seek(0);
+    m_header = file.read(1024);
+    m_headerRange = 20.0f;
+    m_epsr = 1.0f;
+    m_nsamp = 512;
+    if (m_header.size() >= 56) {
+        memcpy(&m_headerRange, m_header.constData() + 26, 4);   // rhf_range (ns) 记录长度
+        memcpy(&m_epsr, m_header.constData() + 54, 4);          // epsr 介电常数
+        m_nsamp = (static_cast<quint8>(m_header[5]) << 8) | static_cast<quint8>(m_header[4]);  // nsamp (int16 LE)
+    }
 
     if (!file.seek(dataOffset)) {
         QMessageBox::warning(this, "Error", "open file failed.");
@@ -2918,10 +2938,15 @@ void MainWindow::updateRulers()
     m_currentTab->traceCount = m_traceCount;
     updateTraceRange();
 
-    // Time range based on signal position
+    // Time range from file header record length (rhf_range), adjusted by signal position
     float sigPos = m_currentTab->signalPosition;
-    m_timeRange = 20.0 + sigPos;  // e.g. 20 + (-2.79) = 17.21
-    m_depthRange = 1.25 * m_timeRange / 20.0;
+    double range = m_currentTab->headerRange;   // 记录长度 ns (offset 26)
+    double epsr  = m_currentTab->epsr;          // 介电常数 (offset 54)
+    m_timeRange = range + sigPos;               // 保留信号位置偏移(原硬编码 20 → 真实记录长度)
+    if (epsr > 0.0)
+        m_depthRange = 0.299792458 * m_timeRange / (2.0 * std::sqrt(epsr));  // c·t/(2√εr), c=0.2998 m/ns
+    else
+        m_depthRange = m_timeRange * 0.05;      // 介电缺失兜底
     m_currentTab->timeRange = m_timeRange;
     m_currentTab->depthRange = m_depthRange;
 
