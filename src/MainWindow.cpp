@@ -8,6 +8,15 @@
 #include <QDialog>
 #include <QProgressBar>
 #include <QPlainTextEdit>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QStandardPaths>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFile>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QMessageBox>
@@ -2299,7 +2308,7 @@ void MainWindow::showUpgrade()
 {
     QDialog dlg(this);
     dlg.setWindowTitle(QString::fromUtf8("升级"));
-    dlg.setFixedSize(460, 300);
+    dlg.setFixedSize(480, 320);
     QVBoxLayout *main = new QVBoxLayout(&dlg);
     main->setContentsMargins(24, 20, 24, 16);
     main->setSpacing(10);
@@ -2320,7 +2329,7 @@ void MainWindow::showUpgrade()
 
     QPlainTextEdit *notes = new QPlainTextEdit;
     notes->setReadOnly(true);
-    notes->setPlainText(QString::fromUtf8("更新内容:\n(点击\"检查更新\"查询最新版本信息)"));
+    notes->setPlainText(QString::fromUtf8("更新内容:\n(点击\"检查更新\"连接服务器查询最新版本)"));
     main->addWidget(notes);
 
     QHBoxLayout *btns = new QHBoxLayout();
@@ -2335,17 +2344,114 @@ void MainWindow::showUpgrade()
     btns->addWidget(check); btns->addWidget(upgrade); btns->addWidget(close);
     main->addLayout(btns);
 
-    // 注:无内置升级服务器,"检查更新"为占位逻辑(本地即最新),接入真实升级服务时替换
-    QObject::connect(check, &QPushButton::clicked, [latest, notes, bar, upgrade]() {
-        latest->setText(QString::fromUtf8("最新版本:") + APP_VERSION);
-        latest->setStyleSheet("color:#008800;");
-        notes->setPlainText(QString::fromUtf8("已是最新版本,无需升级。"));
-        bar->setValue(100); bar->setFormat(QString::fromUtf8("已是最新"));
+    QNetworkAccessManager nam(&dlg);
+    QString latestVer;    // 检查更新后得到的服务端最新版本
+    QString downloadUrl;  // 服务端返回的下载地址
+
+    // 版本号比较 a.b.c ...,任一段大者为大
+    auto verLess = [](const QString &a, const QString &b) -> bool {
+        const QStringList la = a.split('.'), lb = b.split('.');
+        int n = qMax(la.size(), lb.size());
+        for (int i = 0; i < n; ++i) {
+            int ia = (i < la.size()) ? la[i].toInt() : 0;
+            int ib = (i < lb.size()) ? lb[i].toInt() : 0;
+            if (ia != ib) return ia < ib;
+        }
+        return false;
+    };
+
+    // 检查更新: GET APP_UPDATE_URL 解析 JSON,与服务端版本比较
+    QObject::connect(check, &QPushButton::clicked, [&]() {
+        latest->setText(QString::fromUtf8("最新版本:查询中..."));
+        latest->setStyleSheet("color:#666;");
+        notes->setPlainText(QString::fromUtf8("正在连接升级服务器..."));
+        bar->setRange(0, 100); bar->setValue(0);
+        bar->setFormat(QString::fromUtf8("检查中"));
         upgrade->setEnabled(false);
+
+        QNetworkRequest req{QUrl(QString::fromUtf8(APP_UPDATE_URL))};
+        req.setHeader(QNetworkRequest::UserAgentHeader, QString("MyQtApp/") + APP_VERSION);
+        req.setTransferTimeout(10000);
+        QNetworkReply *r = nam.get(req);
+        QObject::connect(r, &QNetworkReply::finished, [&, r]() {
+            bool ok = (r->error() == QNetworkReply::NoError);
+            QByteArray data = ok ? r->readAll() : QByteArray();
+            QString err = r->errorString();
+            r->deleteLater();
+            if (!ok) {
+                latest->setText(QString::fromUtf8("最新版本:查询失败"));
+                latest->setStyleSheet("color:#cc0000;");
+                notes->setPlainText(QString::fromUtf8("无法连接升级服务器:\n") + err);
+                bar->setFormat(QString::fromUtf8("失败"));
+                return;
+            }
+            QJsonObject obj = QJsonDocument::fromJson(data).object();
+            latestVer = obj.value("latestVersion").toString();
+            downloadUrl = obj.value("downloadUrl").toString();
+            QString rn = obj.value("releaseNotes").toString();
+            latest->setText(QString::fromUtf8("最新版本:") + latestVer);
+            if (verLess(QString::fromUtf8(APP_VERSION), latestVer)) {
+                latest->setStyleSheet("color:#cc6600;");
+                notes->setPlainText(QString::fromUtf8("发现新版本 ") + latestVer +
+                                    QString::fromUtf8("!\n\n更新内容:\n") + rn);
+                bar->setFormat(QString::fromUtf8("可升级"));
+                upgrade->setEnabled(!downloadUrl.isEmpty());
+            } else {
+                latest->setStyleSheet("color:#008800;");
+                notes->setPlainText(QString::fromUtf8("已是最新版本,无需升级。"));
+                bar->setValue(100); bar->setFormat(QString::fromUtf8("已是最新"));
+                upgrade->setEnabled(false);
+            }
+        });
     });
-    QObject::connect(upgrade, &QPushButton::clicked, [bar]() {
-        bar->setRange(0, 0); bar->setFormat(QString::fromUtf8("下载中..."));
+
+    // 立即升级: 下载最新 exe 到"下载"目录,完成后打开该目录(由用户手动替换)
+    QObject::connect(upgrade, &QPushButton::clicked, [&]() {
+        if (downloadUrl.isEmpty()) return;
+        check->setEnabled(false); upgrade->setEnabled(false);
+        bar->setRange(0, 100); bar->setValue(0);
+        bar->setFormat(QString::fromUtf8("下载中 %p%"));
+
+        QString saveDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        if (saveDir.isEmpty()) saveDir = QDir::currentPath();
+        QString savePath = saveDir + "/MyQtApp_" + latestVer + ".exe";
+
+        QNetworkRequest req{QUrl(downloadUrl)};
+        req.setHeader(QNetworkRequest::UserAgentHeader, QString("MyQtApp/") + APP_VERSION);
+        QNetworkReply *r = nam.get(req);
+        QFile *f = new QFile(savePath, &dlg);
+        if (!f->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            notes->setPlainText(QString::fromUtf8("无法写入文件:\n") + savePath);
+            r->abort(); r->deleteLater();
+            check->setEnabled(true);
+            return;
+        }
+        QObject::connect(r, &QNetworkReply::downloadProgress, [&](qint64 got, qint64 tot) {
+            if (tot > 0) bar->setValue(static_cast<int>(got * 100 / tot));
+        });
+        QObject::connect(r, &QNetworkReply::readyRead, [&]() {
+            f->write(r->readAll());
+        });
+        QObject::connect(r, &QNetworkReply::finished, [&]() {
+            f->write(r->readAll());
+            f->close();
+            bool ok = (r->error() == QNetworkReply::NoError);
+            QString err = r->errorString();
+            r->deleteLater();
+            if (!ok) {
+                f->remove();
+                notes->setPlainText(QString::fromUtf8("下载失败:") + err);
+                bar->setFormat(QString::fromUtf8("失败"));
+            } else {
+                bar->setValue(100); bar->setFormat(QString::fromUtf8("完成"));
+                notes->setPlainText(QString::fromUtf8("已下载到:\n") + savePath +
+                    QString::fromUtf8("\n\n请关闭本程序后,用下载的新版本替换旧版本。"));
+                QDesktopServices::openUrl(QUrl::fromLocalFile(saveDir));
+            }
+            check->setEnabled(true);
+        });
     });
+
     QObject::connect(close, &QPushButton::clicked, &dlg, &QDialog::accept);
     dlg.exec();
 }

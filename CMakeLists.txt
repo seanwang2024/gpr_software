@@ -10,7 +10,7 @@ set(CMAKE_AUTOUIC ON)
 # For Qt 6.8.3 with MinGW
 set(CMAKE_PREFIX_PATH "C:/Qt/6.8.3/mingw_64/lib/cmake" CACHE STRING "Qt6 prefix path")
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Charts Quick QuickWidgets Quick3D PrintSupport)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Charts Quick QuickWidgets Quick3D PrintSupport Network)
 
 # OpenCV (static, world module)
 set(OpenCV_DIR "D:/opencv/install/x64/mingw/staticlib" CACHE PATH "OpenCV config path")
@@ -45,7 +45,7 @@ add_executable(MyQtApp ${SOURCES} ${HEADERS} ${RESOURCES})
 
 target_include_directories(MyQtApp PRIVATE include ${OpenCV_INCLUDE_DIRS})
 
-target_link_libraries(MyQtApp PRIVATE Qt6::Core Qt6::Widgets Qt6::Charts Qt6::Quick Qt6::QuickWidgets Qt6::Quick3D Qt6::PrintSupport ${OpenCV_LIBS})
+target_link_libraries(MyQtApp PRIVATE Qt6::Core Qt6::Widgets Qt6::Charts Qt6::Quick Qt6::QuickWidgets Qt6::Quick3D Qt6::PrintSupport Qt6::Network ${OpenCV_LIBS})
 
 if(WIN32)
     set_target_properties(MyQtApp PROPERTIES WIN32_EXECUTABLE TRUE)
