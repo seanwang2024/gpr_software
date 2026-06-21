@@ -2414,7 +2414,7 @@ void MainWindow::showUpgrade()
         bar->setRange(0, 100); bar->setValue(0);
         bar->setFormat(QString::fromUtf8("下载中 %p%"));
 
-        const QString appPath = QCoreApplication::applicationFilePath();  // 当前运行的 exe 全路径
+        const QString appPath = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());  // 强制反斜杠(cmd copy 需要)
         // 生成更新批处理:由 PowerShell 下载 → 等本程序退出 → 覆盖 exe → 重启 → 自删。
         // 下载放到独立进程,避免应用内网络回调的对象生命周期崩溃。
         const QString batPath = QDir::tempPath() + "/gpr_updater.bat";
@@ -2424,8 +2424,15 @@ void MainWindow::showUpgrade()
             "set \"URL=__URL__\"\r\n"
             "set \"APP=__APP__\"\r\n"
             "set \"NEW=%TEMP%\\MyQtApp_upgrade.exe\"\r\n"
+            "set \"LOG=%TEMP%\\gpr_update.log\"\r\n"
+            ">\"%LOG%\" echo === gpr_updater %date% %time%\r\n"
+            ">>\"%LOG%\" echo APP=%APP%\r\n"
+            ">>\"%LOG%\" echo URL=%URL%\r\n"
+            ">>\"%LOG%\" echo NEW=%NEW%\r\n"
             "powershell -NoProfile -ExecutionPolicy Bypass -Command \"try{Invoke-WebRequest -Uri '%URL%' -OutFile '%NEW%' -UseBasicParsing}catch{exit 1}\"\r\n"
-            "if errorlevel 1 exit /b 1\r\n"
+            "set \"PSERR=%errorlevel%\"\r\n"
+            ">>\"%LOG%\" echo PSERR=%PSERR%\r\n"
+            "if not \"%PSERR%\"==\"0\" ( >>\"%LOG%\" echo ABORT_PS_FAIL & exit /b 1 )\r\n"
             "set /a tries=0\r\n"
             ":wait\r\n"
             "copy /y \"%NEW%\" \"%APP%\" >nul 2>&1 && goto ok\r\n"
@@ -2434,11 +2441,13 @@ void MainWindow::showUpgrade()
             "ping 127.0.0.1 -n 2 >nul\r\n"
             "goto wait\r\n"
             ":ok\r\n"
+            ">>\"%LOG%\" echo OK_copied_after_%tries%_tries\r\n"
             "del /f /q \"%NEW%\" >nul 2>&1\r\n"
             "start \"\" \"%APP%\"\r\n"
             "del /f /q \"%~f0\" 2>nul\r\n"
             "exit /b\r\n"
             ":fail\r\n"
+            ">>\"%LOG%\" echo FAIL_copy_after_60_tries\r\n"
             "del /f /q \"%NEW%\" >nul 2>&1\r\n"
             "del /f /q \"%~f0\" 2>nul\r\n"
             "exit /b\r\n"
