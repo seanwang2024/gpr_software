@@ -2486,13 +2486,17 @@ void MainWindow::showUpgrade()
                 check->setEnabled(true);
                 return;
             }
-            QCoreApplication::quit();   // 请求本程序退出(批处理随后覆盖 exe 并重启)
+            m_upgradeRestart = true;    // 标记:exec()返回后退出应用(模态内直接 quit 不可靠)
             dlg.accept();               // 关闭模态对话框,使 exec() 返回
         });
     });
 
     QObject::connect(close, &QPushButton::clicked, &dlg, &QDialog::accept);
     dlg.exec();
+    if (m_upgradeRestart) {            // 升级:批处理已启动,此处可靠地退出整个应用
+        m_upgradeRestart = false;
+        QCoreApplication::quit();
+    }
 }
 
 void MainWindow::showFileHeader()

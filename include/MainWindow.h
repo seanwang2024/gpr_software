@@ -260,6 +260,7 @@ private:
     // Shared/global widgets
     QPushButton *openButton;
     QProgressBar *m_progressBar = nullptr;
+    bool m_upgradeRestart = false;  // 升级下载完成:exec()返回后据此退出应用(模态内 quit 不可靠)
     QLabel *coordinateLabel;
     QTreeWidget *gainTree;
     QDialog *m_leftPanel;
