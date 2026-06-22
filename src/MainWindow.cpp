@@ -1219,7 +1219,22 @@ MainWindow::MainWindow(QWidget *parent)
     m_welcomePix = QPixmap(":/icons/resources/welcome.png");
     welcomeLabel->setPixmap(m_welcomePix);
     welcomeLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);  // 占满整个内容区
-    // 保持比例铺满(cover):updateWelcomePixmap() 按 KeepAspectRatioByExpanding 缩放,居中裁掉溢出
+    // 保持比例铺满:updateWelcomePixmap() 按 KeepAspectRatio 缩放原图,居中显示
+    // welcome 底部 4 个功能图标的热区:鼠标悬停显示功能说明(位置在 updateWelcomePixmap 里随图片重定位)
+    const QString featTips[4] = {
+        QString::fromUtf8("<b>智能识别</b><br>AI 自动识别雷达剖面中的空洞 / 异常体 / 管线等目标"),
+        QString::fromUtf8("<b>高效处理</b><br>一键完成零点校正、增益、数字滤波等批量数据处理"),
+        QString::fromUtf8("<b>精确成像</b><br>高分辨率 B-scan 成像,支持增益、调色板、堆积图"),
+        QString::fromUtf8("<b>深度洞察</b><br>道号 / 采样点 / 双程走时 / 深度 多维坐标分析,深度按介电常数换算"),
+    };
+    for (int i = 0; i < 4; ++i) {
+        QWidget *hs = new QWidget(welcomeLabel);
+        hs->setStyleSheet("background: transparent;");
+        hs->setToolTip(featTips[i]);
+        hs->setCursor(Qt::PointingHandCursor);
+        hs->show();
+        m_welcomeHotspots.append(hs);
+    }
 
     // --- Shared: document tab widget ---
     m_docTabWidget = new QTabWidget(this);
@@ -3537,11 +3552,26 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 
 void MainWindow::updateWelcomePixmap()
 {
-    // welcome 图片保持比例铺满整个内容区(cover):按当前尺寸缩放原图(可能溢出),QLabel 居中裁掉边缘
+    // welcome 图片保持比例缩放铺满(KeepAspectRatio),居中显示
     if (!welcomeLabel || !welcomeLabel->isVisible() || m_welcomePix.isNull()) return;
-    if (welcomeLabel->width() < 2 || welcomeLabel->height() < 2) return;
-    welcomeLabel->setPixmap(m_welcomePix.scaled(welcomeLabel->size(),
-        Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    int W = welcomeLabel->width(), H = welcomeLabel->height();
+    if (W < 2 || H < 2) return;
+    welcomeLabel->setPixmap(m_welcomePix.scaled(W, H, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+
+    // 计算 KeepAspectRatio 缩放后图片在标签里的实际显示矩形(居中)
+    int iw = m_welcomePix.width(), ih = m_welcomePix.height();
+    double s = qMin(double(W) / iw, double(H) / ih);
+    int dw = int(iw * s), dh = int(ih * s);
+    int ox = (W - dw) / 2, oy = (H - dh) / 2;
+
+    // 4 个功能图标在原图底部约 80%~98% 区域、横向各占 1/4;把热区对齐到显示矩形上
+    for (int i = 0; i < m_welcomeHotspots.size() && i < 4; ++i) {
+        double cx = (i + 0.5) / 4.0;     // 中心 x:0.125 / 0.375 / 0.625 / 0.875
+        const double rw = 0.22, rh = 0.18, ry = 0.80;
+        m_welcomeHotspots[i]->setGeometry(
+            ox + int((cx - rw / 2.0) * dw), oy + int(ry * dh),
+            int(rw * dw), int(rh * dh));
+    }
 }
 
 void MainWindow::resizeEvent(QResizeEvent *event)
