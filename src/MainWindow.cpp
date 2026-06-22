@@ -1533,7 +1533,7 @@ MainWindow::MainWindow(QWidget *parent)
     mainLayout->addLayout(contentLayout);
 
     // --- Bottom bar ---
-    coordinateLabel = new QLabel("点击图片查看坐标", this);
+    coordinateLabel = new QLabel("", this);
     coordinateLabel->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px; font-family: monospace;");
 
     m_progressBar = new QProgressBar(this);
@@ -2764,7 +2764,7 @@ void MainWindow::openDztFile(const QString &filePath)
         return;
     }
 
-    coordinateLabel->setText("点击图片查看坐标");
+    coordinateLabel->setText("");
 
     if (m_tabs.isEmpty()) hideWelcome();
 
