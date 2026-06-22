@@ -3548,7 +3548,8 @@ void MainWindow::resizeEvent(QResizeEvent *event)
 {
     QMainWindow::resizeEvent(event);
     resizeImageLabel();
-    updateWelcomePixmap();
+    // 延后到布局重算完成后再缩放(此时 welcomeLabel 尺寸才正确),否则启动时用旧尺寸、要拖动才生效
+    QTimer::singleShot(0, this, [this]() { updateWelcomePixmap(); });
 }
 
 bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
