@@ -3381,8 +3381,16 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             m_welcomeZoom->setMask(QRegion(m_welcomeZoom->rect(), QRegion::Ellipse));  // 圆形遮罩
             m_welcomeZoom->raise();
             m_welcomeZoom->show();
-            // 右上角功能说明(大字号)
+            // 功能说明显示在该图标的右上角(图标上方偏右,不超出图片范围)
+            int iconCx = ox + int(ICON_CX[whi] * dw);
+            int iconTopY = oy + int(0.86 * dh);
+            int tipW = int(0.24 * dw), tipH = int(0.15 * dh);
+            int tipX = iconCx + int(0.02 * dw);
+            int tipY = iconTopY - tipH - 8;
+            if (tipX + tipW > ox + dw - 4) tipX = ox + dw - tipW - 4;   // 不超出右边
+            if (tipY < oy + 4) tipY = oy + 4;                           // 不超出顶部
             m_welcomeTip->setText(m_welcomeTips.value(whi));
+            m_welcomeTip->setGeometry(tipX, tipY, tipW, tipH);
             m_welcomeTip->raise();
             m_welcomeTip->show();
         } else if (event->type() == QEvent::Leave) {
@@ -3623,11 +3631,6 @@ void MainWindow::updateWelcomePixmap()
         m_welcomeHotspots[i]->setGeometry(
             ox + int((ICON_CX[i] - rw / 2.0) * dw), oy + int(ry * dh),
             int(rw * dw), int(rh * dh));
-    }
-    // 右上角功能说明文字位置(悬停时显示)
-    if (m_welcomeTip) {
-        int tipW = int(W * 0.40);
-        m_welcomeTip->setGeometry(W - tipW - 20, 20, tipW, int(H * 0.22));
     }
 }
 
