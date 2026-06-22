@@ -1535,6 +1535,7 @@ MainWindow::MainWindow(QWidget *parent)
     // --- Bottom bar ---
     coordinateLabel = new QLabel("", this);
     coordinateLabel->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px; font-family: monospace;");
+    coordinateLabel->setVisible(false);   // 不再显示坐标栏:空框与"道号..."信息都不要
 
     m_progressBar = new QProgressBar(this);
     m_net = new QNetworkAccessManager(this);
@@ -1546,9 +1547,6 @@ MainWindow::MainWindow(QWidget *parent)
 
     QHBoxLayout *buttonLayout = new QHBoxLayout();
     buttonLayout->addWidget(m_progressBar);
-    buttonLayout->addStretch(1);
-    coordinateLabel->setAlignment(Qt::AlignCenter);
-    buttonLayout->addWidget(coordinateLabel);
     buttonLayout->addStretch(1);
 
     mainLayout->addLayout(buttonLayout);
