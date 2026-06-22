@@ -242,6 +242,7 @@ private:
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
+    void updateWelcomePixmap();
     bool eventFilter(QObject *watched, QEvent *event) override;
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     void updateWindowTitle();
@@ -279,6 +280,7 @@ private:
     QPushButton *m_btnCancel;
     QTabWidget *ribbonTab;
     QLabel *welcomeLabel;
+    QPixmap m_welcomePix;          // welcome 原图(按比例铺满时缩放源)
     QTabWidget *m_docTabWidget;
     CustomTitleBar *m_titleBar = nullptr;
 

@@ -1216,10 +1216,10 @@ MainWindow::MainWindow(QWidget *parent)
         "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
         "stop:0 #0a1929, stop:0.5 #14304f, stop:1 #1a4a7a);"
     );
-    QPixmap welcomePix(":/icons/resources/welcome.png");
-    welcomeLabel->setPixmap(welcomePix);
-    welcomeLabel->setScaledContents(true);                                    // 图片随标签拉伸,填满
-    welcomeLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);  // 忽略 sizeHint,占满整个内容区
+    m_welcomePix = QPixmap(":/icons/resources/welcome.png");
+    welcomeLabel->setPixmap(m_welcomePix);
+    welcomeLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);  // 占满整个内容区
+    // 保持比例铺满(cover):updateWelcomePixmap() 按 KeepAspectRatioByExpanding 缩放,居中裁掉溢出
 
     // --- Shared: document tab widget ---
     m_docTabWidget = new QTabWidget(this);
@@ -2099,6 +2099,7 @@ void MainWindow::showWelcome()
     m_leftPanel->hide();
     m_docSplitter->hide();
     welcomeLabel->show();
+    QTimer::singleShot(0, this, [this]() { updateWelcomePixmap(); });  // 布局稳定后按比例铺满
     m_btnApply->setEnabled(false);
     m_btnOK->setEnabled(false);
     m_btnCancel->setEnabled(false);
@@ -3534,10 +3535,20 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
     return QMainWindow::eventFilter(watched, event);
 }
 
+void MainWindow::updateWelcomePixmap()
+{
+    // welcome 图片保持比例铺满整个内容区(cover):按当前尺寸缩放原图(可能溢出),QLabel 居中裁掉边缘
+    if (!welcomeLabel || !welcomeLabel->isVisible() || m_welcomePix.isNull()) return;
+    if (welcomeLabel->width() < 2 || welcomeLabel->height() < 2) return;
+    welcomeLabel->setPixmap(m_welcomePix.scaled(welcomeLabel->size(),
+        Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+}
+
 void MainWindow::resizeEvent(QResizeEvent *event)
 {
     QMainWindow::resizeEvent(event);
     resizeImageLabel();
+    updateWelcomePixmap();
 }
 
 bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
