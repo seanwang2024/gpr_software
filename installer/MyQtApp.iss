@@ -4,7 +4,7 @@
 
 #define MyAppName "劳雷AI数据处理"
 #define MyAppNameEn "MyQtApp"
-#define MyAppVersion "1.0.12"
+#define MyAppVersion "1.0.18"
 #define MyAppPublisher "劳雷"
 #define MyAppExeName "MyQtApp.exe"
 
@@ -21,6 +21,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
 OutputDir=D:\gpr_release
 OutputBaseFilename=MyQtApp_Setup_{#MyAppVersion}
+SetupIconFile=laurel_logo.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
