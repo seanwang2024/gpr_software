@@ -282,7 +282,9 @@ private:
     QLabel *welcomeLabel;
     QPixmap m_welcomePix;          // welcome 原图(按比例铺满时缩放源)
     QList<QWidget*> m_welcomeHotspots;  // welcome 底部 4 个功能图标热区(悬停显示说明)
-    QLabel *m_welcomeZoom = nullptr;    // 悬停时放大的图标
+    QLabel *m_welcomeZoom = nullptr;    // 悬停时放大的图标(圆形)
+    QLabel *m_welcomeTip = nullptr;     // 右上角功能说明文字
+    QStringList m_welcomeTips;          // 4 个功能说明(悬停显示在右上角)
     QList<QPixmap> m_welcomeIconPix;    // 预切的 4 个图标(放大用)
     QTabWidget *m_docTabWidget;
     CustomTitleBar *m_titleBar = nullptr;

@@ -19,6 +19,7 @@
 #include <QFile>
 #include <QProcess>
 #include <QCoreApplication>
+#include <QRegion>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QMessageBox>
@@ -1220,23 +1221,32 @@ MainWindow::MainWindow(QWidget *parent)
     welcomeLabel->setPixmap(m_welcomePix);
     welcomeLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);  // 占满整个内容区
     // 保持比例铺满:updateWelcomePixmap() 按 KeepAspectRatio 缩放原图,居中显示
-    // welcome 底部 4 个功能图标的热区:鼠标悬停显示功能说明(位置在 updateWelcomePixmap 里随图片重定位)
-    const QString featTips[4] = {
-        QString::fromUtf8("<b>智能识别</b><br>AI 自动识别雷达剖面中的空洞 / 异常体 / 管线等目标"),
-        QString::fromUtf8("<b>高效处理</b><br>一键完成零点校正、增益、数字滤波等批量数据处理"),
-        QString::fromUtf8("<b>精确成像</b><br>高分辨率 B-scan 成像,支持增益、调色板、堆积图"),
-        QString::fromUtf8("<b>深度洞察</b><br>道号 / 采样点 / 双程走时 / 深度 多维坐标分析,深度按介电常数换算"),
+    // welcome 底部 4 个功能图标的热区 + 右上角功能说明(悬停显示)
+    m_welcomeTips = {
+        QString::fromUtf8("<div style='font-size:22pt;font-weight:bold;color:#ffffff;'>智能识别</div>"
+                          "<div style='font-size:13pt;color:#b8d0e8;margin-top:6px;'>AI 自动识别雷达剖面中的空洞 / 异常体 / 管线等目标</div>"),
+        QString::fromUtf8("<div style='font-size:22pt;font-weight:bold;color:#ffffff;'>高效处理</div>"
+                          "<div style='font-size:13pt;color:#b8d0e8;margin-top:6px;'>一键完成零点校正、增益、数字滤波等批量数据处理</div>"),
+        QString::fromUtf8("<div style='font-size:22pt;font-weight:bold;color:#ffffff;'>精确成像</div>"
+                          "<div style='font-size:13pt;color:#b8d0e8;margin-top:6px;'>高分辨率 B-scan 成像,支持增益、调色板、堆积图</div>"),
+        QString::fromUtf8("<div style='font-size:22pt;font-weight:bold;color:#ffffff;'>深度洞察</div>"
+                          "<div style='font-size:13pt;color:#b8d0e8;margin-top:6px;'>道号 / 采样点 / 双程走时 / 深度 多维坐标分析,深度按介电常数换算</div>"),
     };
     for (int i = 0; i < 4; ++i) {
         QWidget *hs = new QWidget(welcomeLabel);
         hs->setStyleSheet("background: transparent;");
-        hs->setToolTip(featTips[i]);
         hs->setCursor(Qt::PointingHandCursor);
         hs->installEventFilter(this);
         hs->show();
         m_welcomeHotspots.append(hs);
     }
-    // 悬停放大用:放大标签(鼠标穿透,不抢热区焦点)+ 预切 4 个图标区域(原图底部图标位)
+    // 右上角功能说明(悬停时显示)
+    m_welcomeTip = new QLabel(welcomeLabel);
+    m_welcomeTip->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_welcomeTip->setWordWrap(true);
+    m_welcomeTip->setStyleSheet("background: rgba(10,25,42,210); border-radius: 12px; padding: 14px;");
+    m_welcomeTip->hide();
+    // 悬停放大用:圆形放大标签(鼠标穿透,不抢热区焦点)+ 预切 4 个图标区域(原图底部图标位)
     m_welcomeZoom = new QLabel(welcomeLabel);
     m_welcomeZoom->setStyleSheet("background: transparent; border: none;");
     m_welcomeZoom->setAttribute(Qt::WA_TransparentForMouseEvents, true);
@@ -3362,16 +3372,22 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             double s = qMin(double(W) / iw, double(H) / ih);
             int dw = int(iw * s), dh = int(ih * s), ox = (W - dw) / 2, oy = (H - dh) / 2;
             static const double ICON_CX[4] = {0.304, 0.444, 0.580, 0.714};  // 图标中心(亮度检测实测)
-            int gw = int(0.056 * dw), gh = int(0.105 * dh);  // 图标原图尺寸
-            int zw = gw * 3, zh = gh * 3;                    // 放大 3 倍
-            int zx = ox + int(ICON_CX[whi] * dw) - zw / 2;   // 居中于图标中心
-            int zy = oy + int(0.912 * dh) - zh / 2;          // 图标 y 中心约 0.912
-            m_welcomeZoom->setPixmap(m_welcomeIconPix[whi].scaled(zw, zh, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            m_welcomeZoom->setGeometry(zx, zy, zw, zh);
+            int gh = int(0.105 * dh);
+            int side = gh * 2;                              // 圆形直径 ≈ 图标高度 2 倍
+            int zx = ox + int(ICON_CX[whi] * dw) - side / 2;
+            int zy = oy + int(0.912 * dh) - side / 2;
+            m_welcomeZoom->setPixmap(m_welcomeIconPix[whi].scaled(side, side, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+            m_welcomeZoom->setGeometry(zx, zy, side, side);
+            m_welcomeZoom->setMask(QRegion(m_welcomeZoom->rect(), QRegion::Ellipse));  // 圆形遮罩
             m_welcomeZoom->raise();
             m_welcomeZoom->show();
+            // 右上角功能说明(大字号)
+            m_welcomeTip->setText(m_welcomeTips.value(whi));
+            m_welcomeTip->raise();
+            m_welcomeTip->show();
         } else if (event->type() == QEvent::Leave) {
             m_welcomeZoom->hide();
+            m_welcomeTip->hide();
         }
         return QMainWindow::eventFilter(watched, event);
     }
@@ -3607,6 +3623,11 @@ void MainWindow::updateWelcomePixmap()
         m_welcomeHotspots[i]->setGeometry(
             ox + int((ICON_CX[i] - rw / 2.0) * dw), oy + int(ry * dh),
             int(rw * dw), int(rh * dh));
+    }
+    // 右上角功能说明文字位置(悬停时显示)
+    if (m_welcomeTip) {
+        int tipW = int(W * 0.40);
+        m_welcomeTip->setGeometry(W - tipW - 20, 20, tipW, int(H * 0.22));
     }
 }
 
