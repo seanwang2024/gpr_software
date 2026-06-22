@@ -1217,7 +1217,9 @@ MainWindow::MainWindow(QWidget *parent)
         "stop:0 #0a1929, stop:0.5 #14304f, stop:1 #1a4a7a);"
     );
     QPixmap welcomePix(":/icons/resources/welcome.png");
-    welcomeLabel->setPixmap(welcomePix.scaled(800, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    welcomeLabel->setPixmap(welcomePix);
+    welcomeLabel->setScaledContents(true);                                    // 图片随标签拉伸,填满
+    welcomeLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);  // 忽略 sizeHint,占满整个内容区
 
     // --- Shared: document tab widget ---
     m_docTabWidget = new QTabWidget(this);
