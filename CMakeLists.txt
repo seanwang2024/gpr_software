@@ -41,7 +41,11 @@ set(RESOURCES
     resources.qrc
 )
 
-add_executable(MyQtApp ${SOURCES} ${HEADERS} ${RESOURCES})
+# Windows 应用图标(嵌入劳雷 logo):用绝对路径生成 app.rc,windres 编译进 exe
+set(APP_ICON "${CMAKE_CURRENT_SOURCE_DIR}/installer/laurel_logo.ico")
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/app.rc.in ${CMAKE_CURRENT_BINARY_DIR}/app.rc @ONLY)
+
+add_executable(MyQtApp ${SOURCES} ${HEADERS} ${RESOURCES} ${CMAKE_CURRENT_BINARY_DIR}/app.rc)
 
 target_include_directories(MyQtApp PRIVATE include ${OpenCV_INCLUDE_DIRS})
 

@@ -1,4 +1,7 @@
 QT       += core gui charts quick quickwidgets quick3d printsupport network
+
+# Windows 应用图标(劳雷 logo)
+RC_ICONS += installer/laurel_logo.ico
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 # Add C++17 support
