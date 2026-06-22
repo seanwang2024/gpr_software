@@ -1242,10 +1242,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_welcomeZoom->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     m_welcomeZoom->hide();
     {
+        static const double ICON_CX[4] = {0.295, 0.425, 0.555, 0.685};  // 4 个图标中心(实测)
         int iw0 = m_welcomePix.width(), ih0 = m_welcomePix.height();
         for (int i = 0; i < 4; ++i) {
-            double cx = (i + 0.5) / 4.0;
-            QRect r(int((cx - 0.09) * iw0), int(0.82 * ih0), int(0.18 * iw0), int(0.12 * ih0));
+            QRect r(int((ICON_CX[i] - 0.03) * iw0), int(0.855 * ih0), int(0.06 * iw0), int(0.10 * ih0));
             m_welcomeIconPix.append(m_welcomePix.copy(r));
         }
     }
@@ -3361,11 +3361,11 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             int iw = m_welcomePix.width(), ih = m_welcomePix.height();
             double s = qMin(double(W) / iw, double(H) / ih);
             int dw = int(iw * s), dh = int(ih * s), ox = (W - dw) / 2, oy = (H - dh) / 2;
-            double cx = (whi + 0.5) / 4.0;
-            int gw = int(0.18 * dw), gh = int(0.12 * dh);
-            int zw = gw * 2, zh = gh * 2;                                            // 放大约 2 倍
-            int zx = ox + int((cx - 0.09) * dw) + gw / 2 - zw / 2;                  // 居中于原图标
-            int zy = oy + int(0.82 * dh) + gh / 2 - zh / 2;
+            static const double ICON_CX[4] = {0.295, 0.425, 0.555, 0.685};  // 图标中心(实测)
+            int gw = int(0.06 * dw), gh = int(0.10 * dh);   // 图标原图尺寸
+            int zw = gw * 3, zh = gh * 3;                    // 放大 3 倍
+            int zx = ox + int(ICON_CX[whi] * dw) - zw / 2;   // 居中于图标中心
+            int zy = oy + int(0.905 * dh) - zh / 2;          // 图标 y 中心约 0.905
             m_welcomeZoom->setPixmap(m_welcomeIconPix[whi].scaled(zw, zh, Qt::KeepAspectRatio, Qt::SmoothTransformation));
             m_welcomeZoom->setGeometry(zx, zy, zw, zh);
             m_welcomeZoom->raise();
@@ -3600,12 +3600,12 @@ void MainWindow::updateWelcomePixmap()
     int dw = int(iw * s), dh = int(ih * s);
     int ox = (W - dw) / 2, oy = (H - dh) / 2;
 
-    // 4 个功能图标在原图底部约 80%~98% 区域、横向各占 1/4;把热区对齐到显示矩形上
+    // 4 个功能图标实测中心(挤在图中下部),热区覆盖图标+下方文字
+    static const double ICON_CX[4] = {0.295, 0.425, 0.555, 0.685};
+    const double rw = 0.10, rh = 0.16, ry = 0.83;
     for (int i = 0; i < m_welcomeHotspots.size() && i < 4; ++i) {
-        double cx = (i + 0.5) / 4.0;     // 中心 x:0.125 / 0.375 / 0.625 / 0.875
-        const double rw = 0.22, rh = 0.18, ry = 0.80;
         m_welcomeHotspots[i]->setGeometry(
-            ox + int((cx - rw / 2.0) * dw), oy + int(ry * dh),
+            ox + int((ICON_CX[i] - rw / 2.0) * dw), oy + int(ry * dh),
             int(rw * dw), int(rh * dh));
     }
 }
