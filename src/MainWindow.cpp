@@ -1232,8 +1232,22 @@ MainWindow::MainWindow(QWidget *parent)
         hs->setStyleSheet("background: transparent;");
         hs->setToolTip(featTips[i]);
         hs->setCursor(Qt::PointingHandCursor);
+        hs->installEventFilter(this);
         hs->show();
         m_welcomeHotspots.append(hs);
+    }
+    // 悬停放大用:放大标签(鼠标穿透,不抢热区焦点)+ 预切 4 个图标区域(原图底部图标位)
+    m_welcomeZoom = new QLabel(welcomeLabel);
+    m_welcomeZoom->setStyleSheet("background: transparent; border: none;");
+    m_welcomeZoom->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    m_welcomeZoom->hide();
+    {
+        int iw0 = m_welcomePix.width(), ih0 = m_welcomePix.height();
+        for (int i = 0; i < 4; ++i) {
+            double cx = (i + 0.5) / 4.0;
+            QRect r(int((cx - 0.09) * iw0), int(0.82 * ih0), int(0.18 * iw0), int(0.12 * ih0));
+            m_welcomeIconPix.append(m_welcomePix.copy(r));
+        }
     }
 
     // --- Shared: document tab widget ---
@@ -3339,6 +3353,28 @@ void MainWindow::resizeImageLabel()
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
+    // welcome 底部图标悬停:放大该图标(Enter 显示,Leave 隐藏)
+    int whi = m_welcomeHotspots.indexOf(qobject_cast<QWidget*>(watched));
+    if (whi >= 0 && m_welcomeZoom) {
+        if (event->type() == QEvent::Enter && whi < m_welcomeIconPix.size()) {
+            int W = welcomeLabel->width(), H = welcomeLabel->height();
+            int iw = m_welcomePix.width(), ih = m_welcomePix.height();
+            double s = qMin(double(W) / iw, double(H) / ih);
+            int dw = int(iw * s), dh = int(ih * s), ox = (W - dw) / 2, oy = (H - dh) / 2;
+            double cx = (whi + 0.5) / 4.0;
+            int gw = int(0.18 * dw), gh = int(0.12 * dh);
+            int zw = gw * 2, zh = gh * 2;                                            // 放大约 2 倍
+            int zx = ox + int((cx - 0.09) * dw) + gw / 2 - zw / 2;                  // 居中于原图标
+            int zy = oy + int(0.82 * dh) + gh / 2 - zh / 2;
+            m_welcomeZoom->setPixmap(m_welcomeIconPix[whi].scaled(zw, zh, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            m_welcomeZoom->setGeometry(zx, zy, zw, zh);
+            m_welcomeZoom->raise();
+            m_welcomeZoom->show();
+        } else if (event->type() == QEvent::Leave) {
+            m_welcomeZoom->hide();
+        }
+        return QMainWindow::eventFilter(watched, event);
+    }
     if (event->type() == QEvent::Resize) {
         // Handle viewport resize for ALL tabs (not just current)
         for (auto *tab : m_tabs) {
