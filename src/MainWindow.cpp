@@ -3541,7 +3541,7 @@ void MainWindow::updateWelcomePixmap()
     if (!welcomeLabel || !welcomeLabel->isVisible() || m_welcomePix.isNull()) return;
     if (welcomeLabel->width() < 2 || welcomeLabel->height() < 2) return;
     welcomeLabel->setPixmap(m_welcomePix.scaled(welcomeLabel->size(),
-        Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+        Qt::KeepAspectRatio, Qt::SmoothTransformation));
 }
 
 void MainWindow::resizeEvent(QResizeEvent *event)
