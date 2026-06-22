@@ -1223,14 +1223,14 @@ MainWindow::MainWindow(QWidget *parent)
     // 保持比例铺满:updateWelcomePixmap() 按 KeepAspectRatio 缩放原图,居中显示
     // welcome 底部 4 个功能图标的热区 + 右上角功能说明(悬停显示)
     m_welcomeTips = {
-        QString::fromUtf8("<div style='font-size:22pt;font-weight:bold;color:#ffffff;'>智能识别</div>"
-                          "<div style='font-size:13pt;color:#b8d0e8;margin-top:6px;'>AI 自动识别雷达剖面中的空洞 / 异常体 / 管线等目标</div>"),
-        QString::fromUtf8("<div style='font-size:22pt;font-weight:bold;color:#ffffff;'>高效处理</div>"
-                          "<div style='font-size:13pt;color:#b8d0e8;margin-top:6px;'>一键完成零点校正、增益、数字滤波等批量数据处理</div>"),
-        QString::fromUtf8("<div style='font-size:22pt;font-weight:bold;color:#ffffff;'>精确成像</div>"
-                          "<div style='font-size:13pt;color:#b8d0e8;margin-top:6px;'>高分辨率 B-scan 成像,支持增益、调色板、堆积图</div>"),
-        QString::fromUtf8("<div style='font-size:22pt;font-weight:bold;color:#ffffff;'>深度洞察</div>"
-                          "<div style='font-size:13pt;color:#b8d0e8;margin-top:6px;'>道号 / 采样点 / 双程走时 / 深度 多维坐标分析,深度按介电常数换算</div>"),
+        QString::fromUtf8("<div style='font-size:20pt;font-weight:bold;color:#ffffff;'>智能识别</div>"
+                          "<div style='font-size:12pt;color:#b8d0e8;margin-top:6px;'>AI 自动识别雷达剖面中的空洞 / 异常体 / 管线等目标</div>"),
+        QString::fromUtf8("<div style='font-size:20pt;font-weight:bold;color:#ffffff;'>高效处理</div>"
+                          "<div style='font-size:12pt;color:#b8d0e8;margin-top:6px;'>一键完成零点校正、增益、数字滤波等批量数据处理</div>"),
+        QString::fromUtf8("<div style='font-size:20pt;font-weight:bold;color:#ffffff;'>精确成像</div>"
+                          "<div style='font-size:12pt;color:#b8d0e8;margin-top:6px;'>高分辨率 B-scan 成像,支持增益、调色板、堆积图</div>"),
+        QString::fromUtf8("<div style='font-size:20pt;font-weight:bold;color:#ffffff;'>深度洞察</div>"
+                          "<div style='font-size:12pt;color:#b8d0e8;margin-top:6px;'>道号 / 采样点 / 双程走时 / 深度 多维坐标分析,深度按介电常数换算</div>"),
     };
     for (int i = 0; i < 4; ++i) {
         QWidget *hs = new QWidget(welcomeLabel);
@@ -3384,7 +3384,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             // 功能说明显示在该图标的右上角(图标上方偏右,不超出图片范围)
             int iconCx = ox + int(ICON_CX[whi] * dw);
             int iconTopY = oy + int(0.86 * dh);
-            int tipW = int(0.24 * dw), tipH = int(0.15 * dh);
+            int tipW = int(0.32 * dw), tipH = int(0.22 * dh);
             int tipX = iconCx + int(0.02 * dw);
             int tipY = iconTopY - tipH - 8;
             if (tipX + tipW > ox + dw - 4) tipX = ox + dw - tipW - 4;   // 不超出右边
