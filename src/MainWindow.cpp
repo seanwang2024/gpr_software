@@ -4386,14 +4386,16 @@ void MainWindow::drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &r
             return confidences[a] > confidences[b];
         });
         QSet<int> suppressed;
+        QList<int> survived;
         for (int i = 0; i < idxs.size(); ++i) {
             if (suppressed.contains(idxs[i])) continue;
-            drawList.append(idxs[i]);
+            survived.append(idxs[i]);
             for (int j = i + 1; j < idxs.size(); ++j) {
                 if (!suppressed.contains(idxs[j]) && iou(rects[idxs[i]], rects[idxs[j]]) > 0.3)
                     suppressed.insert(idxs[j]);
             }
         }
+        drawList.append(survived.mid(0, 10));  // 每类 NMS 后只取置信度最高的前10
     }
 
     for (int i : drawList) {
