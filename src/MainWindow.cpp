@@ -4342,11 +4342,8 @@ void MainWindow::runInference(const cv::Mat &full, const QList<cv::Rect> &rects,
             double maxVal;
             cv::Point maxLoc;
             cv::minMaxLoc(row, nullptr, &maxVal, nullptr, &maxLoc);
-            cv::Mat expRow;
-            cv::exp(row - maxVal, expRow);
-            float sum = static_cast<float>(cv::sum(expRow)[0]);
             top1Ids[origIdx] = maxLoc.x;
-            confidences[origIdx] = static_cast<float>(expRow.at<float>(0, maxLoc.x) / sum);
+            confidences[origIdx] = static_cast<float>(maxVal);  // 模型已输出 softmax 概率,直接用最大值
         }
 
         int done = qMin(bi + curBatch, M);
