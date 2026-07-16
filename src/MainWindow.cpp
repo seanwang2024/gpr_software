@@ -4198,13 +4198,22 @@ void MainWindow::showAIRecognition()
             return;
         }
         try {
-            m_yoloNet = cv::dnn::readNetFromONNX(onnxPath.toStdString());
+            // 用 QFile 读 ONNX 到内存再交给 OpenCV,避免中文安装路径导致 toStdString() 编码丢失
+            QFile onnxFile(onnxPath);
+            if (!onnxFile.open(QIODevice::ReadOnly)) {
+                QMessageBox::critical(this, QString::fromUtf8("AI识别"),
+                                      QString::fromUtf8("无法读取 ONNX 模型文件:\n%1").arg(onnxPath));
+                return;
+            }
+            QByteArray onnxData = onnxFile.readAll();
+            onnxFile.close();
+            m_yoloNet = cv::dnn::readNetFromONNX(onnxData.constData(), onnxData.size());
             m_yoloNet.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
             m_yoloNet.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
             m_yoloNetLoaded = true;
         } catch (const cv::Exception &e) {
             QMessageBox::critical(this, QString::fromUtf8("AI识别"),
-                                  QString::fromUtf8("加载 ONNX 失败:\n%1").arg(QString::fromStdString(e.what())));
+                                  QString::fromUtf8("加载 ONNX 失败:\n%1\n\n路径: %2").arg(QString::fromStdString(e.what()), onnxPath));
             return;
         }
     }
