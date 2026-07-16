@@ -4265,22 +4265,22 @@ void MainWindow::buildRadarCVMat(cv::Mat &out)
     out = cv::Mat::zeros(samples, traces, CV_8UC3); // OpenCV: Mat(rows=高, cols=宽)
     const char *data = m_rawData.constData();
     int dataSize = m_rawData.size();
-    for (int y = 0; y < traces; ++y) {              // 道循环 (横向)
-        for (int x = 0; x < samples; ++x) {         // 采样循环 (纵向)
+for (int x = 0; x < samples; ++x) {
+        cv::Vec3b *rowPtr = out.ptr<cv::Vec3b>(x);
+        for (int y = 0; y < traces; ++y) {
             int dataIdx = (y * m_pixelsPerRow + x) * 4;
             if (dataIdx + 4 > dataSize) break;
             qint32 val = (static_cast<quint8>(data[dataIdx+3]) << 24) |
                          (static_cast<quint8>(data[dataIdx+2]) << 16) |
                          (static_cast<quint8>(data[dataIdx+1]) << 8) |
-                         (static_cast<quint8>(data[dataIdx]));
+                         static_cast<quint8>(data[dataIdx]);
             int lutIdx = val / 65536 + 128;
             if (lutIdx < 0) lutIdx = 0;
             else if (lutIdx > 255) lutIdx = 255;
             QRgb rgb = m_lut[lutIdx];
-            // m_lut 是 0xffRRGGBB；OpenCV Vec3b 是 BGR
-            out.at<cv::Vec3b>(x, y) = cv::Vec3b(static_cast<uchar>(qBlue(rgb)),
-                                                static_cast<uchar>(qGreen(rgb)),
-                                                static_cast<uchar>(qRed(rgb)));
+            rowPtr[y] = cv::Vec3b(static_cast<uchar>(qBlue(rgb)),
+                                  static_cast<uchar>(qGreen(rgb)),
+                                  static_cast<uchar>(qRed(rgb)));
         }
     }
 }
@@ -4289,8 +4289,8 @@ void MainWindow::sliceAndSaveCrops(const cv::Mat &full, QList<cv::Rect> &rects)
 {
     int W = full.cols;
     int H = full.rows;
-    const int WIN = 32;
-    const int STRIDE = 16;
+    const int WIN = 64;
+    const int STRIDE = 32;
 
     for (int y = 0; y <= H - WIN; y += STRIDE) {
         for (int x = 0; x <= W - WIN; x += STRIDE) {
@@ -4302,32 +4302,42 @@ void MainWindow::sliceAndSaveCrops(const cv::Mat &full, QList<cv::Rect> &rects)
 void MainWindow::runInference(const cv::Mat &full, const QList<cv::Rect> &rects, QList<int> &top1Ids, QList<float> &confidences)
 {
     int N = rects.size();
-    int reportInterval = qMax(1, N / 100);
-    for (int i = 0; i < N; ++i) {
-        cv::Mat crop = full(rects[i]).clone();
-        cv::Mat blob = cv::dnn::blobFromImage(crop, 1.0 / 255.0, cv::Size(224, 224),
-                                              cv::Scalar(0, 0, 0),
-                                              /*swapRB=*/true, /*crop=*/false, CV_32F);
-        m_yoloNet.setInput(blob);
-        cv::Mat out = m_yoloNet.forward();
-        cv::Mat probs = out.reshape(1, 1);
+    const int BATCH = 32;
+    int numBatches = (N + BATCH - 1) / BATCH;
 
-        double maxVal;
-        cv::Point maxLoc;
-        cv::minMaxLoc(probs, nullptr, &maxVal, nullptr, &maxLoc);
-        cv::Mat expProbs;
-        cv::exp(probs - maxVal, expProbs);
-        float softmaxSum = static_cast<float>(cv::sum(expProbs)[0]);
-        float conf = expProbs.at<float>(0, maxLoc.x) / softmaxSum;
+    for (int bi = 0; bi < N; bi += BATCH) {
+        int curBatch = qMin(BATCH, N - bi);
 
-        top1Ids.append(maxLoc.x);
-        confidences.append(conf);
+        // 把 curBatch 个窗口打包成 [curBatch, 3, 224, 224]
+        std::vector<cv::Mat> batchCrops;
+        batchCrops.reserve(curBatch);
+        for (int j = 0; j < curBatch; ++j)
+            batchCrops.push_back(full(rects[bi + j]));
 
-        if ((i + 1) % reportInterval == 0 || i + 1 == N) {
-            m_progressBar->setValue(30 + 60 * (i + 1) / N);
-            m_progressBar->setFormat(QString::fromUtf8("AI识别: 推理 %1/%2").arg(i + 1).arg(N));
-            QCoreApplication::processEvents();
+        cv::Mat batchBlob = cv::dnn::blobFromImages(batchCrops, 1.0 / 255.0, cv::Size(224, 224),
+                                                     cv::Scalar(0, 0, 0),
+                                                     /*swapRB=*/true, /*crop=*/false, CV_32F);
+        m_yoloNet.setInput(batchBlob);
+        cv::Mat out = m_yoloNet.forward();   // [curBatch, 3] logits
+
+        // 解析每行
+        cv::Mat probs2d = out.reshape(1, curBatch);   // [curBatch, 3]
+        for (int j = 0; j < curBatch; ++j) {
+            cv::Mat row = probs2d.row(j);
+            double maxVal;
+            cv::Point maxLoc;
+            cv::minMaxLoc(row, nullptr, &maxVal, nullptr, &maxLoc);
+            cv::Mat expRow;
+            cv::exp(row - maxVal, expRow);
+            float sum = static_cast<float>(cv::sum(expRow)[0]);
+            top1Ids.append(maxLoc.x);
+            confidences.append(static_cast<float>(expRow.at<float>(0, maxLoc.x) / sum));
         }
+
+        int done = qMin(bi + curBatch, N);
+        m_progressBar->setValue(30 + 60 * done / N);
+        m_progressBar->setFormat(QString::fromUtf8("AI识别: 推理 %1/%2 (batch)").arg(done).arg(N));
+        QCoreApplication::processEvents();
     }
 }
 
