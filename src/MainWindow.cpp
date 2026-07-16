@@ -4210,7 +4210,7 @@ void MainWindow::showAIRecognition()
             m_yoloNet = cv::dnn::readNetFromONNX(onnxData.constData(), onnxData.size());
             m_yoloNet.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
             m_yoloNet.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
-            cv::setNumThreads(cv::getNumCPUs());   // 确保用满所有 CPU 核
+            cv::setNumThreads(cv::getNumberOfCPUs());   // 确保用满所有 CPU 核
             m_yoloNetLoaded = true;
         } catch (const cv::Exception &e) {
             QMessageBox::critical(this, QString::fromUtf8("AI识别"),
