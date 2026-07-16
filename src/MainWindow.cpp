@@ -4266,7 +4266,7 @@ void MainWindow::showAIRecognition()
         if (suppressed.contains(allIdxs[i])) continue;
         survived.append(allIdxs[i]);
         for (int j = i + 1; j < allIdxs.size(); ++j) {
-            if (!suppressed.contains(allIdxs[j]) && iou(rects[allIdxs[i]], rects[allIdxs[j]]) > 0.3)
+            if (!suppressed.contains(allIdxs[j]) && iou(rects[allIdxs[i]], rects[allIdxs[j]]) > 0.15)
                 suppressed.insert(allIdxs[j]);
         }
     }
@@ -4277,7 +4277,7 @@ void MainWindow::showAIRecognition()
     QList<int> finalIdxs;
     for (int cid = 0; cid < 3; ++cid) {
         if (byClass.contains(cid))
-            finalIdxs.append(byClass[cid].mid(0, 10));
+            finalIdxs.append(byClass[cid].mid(0, 20));
     }
     // 构建过滤后的列表
     QList<cv::Rect> fRects;
@@ -4336,8 +4336,8 @@ void MainWindow::sliceAndSaveCrops(const cv::Mat &full, QList<cv::Rect> &rects)
 {
     int W = full.cols;
     int H = full.rows;
-    const int WIN = 128;
-    const int STRIDE = 64;
+    const int WIN = 64;
+    const int STRIDE = 32;
 
     for (int y = 0; y <= H - WIN; y += STRIDE) {
         for (int x = 0; x <= W - WIN; x += STRIDE) {
@@ -4356,7 +4356,7 @@ void MainWindow::runInference(const cv::Mat &full, const QList<cv::Rect> &rects,
     for (int i = 0; i < N; ++i) {
         cv::Mat mean, stdDev;
         cv::meanStdDev(full(rects[i]), mean, stdDev);
-        if (stdDev.at<double>(0) < 5.0) {
+        if (stdDev.at<double>(0) < 3.0) {
             top1Ids.append(1);   // intact
             confidences.append(0.5f);
         } else {
@@ -4405,7 +4405,7 @@ void MainWindow::drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &r
     full.copyTo(out);
     cv::Scalar colors[3] = {{0, 0, 255}, {255, 0, 0}, {0, 255, 255}};
     int n = qMin(qMin(rects.size(), top1Ids.size()), confidences.size());
-    const int HALF = 24;  // 画 48×48 小框,中心 = 识别目标
+    const int HALF = 12;  // 画 24×24 小框,精确定位单个目标
 
     for (int i = 0; i < n; ++i) {
         int cid = top1Ids[i];
