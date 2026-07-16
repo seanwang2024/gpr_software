@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DZX xmlns="www.geophysical.com/DZX/1.020000">
+    <GlobalProperties>
+        <verticalUnit>s</verticalUnit>
+        <horizontalUnit>s</horizontalUnit>
+        <dielectric>8</dielectric>
+        <readOnly>0</readOnly>
+        <unitsPerMark>0.000000</unitsPerMark>
+        <unitsPerScan>0.020000</unitsPerScan>
+    </GlobalProperties>
+    <DataCollection>
+        <system>SIR4K</system>
+        <softwareVersion>1.4.05</softwareVersion>
+        <Ctable>11</Ctable>
+        <colorStretch>0.000000</colorStretch>
+        <colorSlide>0.000000</colorSlide>
+        <displayGain>0</displayGain>
+        <depthRange>2.651650</depthRange>
+        <originalDielectric>8.000000</originalDielectric>
+        <scanPerMeters>0.000000</scanPerMeters>
+        <gridId>Grid</gridId>
+        <antSerialNumber>2210</antSerialNumber>
+        <antModelNumber>42</antModelNumber>
+        <scanRate>80</scanRate>
+        <transmitRate>800</transmitRate>
+    </DataCollection>
+    <Macro>
+        <state>0</state>
+        <Process>
+            <state>0</state>
+            <BinaryData size="16">0&amp;``!```"$`!C``H``````"`@
+
+</BinaryData>
+        </Process>
+        <Process>
+            <state>0</state>
+            <BinaryData size="44">L+``!```")`!-`@```(``````````````2$(````````````````````````@
+
+</BinaryData>
+        </Process>
+        <Process>
+            <state>0</state>
+            <BinaryData size="150">ME@`!```"C@`[`P```(!````40@``&gt;$(``'!"````````````````````````
+
+M``````````````````````````````````````````#_`0``````````````
+
+M````````````````````````````````````````````````````````````
+
+/````````````````````
+
+</BinaryData>
+        </Process>
+        <Process>
+            <state>0</state>
+            <BinaryData size="72">M2``!```"0``$"``````#"``````````````````````@`V0```#_`0``````
+
+;````````````````````````````````````
+
+</BinaryData>
+        </Process>
+        <Process>
+            <state>0</state>
+            <BinaryData size="16">0$``!```""``G`0```````"`@
+
+</BinaryData>
+        </Process>
+    </Macro>
+    <File>
+        <Profile>
+            <scanRange>0,2163</scanRange>
+            <WayPt>
+                <scan>0</scan>
+                <localCoords>0.000000, 0.000000, 0</localCoords>
+            </WayPt>
+            <WayPt>
+                <scan>2163</scan>
+                <localCoords>10.000000, 0.000000, 0</localCoords>
+            </WayPt>
+        </Profile>
+        <scanRange>0,2163</scanRange>
+    </File>
+</DZX>
