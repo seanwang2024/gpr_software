@@ -4361,21 +4361,39 @@ void MainWindow::drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &r
     cv::Scalar colors[3] = {{0, 0, 255}, {255, 0, 0}, {0, 255, 255}};
     int n = qMin(qMin(rects.size(), top1Ids.size()), confidences.size());
 
-    // 按类别收集索引，按置信度排序，每类取前10
+    // 按类别收集索引
     QHash<int, QList<int>> classIndices;
     for (int i = 0; i < n; ++i) {
         int cid = top1Ids[i];
-        if (cid < 0 || cid >= 3) continue;  // 三类都画
+        if (cid < 0 || cid >= 3) continue;
         classIndices[cid].append(i);
     }
 
+    // NMS(非极大值抑制):同类框重叠度>30%的抑制低置信度的,每个区域只留一个最优框
+    auto iou = [](const cv::Rect &a, const cv::Rect &b) -> double {
+        int x1 = qMax(a.x, b.x), y1 = qMax(a.y, b.y);
+        int x2 = qMin(a.x + a.width, b.x + b.width), y2 = qMin(a.y + a.height, b.y + b.height);
+        if (x2 <= x1 || y2 <= y1) return 0.0;
+        double inter = (x2 - x1) * (y2 - y1);
+        double uni = a.area() + b.area() - inter;
+        return uni > 0 ? inter / uni : 0.0;
+    };
+
     QList<int> drawList;
     for (int cid : classIndices.keys()) {
-        QList<int> &idxs = classIndices[cid];
+        QList<int> idxs = classIndices[cid];
         std::sort(idxs.begin(), idxs.end(), [&](int a, int b) {
             return confidences[a] > confidences[b];
         });
-        drawList.append(idxs.mid(0, 10));
+        QSet<int> suppressed;
+        for (int i = 0; i < idxs.size(); ++i) {
+            if (suppressed.contains(idxs[i])) continue;
+            drawList.append(idxs[i]);
+            for (int j = i + 1; j < idxs.size(); ++j) {
+                if (!suppressed.contains(idxs[j]) && iou(rects[idxs[i]], rects[idxs[j]]) > 0.3)
+                    suppressed.insert(idxs[j]);
+            }
+        }
     }
 
     for (int i : drawList) {
