@@ -4411,15 +4411,31 @@ void MainWindow::drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &r
         int cid = top1Ids[i];
         if (cid < 0 || cid >= 3) continue;
         const cv::Rect &r = rects[i];
-        // 在窗口内找最强反射点(局部能量最大)作为框中心,替代窗口中心
+        // 找双曲线顶点(最浅高能量点):窗口内从上往下扫,找第一个能量峰值行
         cv::Mat roi = full(r);
         cv::Mat gray, energy;
         cv::cvtColor(roi, gray, cv::COLOR_BGR2GRAY);
-        cv::Mat kernel = cv::Mat::ones(16, 16, CV_32F) / 256.0;  // 16×16 局部均值=能量
+        cv::Mat kernel = cv::Mat::ones(16, 16, CV_32F) / 256.0;
         cv::filter2D(gray, energy, CV_32F, kernel);
-        cv::Point localMax;
-        cv::minMaxLoc(energy, nullptr, nullptr, nullptr, &localMax);
-        cv::Point ctr(r.x + localMax.x, r.y + localMax.y);  // 精确定位
+        // 计算全局能量阈值(高能量的 60% 分位)
+        double emin, emax;
+        cv::minMaxLoc(energy, &emin, &emax);
+        double thresh = emin + (emax - emin) * 0.6;
+        // 从上往下找第一个高能量行 → 顶点 Y
+        int apexY = gray.rows / 2;  // 默认中心
+        for (int yy = 8; yy < gray.rows - 8; ++yy) {
+            cv::Mat row = energy.row(yy);
+            double rowMax;
+            cv::minMaxLoc(row, nullptr, &rowMax);
+            if (rowMax > thresh) { apexY = yy; break; }
+        }
+        // 在顶点行附近找最强 X → 顶点 X
+        cv::Mat apexBand = energy(cv::Rect(0, qMax(0, apexY - 4), energy.cols, qMin(8, energy.rows - qMax(0, apexY - 4))));
+        cv::Mat bandMax;
+        cv::reduce(apexBand, bandMax, 0, cv::REDUCE_MAX);
+        cv::Point bx;
+        cv::minMaxLoc(bandMax, nullptr, nullptr, nullptr, &bx);
+        cv::Point ctr(r.x + bx.x, r.y + apexY);  // 精确定位到双曲线顶点
         cv::Rect small(ctr.x - HALF, ctr.y - HALF, HALF * 2, HALF * 2);
         cv::rectangle(out, small, colors[cid], 2);
         QString label = QString("%1 %2%").arg(m_yoloClasses[cid])
