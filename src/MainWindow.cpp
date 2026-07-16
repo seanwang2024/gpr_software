@@ -4240,17 +4240,63 @@ void MainWindow::showAIRecognition()
     runInference(full, rects, top1Ids, confidences);
 
     m_progressBar->setValue(95);
-    m_progressBar->setFormat(QString::fromUtf8("AI识别: 绘制结果..."));
+    m_progressBar->setFormat(QString::fromUtf8("AI识别: 后处理..."));
     QCoreApplication::processEvents();
 
+    // === 跨类别 NMS + 每类前10: 过滤出最终结果 ===
+    auto iou = [](const cv::Rect &a, const cv::Rect &b) -> double {
+        int x1 = qMax(a.x, b.x), y1 = qMax(a.y, b.y);
+        int x2 = qMin(a.x + a.width, b.x + b.width), y2 = qMin(a.y + a.height, b.y + b.height);
+        if (x2 <= x1 || y2 <= y1) return 0.0;
+        double inter = (x2 - x1) * (y2 - y1);
+        double uni = a.area() + b.area() - inter;
+        return uni > 0 ? inter / uni : 0.0;
+    };
+    // 所有有效框按置信度降序
+    QList<int> allIdxs;
+    for (int i = 0; i < rects.size(); ++i)
+        if (top1Ids[i] >= 0 && top1Ids[i] < 3) allIdxs.append(i);
+    std::sort(allIdxs.begin(), allIdxs.end(), [&](int a, int b) {
+        return confidences[a] > confidences[b];
+    });
+    // 跨类别 NMS: 不分种类,重叠>30%的抑制低分者
+    QSet<int> suppressed;
+    QList<int> survived;
+    for (int i = 0; i < allIdxs.size(); ++i) {
+        if (suppressed.contains(allIdxs[i])) continue;
+        survived.append(allIdxs[i]);
+        for (int j = i + 1; j < allIdxs.size(); ++j) {
+            if (!suppressed.contains(allIdxs[j]) && iou(rects[allIdxs[i]], rects[allIdxs[j]]) > 0.3)
+                suppressed.insert(allIdxs[j]);
+        }
+    }
+    // 每类从幸存者中取前10
+    QHash<int, QList<int>> byClass;
+    for (int idx : survived)
+        byClass[top1Ids[idx]].append(idx);
+    QList<int> finalIdxs;
+    for (int cid = 0; cid < 3; ++cid) {
+        if (byClass.contains(cid))
+            finalIdxs.append(byClass[cid].mid(0, 10));
+    }
+    // 构建过滤后的列表
+    QList<cv::Rect> fRects;
+    QList<int> fIds;
+    QList<float> fConfs;
+    for (int idx : finalIdxs) {
+        fRects.append(rects[idx]);
+        fIds.append(top1Ids[idx]);
+        fConfs.append(confidences[idx]);
+    }
+
     cv::Mat annotated;
-    drawResultOverlay(full, rects, top1Ids, confidences, annotated);
+    drawResultOverlay(full, fRects, fIds, fConfs, annotated);
 
     m_progressBar->setValue(100);
     m_progressBar->setFormat(QString::fromUtf8("AI识别: 完成"));
     QCoreApplication::processEvents();
 
-    showAIResultDialog(annotated, rects, top1Ids, confidences);
+    showAIResultDialog(annotated, fRects, fIds, fConfs);
 
     // 1 秒后重置进度条
     QTimer::singleShot(1000, this, [this]() {
@@ -4357,55 +4403,21 @@ void MainWindow::drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &r
                                    const QList<int> &top1Ids, const QList<float> &confidences, cv::Mat &out)
 {
     full.copyTo(out);
-    // BGR: cavities=红, intact=蓝, utilities=黄
     cv::Scalar colors[3] = {{0, 0, 255}, {255, 0, 0}, {0, 255, 255}};
     int n = qMin(qMin(rects.size(), top1Ids.size()), confidences.size());
+    const int HALF = 24;  // 画 48×48 小框,中心 = 识别目标
 
-    // 按类别收集索引
-    QHash<int, QList<int>> classIndices;
     for (int i = 0; i < n; ++i) {
         int cid = top1Ids[i];
         if (cid < 0 || cid >= 3) continue;
-        classIndices[cid].append(i);
-    }
-
-    // NMS(非极大值抑制):同类框重叠度>30%的抑制低置信度的,每个区域只留一个最优框
-    auto iou = [](const cv::Rect &a, const cv::Rect &b) -> double {
-        int x1 = qMax(a.x, b.x), y1 = qMax(a.y, b.y);
-        int x2 = qMin(a.x + a.width, b.x + b.width), y2 = qMin(a.y + a.height, b.y + b.height);
-        if (x2 <= x1 || y2 <= y1) return 0.0;
-        double inter = (x2 - x1) * (y2 - y1);
-        double uni = a.area() + b.area() - inter;
-        return uni > 0 ? inter / uni : 0.0;
-    };
-
-    QList<int> drawList;
-    for (int cid : classIndices.keys()) {
-        QList<int> idxs = classIndices[cid];
-        std::sort(idxs.begin(), idxs.end(), [&](int a, int b) {
-            return confidences[a] > confidences[b];
-        });
-        QSet<int> suppressed;
-        QList<int> survived;
-        for (int i = 0; i < idxs.size(); ++i) {
-            if (suppressed.contains(idxs[i])) continue;
-            survived.append(idxs[i]);
-            for (int j = i + 1; j < idxs.size(); ++j) {
-                if (!suppressed.contains(idxs[j]) && iou(rects[idxs[i]], rects[idxs[j]]) > 0.3)
-                    suppressed.insert(idxs[j]);
-            }
-        }
-        drawList.append(survived.mid(0, 10));  // 每类 NMS 后只取置信度最高的前10
-    }
-
-    for (int i : drawList) {
-        int cid = top1Ids[i];
         const cv::Rect &r = rects[i];
-        float conf = confidences[i];
-        cv::rectangle(out, r, colors[cid], 2);
+        // 缩小框:以窗口中心为中心,画 48×48
+        cv::Point ctr(r.x + r.width / 2, r.y + r.height / 2);
+        cv::Rect small(ctr.x - HALF, ctr.y - HALF, HALF * 2, HALF * 2);
+        cv::rectangle(out, small, colors[cid], 2);
         QString label = QString("%1 %2%").arg(m_yoloClasses[cid])
-                        .arg(static_cast<int>(conf * 100));
-        cv::putText(out, label.toStdString(), r.tl() + cv::Point(3, 16),
+                        .arg(static_cast<int>(confidences[i] * 100));
+        cv::putText(out, label.toStdString(), small.tl() + cv::Point(3, 16),
                     cv::FONT_HERSHEY_SIMPLEX, 0.45, colors[cid], 1);
     }
 }
