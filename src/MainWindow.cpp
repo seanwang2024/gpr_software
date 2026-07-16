@@ -4411,8 +4411,15 @@ void MainWindow::drawResultOverlay(const cv::Mat &full, const QList<cv::Rect> &r
         int cid = top1Ids[i];
         if (cid < 0 || cid >= 3) continue;
         const cv::Rect &r = rects[i];
-        // 缩小框:以窗口中心为中心,画 48×48
-        cv::Point ctr(r.x + r.width / 2, r.y + r.height / 2);
+        // 在窗口内找最强反射点(局部能量最大)作为框中心,替代窗口中心
+        cv::Mat roi = full(r);
+        cv::Mat gray, energy;
+        cv::cvtColor(roi, gray, cv::COLOR_BGR2GRAY);
+        cv::Mat kernel = cv::Mat::ones(16, 16, CV_32F) / 256.0;  // 16×16 局部均值=能量
+        cv::filter2D(gray, energy, CV_32F, kernel);
+        cv::Point localMax;
+        cv::minMaxLoc(energy, nullptr, nullptr, nullptr, &localMax);
+        cv::Point ctr(r.x + localMax.x, r.y + localMax.y);  // 精确定位
         cv::Rect small(ctr.x - HALF, ctr.y - HALF, HALF * 2, HALF * 2);
         cv::rectangle(out, small, colors[cid], 2);
         QString label = QString("%1 %2%").arg(m_yoloClasses[cid])
