@@ -4210,6 +4210,7 @@ void MainWindow::showAIRecognition()
             m_yoloNet = cv::dnn::readNetFromONNX(onnxData.constData(), onnxData.size());
             m_yoloNet.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
             m_yoloNet.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+            cv::setNumThreads(cv::getNumCPUs());   // 确保用满所有 CPU 核
             m_yoloNetLoaded = true;
         } catch (const cv::Exception &e) {
             QMessageBox::critical(this, QString::fromUtf8("AI识别"),
@@ -4289,8 +4290,8 @@ void MainWindow::sliceAndSaveCrops(const cv::Mat &full, QList<cv::Rect> &rects)
 {
     int W = full.cols;
     int H = full.rows;
-    const int WIN = 64;
-    const int STRIDE = 32;
+    const int WIN = 128;
+    const int STRIDE = 64;
 
     for (int y = 0; y <= H - WIN; y += STRIDE) {
         for (int x = 0; x <= W - WIN; x += STRIDE) {
@@ -4302,27 +4303,41 @@ void MainWindow::sliceAndSaveCrops(const cv::Mat &full, QList<cv::Rect> &rects)
 void MainWindow::runInference(const cv::Mat &full, const QList<cv::Rect> &rects, QList<int> &top1Ids, QList<float> &confidences)
 {
     int N = rects.size();
-    const int BATCH = 32;
-    int numBatches = (N + BATCH - 1) / BATCH;
+    const int BATCH = 64;
 
-    for (int bi = 0; bi < N; bi += BATCH) {
-        int curBatch = qMin(BATCH, N - bi);
+    // 预过滤:跳过低信息窗口(标准差 < 5 的均匀背景直接标 intact)
+    QList<int> inferIdxs;  // 需要推理的窗口索引
+    for (int i = 0; i < N; ++i) {
+        cv::Mat mean, stdDev;
+        cv::meanStdDev(full(rects[i]), mean, stdDev);
+        if (stdDev.at<double>(0) < 5.0) {
+            top1Ids.append(1);   // intact
+            confidences.append(0.5f);
+        } else {
+            top1Ids.append(-1);  // 占位,待推理后回填
+            confidences.append(0.0f);
+            inferIdxs.append(i);
+        }
+    }
+    int M = inferIdxs.size();
 
-        // 把 curBatch 个窗口打包成 [curBatch, 3, 224, 224]
+    // 批处理推理
+    for (int bi = 0; bi < M; bi += BATCH) {
+        int curBatch = qMin(BATCH, M - bi);
         std::vector<cv::Mat> batchCrops;
         batchCrops.reserve(curBatch);
         for (int j = 0; j < curBatch; ++j)
-            batchCrops.push_back(full(rects[bi + j]));
+            batchCrops.push_back(full(rects[inferIdxs[bi + j]]));
 
         cv::Mat batchBlob = cv::dnn::blobFromImages(batchCrops, 1.0 / 255.0, cv::Size(224, 224),
                                                      cv::Scalar(0, 0, 0),
                                                      /*swapRB=*/true, /*crop=*/false, CV_32F);
         m_yoloNet.setInput(batchBlob);
-        cv::Mat out = m_yoloNet.forward();   // [curBatch, 3] logits
+        cv::Mat out = m_yoloNet.forward();
 
-        // 解析每行
-        cv::Mat probs2d = out.reshape(1, curBatch);   // [curBatch, 3]
+        cv::Mat probs2d = out.reshape(1, curBatch);
         for (int j = 0; j < curBatch; ++j) {
+            int origIdx = inferIdxs[bi + j];
             cv::Mat row = probs2d.row(j);
             double maxVal;
             cv::Point maxLoc;
@@ -4330,13 +4345,13 @@ void MainWindow::runInference(const cv::Mat &full, const QList<cv::Rect> &rects,
             cv::Mat expRow;
             cv::exp(row - maxVal, expRow);
             float sum = static_cast<float>(cv::sum(expRow)[0]);
-            top1Ids.append(maxLoc.x);
-            confidences.append(static_cast<float>(expRow.at<float>(0, maxLoc.x) / sum));
+            top1Ids[origIdx] = maxLoc.x;
+            confidences[origIdx] = static_cast<float>(expRow.at<float>(0, maxLoc.x) / sum);
         }
 
-        int done = qMin(bi + curBatch, N);
-        m_progressBar->setValue(30 + 60 * done / N);
-        m_progressBar->setFormat(QString::fromUtf8("AI识别: 推理 %1/%2 (batch)").arg(done).arg(N));
+        int done = qMin(bi + curBatch, M);
+        m_progressBar->setValue(30 + 60 * done / qMax(1, M));
+        m_progressBar->setFormat(QString::fromUtf8("AI识别: 推理 %1/%2 (跳过%3背景)").arg(done).arg(M).arg(N - M));
         QCoreApplication::processEvents();
     }
 }
