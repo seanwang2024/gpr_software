@@ -4,7 +4,7 @@
 
 #define MyAppName "劳雷AI数据处理"
 #define MyAppNameEn "MyQtApp"
-#define MyAppVersion "1.0.26"
+#define MyAppVersion "1.0.27"
 #define MyAppPublisher "劳雷"
 #define MyAppExeName "MyQtApp.exe"
 
