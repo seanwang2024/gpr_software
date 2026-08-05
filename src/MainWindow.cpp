@@ -1461,7 +1461,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(zeroBtnOK, &QPushButton::clicked, this, [this]() {
-        if (!m_currentTab) return;
+        if (!requireOpenFile()) return;
 
         // 创建 proc 目录
         QFileInfo fi(m_currentTab->filePath);
@@ -1536,7 +1536,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(zeroBtnApply, &QPushButton::clicked, this, [this]() {
-        if (!m_currentTab) return;
+        if (!requireOpenFile()) return;
         if (m_currentTab->zeroApplied) {
             // 重设: restore original image, keep spinbox values
             m_currentTab->zeroApplied = false;
@@ -2602,7 +2602,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 void MainWindow::showFileHeader()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     // Read header from DZT file
     QFile file(m_currentTab->filePath);
@@ -3365,7 +3365,7 @@ void MainWindow::saveProcessedWithDzx(const QString &origDztPath, const QList<Dz
 
 void MainWindow::applyGain()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_currentTab->gainApplied) {
         // 撤销：恢复原始数据，重置增益手柄到0 dB
@@ -3411,7 +3411,7 @@ void MainWindow::applyGain()
 
 void MainWindow::saveProcessedFile()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     // 确保增益已应用（仅旧的增益系统；一键处理已自己处理数据）
     if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied && !m_deconvApplied && !m_hilbertApplied && !m_kirchhoffApplied && !m_filterApplied) {
@@ -3966,6 +3966,16 @@ void MainWindow::updateWindowTitle()
     setWindowTitle(text);  // 同步 OS 任务栏标题
 }
 
+bool MainWindow::requireOpenFile()
+{
+    if (!m_currentTab) {
+        QMessageBox::information(this, QString::fromUtf8("提示"),
+                                QString::fromUtf8("请先打开 DZT 文件"));
+        return false;
+    }
+    return true;
+}
+
 void MainWindow::loadLUT(int index)
 {
     m_paletteIndex = index;
@@ -4213,7 +4223,7 @@ void MainWindow::createMenuBar()
     processBtns->addWidget(btnOneClickStart);
     QToolButton *btnAdjZero = makeBtn(":/icons/resources/adjustzero.png", "调节零点");
     connect(btnAdjZero, &QToolButton::clicked, this, [this]() {
-        if (m_tabs.isEmpty()) return;
+        if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_zeroPage);
         m_leftPanel->show();
         if (chartView) {
@@ -4233,7 +4243,7 @@ void MainWindow::createMenuBar()
     processBtns->addWidget(btnBgRemoveStart);
     QToolButton *btnAdjGainStart = makeBtn(":/icons/resources/adjustgain.png", "调节增益");
     connect(btnAdjGainStart, &QToolButton::clicked, this, [this]() {
-        if (m_tabs.isEmpty()) return;
+        if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_gainPage);
         if (m_currentTab) {
             QFileInfo fi(m_currentTab->filePath);
@@ -4296,7 +4306,7 @@ void MainWindow::createMenuBar()
     QHBoxLayout *g1btns = qobject_cast<QHBoxLayout*>(g1->itemAt(0)->layout());
     QToolButton *btnAdjZero2 = makeTextBtn("调节零点");
     connect(btnAdjZero2, &QToolButton::clicked, this, [this]() {
-        if (m_tabs.isEmpty()) return;
+        if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_zeroPage);
         m_leftPanel->show();
         if (chartView) {
@@ -4316,7 +4326,7 @@ void MainWindow::createMenuBar()
     QHBoxLayout *g2row1 = qobject_cast<QHBoxLayout*>(g2->itemAt(0)->layout());
     QToolButton *btnAdjGain = makeTextBtn("调节增益");
     connect(btnAdjGain, &QToolButton::clicked, this, [this]() {
-        if (m_tabs.isEmpty()) return;
+        if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_gainPage);
         if (m_currentTab) {
             QFileInfo fi(m_currentTab->filePath);
@@ -4863,7 +4873,7 @@ void MainWindow::showAIResultDialog(const cv::Mat &annotated, const QList<cv::Re
 void MainWindow::generateReport(const cv::Mat &annotated, const QList<cv::Rect> &rects,
                                 const QList<int> &top1Ids, const QList<float> &confidences)
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     QFileInfo fi(m_currentTab->filePath);
     QString reportDir = fi.absolutePath() + "/report";
@@ -5005,7 +5015,7 @@ void MainWindow::generateReport(const cv::Mat &annotated, const QList<cv::Rect> 
 
 void MainWindow::showDigitalFilter()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     // If dialog already exists, bring it to front
     if (m_filterDlg) {
@@ -5259,7 +5269,7 @@ void MainWindow::showDigitalFilter()
 
     // Connections
     connect(m_filterBtnApply, &QPushButton::clicked, this, [this]() {
-        if (!m_currentTab) return;
+        if (!requireOpenFile()) return;
 
         if (m_filterApplied) {
             m_rawData = m_currentTab->originalRawData;
@@ -5736,7 +5746,7 @@ void MainWindow::updateFilterMarkerLine(QLineSeries *marker, double freq)
 
 void MainWindow::showBackgroundRemoval()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_bgRemovalDlg) {
         m_bgRemovalDlg->raise();
@@ -5836,7 +5846,7 @@ void MainWindow::showBackgroundRemoval()
 
 void MainWindow::applyBackgroundRemoval()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_bgRemovalApplied) {
         // Undo
@@ -6003,7 +6013,7 @@ void MainWindow::applyBackgroundRemoval()
 
 void MainWindow::showMovingAverage()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_movingAvgDlg) {
         m_movingAvgDlg->raise();
@@ -6085,7 +6095,7 @@ void MainWindow::showMovingAverage()
 
 void MainWindow::applyMovingAverage()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_movingAvgApplied) {
         // Undo
@@ -6185,7 +6195,7 @@ void MainWindow::applyMovingAverage()
 
 void MainWindow::showTraceEqualization()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_traceEqualDlg) {
         m_traceEqualDlg->raise();
@@ -6250,7 +6260,7 @@ void MainWindow::showTraceEqualization()
 
 void MainWindow::applyTraceEqualization()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_traceEqualApplied) {
         m_rawData = m_currentTab->originalRawData;
@@ -6361,7 +6371,7 @@ void MainWindow::applyTraceEqualization()
 
 void MainWindow::showMathOperation()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_mathDlg) {
         m_mathDlg->raise();
@@ -6448,7 +6458,7 @@ void MainWindow::showMathOperation()
 
 void MainWindow::applyMathOperation()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_mathApplied) {
         // Undo
@@ -6627,7 +6637,7 @@ void MainWindow::pushKirchhoffParamsToImage()
 
 void MainWindow::showKirchhoffMigration()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_kirchhoffDlg) {
         m_kirchhoffDlg->raise();
@@ -6740,7 +6750,7 @@ void MainWindow::showKirchhoffMigration()
 
 void MainWindow::applyKirchhoffMigration()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_kirchhoffApplied) {
         // Undo
@@ -6890,7 +6900,7 @@ void MainWindow::applyKirchhoffMigration()
 
 void MainWindow::showHilbertTransform()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_hilbertDlg) {
         m_hilbertDlg->raise();
@@ -6967,7 +6977,7 @@ void MainWindow::showHilbertTransform()
 
 void MainWindow::applyHilbertTransform()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_hilbertApplied) {
         // Undo
@@ -7130,7 +7140,7 @@ void MainWindow::applyHilbertTransform()
 
 void MainWindow::showDeconvolution()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_deconvDlg) {
         m_deconvDlg->raise();
@@ -7211,7 +7221,7 @@ void MainWindow::showDeconvolution()
 
 void MainWindow::applyDeconvolution()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_deconvApplied) {
         // Undo
@@ -7399,7 +7409,7 @@ void MainWindow::applyDeconvolution()
 
 void MainWindow::showCorrectOffset()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_correctOffsetDlg) {
         m_correctOffsetDlg->raise();
@@ -7490,7 +7500,7 @@ void MainWindow::showCorrectOffset()
 
 void MainWindow::applyCorrectOffset()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_correctApplied) {
         // Undo
@@ -7562,7 +7572,7 @@ void MainWindow::applyCorrectOffset()
 
 void MainWindow::showOneClickProcess()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_oneClickDlg) {
         m_oneClickDlg->raise();
@@ -7764,7 +7774,7 @@ void MainWindow::showOneClickProcess()
     });
 
     connect(btnOK, &QPushButton::clicked, this, [this]() {
-        if (!m_currentTab) return;
+        if (!requireOpenFile()) return;
 
         // 保存原 tab 指针和显示数据
         TabData *origTab = m_currentTab;
@@ -7866,7 +7876,7 @@ void MainWindow::showOneClickProcess()
 
 void MainWindow::applyOneClickProcess()
 {
-    if (!m_currentTab) return;
+    if (!requireOpenFile()) return;
 
     if (m_oneClickApplied) {
         // Undo: only restore display (raw data + image + main chart)

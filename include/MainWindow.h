@@ -246,6 +246,7 @@ private:
     bool eventFilter(QObject *watched, QEvent *event) override;
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     void updateWindowTitle();
+    bool requireOpenFile();  // 检查是否已打开文件,未打开则弹提示
     // DZX 自动处理
     struct DzxProcess {
         int typeId = 0;          // offset 0x08 的类型 ID
