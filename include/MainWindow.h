@@ -246,6 +246,14 @@ private:
     bool eventFilter(QObject *watched, QEvent *event) override;
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     void updateWindowTitle();
+    // DZX 自动处理
+    struct DzxProcess {
+        int typeId = 0;          // offset 0x08 的类型 ID
+        QByteArray rawData;      // 解码后的完整 blob
+    };
+    bool parseDzxProcesses(const QString &dzxPath, QList<DzxProcess> &processes);
+    void applyDzxProcessing(const QString &dzxPath);
+    void saveProcessedWithDzx(const QString &origDztPath, const QList<DzxProcess> &processes);
 
     // Tab management
     TabData* createTab(const QString &filePath, const QImage &image);

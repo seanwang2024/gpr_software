@@ -3,10 +3,15 @@
   <GlobalProperties>
     <verticalUnit>m</verticalUnit>
     <horizontalUnit>m</horizontalUnit>
-    <dielectric>8.0000000</dielectric>
+    <dielectric>1.0000000</dielectric>
     <readOnly>0</readOnly>
     <unitsPerMark>0.0000000</unitsPerMark>
-    <unitsPerScan>0.0200000</unitsPerScan>
+    <unitsPerScan>0.0000000</unitsPerScan>
+    <Setting>
+      <name>DisplayViews</name>
+      <state>0</state>
+      <value>1</value>
+    </Setting>
     <Setting>
       <name>DisplayGPSUnits</name>
       <state>0</state>
@@ -21,21 +26,6 @@
       <name>ColorTransform</name>
       <state>0</state>
       <value>3</value>
-    </Setting>
-    <Setting>
-      <name>RibbonCategory</name>
-      <state>0</state>
-      <value>1</value>
-    </Setting>
-    <Setting>
-      <name>DisplayViews</name>
-      <state>0</state>
-      <value>1</value>
-    </Setting>
-    <Setting>
-      <name>PickType</name>
-      <state>0</state>
-      <value>1</value>
     </Setting>
     <Setting>
       <name>AmpUnits</name>
@@ -63,24 +53,107 @@
       <value>0</value>
     </Setting>
   </GlobalProperties>
+  <ChannelProperties>
+    <channel>0</channel>
+    <centerFreqMHz>0</centerFreqMHz>
+    <inLineOffset>0.0000000</inLineOffset>
+    <crossLineOffset>0.0000000</crossLineOffset>
+    <displayGain>0.0000000</displayGain>
+    <antBaseGainAdj>0.0000000</antBaseGainAdj>
+    <bistaticSep>0.0000000</bistaticSep>
+    <antennaModelID>0</antennaModelID>
+  </ChannelProperties>
+  <WayPtNameProperties>
+    <name></name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>
+  <WayPtNameProperties>
+    <name>MARK01</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>
+  <WayPtNameProperties>
+    <name>MARK02</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>
+  <WayPtNameProperties>
+    <name>MARK03</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>
+  <WayPtNameProperties>
+    <name>MARK04</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>
+  <WayPtNameProperties>
+    <name>MARK05</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>
+  <WayPtNameProperties>
+    <name>MARK06</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>
+  <WayPtNameProperties>
+    <name>MARK07</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>
+  <WayPtNameProperties>
+    <name>MARK08</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>
+  <WayPtNameProperties>
+    <name>MARK09</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>
+  <WayPtNameProperties>
+    <name>MARK10</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>
   <File>
-    <scanRange>0,1732</scanRange>
-    <name>PRV01__072 P_F.DZT</name>
+    <scanRange>0,700</scanRange>
+    <name>DZXDEMO__001.DZT</name>
     <Profile>
-      <scanRange>0,1732</scanRange>
+      <scanRange>0,700</scanRange>
+      <Comment>
+        <scan>0</scan>
+        <description>Data Collection Notes: </description>
+      </Comment>
       <WayPt>
         <scan>0</scan>
-        <distance>0.0000000</distance>
-        <localCoords>0.0000000,0.0000000,0.0000000</localCoords>
       </WayPt>
       <WayPt>
-        <scan>1731</scan>
-        <localCoords>10.0000000,0.0000000,0.0000000</localCoords>
-      </WayPt>
-      <WayPt>
-        <scan>1732</scan>
-        <distance>34.6400000</distance>
-        <localCoords>10.0000000,0.0000000,0.0000000</localCoords>
+        <scan>700</scan>
       </WayPt>
     </Profile>
   </File>
@@ -97,7 +170,7 @@
     <layerNum>0</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>0.1060000</defaultVelocity>
+    <defaultVelocity>0.2998000</defaultVelocity>
   </LayerGroup>
   <LayerGroup>
     <groupName>第 2 层</groupName>
@@ -112,7 +185,7 @@
     <layerNum>1</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>0.1060000</defaultVelocity>
+    <defaultVelocity>0.2998000</defaultVelocity>
   </LayerGroup>
   <LayerGroup>
     <groupName>第 3 层</groupName>
@@ -127,7 +200,7 @@
     <layerNum>2</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>0.1060000</defaultVelocity>
+    <defaultVelocity>0.2998000</defaultVelocity>
   </LayerGroup>
   <LayerGroup>
     <groupName>第 4 层</groupName>
@@ -142,7 +215,7 @@
     <layerNum>3</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>0.1060000</defaultVelocity>
+    <defaultVelocity>0.2998000</defaultVelocity>
   </LayerGroup>
   <LayerGroup>
     <groupName>第 5 层</groupName>
@@ -157,7 +230,7 @@
     <layerNum>4</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>0.1060000</defaultVelocity>
+    <defaultVelocity>0.2998000</defaultVelocity>
   </LayerGroup>
   <LayerGroup>
     <groupName>第 6 层</groupName>
@@ -172,7 +245,7 @@
     <layerNum>5</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>0.1060000</defaultVelocity>
+    <defaultVelocity>0.2998000</defaultVelocity>
   </LayerGroup>
   <LayerGroup>
     <groupName>第 7 层</groupName>
@@ -187,74 +260,21 @@
     <layerNum>6</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>0.1060000</defaultVelocity>
+    <defaultVelocity>0.2998000</defaultVelocity>
   </LayerGroup>
   <TargetGroup>
-    <groupName>Dot 0</groupName>
+    <groupName>钢筋</groupName>
     <display>1</display>
-    <color>9</color>
-    <sizePx>7</sizePx>
-    <outline>0</outline>
+    <color>13</color>
+    <sizePx>3</sizePx>
+    <outline>1</outline>
     <readOnly>0</readOnly>
-    <diameter>0.0666667</diameter>
-    <link>0</link>
+    <diameter>6.0000000</diameter>
+    <link>1</link>
     <pickType>1</pickType>
     <layerNum>7</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>0.1401000</defaultVelocity>
-    <TargetWayPt>
-      <scanSampChanProp>1653,143,0,0</scanSampChanProp>
-      <timeAmpDepVel>11.1718750,7191.0000000,0.7788713,0.1401000</timeAmpDepVel>
-    </TargetWayPt>
+    <defaultVelocity>0.1300000</defaultVelocity>
   </TargetGroup>
-  <TargetGroup>
-    <groupName>Dot 1</groupName>
-    <display>1</display>
-    <color>18</color>
-    <sizePx>2</sizePx>
-    <outline>0</outline>
-    <readOnly>0</readOnly>
-    <diameter>0.0666667</diameter>
-    <link>0</link>
-    <pickType>1</pickType>
-    <layerNum>7</layerNum>
-    <velMethod>0</velMethod>
-    <lockVelocity>0</lockVelocity>
-    <defaultVelocity>0.0500000</defaultVelocity>
-    <TargetWayPt>
-      <scanSampChanProp>999,81,0,0</scanSampChanProp>
-      <timeAmpDepVel>6.3281250,7072.0000000,0.1386427,0.0500000</timeAmpDepVel>
-    </TargetWayPt>
-  </TargetGroup>
-  <TargetGroup>
-    <groupName>Dot 2</groupName>
-    <display>1</display>
-    <color>9</color>
-    <sizePx>7</sizePx>
-    <outline>0</outline>
-    <readOnly>0</readOnly>
-    <diameter>0.0666667</diameter>
-    <link>0</link>
-    <pickType>1</pickType>
-    <layerNum>7</layerNum>
-    <velMethod>0</velMethod>
-    <lockVelocity>0</lockVelocity>
-    <defaultVelocity>0.0708000</defaultVelocity>
-    <TargetWayPt>
-      <scanSampChanProp>497,98,0,0</scanSampChanProp>
-      <timeAmpDepVel>7.6562500,21634.0000000,0.2600990,0.0708000</timeAmpDepVel>
-    </TargetWayPt>
-  </TargetGroup>
-  <DataCollection>
-    <system>SIR4K</system>
-    <softwareVersion>1.4.21</softwareVersion>
-    <styrofoamThickness>0.0000000</styrofoamThickness>
-    <tZRelToDCPeak>0.0000000</tZRelToDCPeak>
-    <detectionLevel>0.0000000</detectionLevel>
-    <scanDirection>0</scanDirection>
-    <Ctable>-1</Ctable>
-    <Xtable>0</Xtable>
-    <displayGain>0.0000000</displayGain>
-  </DataCollection>
 </DZX>

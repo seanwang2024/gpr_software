@@ -68,6 +68,7 @@
 #include <QWindow>
 #include <QPrinter>
 #include <QTextDocument>
+#include <QXmlStreamReader>
 #include <functional>
 #include <cmath>
 #include <complex>
@@ -2808,9 +2809,38 @@ void MainWindow::openDztFile(const QString &filePath)
 
     if (m_tabs.isEmpty()) hideWelcome();
 
-    // Ensure active group is valid
     if (!m_tabGroups.contains(m_activeTabGroup))
         m_activeTabGroup = m_docTabWidget;
+
+    // 尝试读取同名 DZX,有则自动处理后在新 tab 显示
+    QFileInfo fi(filePath);
+    QString dzxPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX";
+    if (QFile::exists(dzxPath)) {
+        // 日期检查:DZX 和 DZT 修改时间必须相同,否则不处理
+        QDateTime dztTime = QFileInfo(filePath).lastModified();
+        QDateTime dzxTime = QFileInfo(dzxPath).lastModified();
+        if (dztTime != dzxTime) {
+            createTab(filePath, image);
+            return;
+        }
+        // 解析 DZX 处理参数
+        QList<DzxProcess> processes;
+        if (!parseDzxProcesses(dzxPath, processes)) {
+            QMessageBox::warning(this, QString::fromUtf8("提示"),
+                                QString::fromUtf8("无法打开此文件"));
+            createTab(filePath, image);
+            return;
+        }
+        // 先创建原始文件 tab
+        createTab(filePath, image);
+        // 备份原始数据,应用处理,保存 Proc 文件,在新 tab 打开处理后结果
+        QByteArray origData = m_rawData;
+        applyDzxProcessing(dzxPath);
+        saveProcessedWithDzx(filePath, processes);
+        // restore m_rawData for the original tab (saveProcessedWithDzx may have reloaded)
+        m_rawData = origData;
+        return;
+    }
 
     createTab(filePath, image);
 }
@@ -3077,6 +3107,260 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
         }
     }
     return image;
+}
+
+// ==================== DZX 自动处理 ====================
+
+// uuencode 解码(与 DZX_format.md 一致)
+static QByteArray uuDecode(const QString &text)
+{
+    QString s = text;
+    for (auto &p : {QPair<QString,QString>("&amp;","&"), QPair<QString,QString>("&lt;","<"),
+                    QPair<QString,QString>("&gt;",">"), QPair<QString,QString>("&quot;","\""),
+                    QPair<QString,QString>("&apos;","'")})
+        s.replace(p.first, p.second);
+    s.remove('\r'); s.remove('\n'); s.remove('\t'); s.remove(' ');
+    QByteArray out;
+    int pos = 0;
+    int n = 0;
+    while (pos < s.size()) {
+        n = ((s.at(pos).toLatin1() - 32) & 0x3F);
+        pos++;
+        if (n == 0) break;
+        int nchars = ((n + 2) / 3) * 4;
+        for (int i = 0; i < nchars; i += 4) {
+            quint8 v[4];
+            for (int j = 0; j < 4; ++j)
+                v[j] = (pos + i + j < s.size())
+                       ? ((s.at(pos + i + j).toLatin1() - 32) & 0x3F) : 0;
+            quint32 b = (v[0] << 18) | (v[1] << 12) | (v[2] << 6) | v[3];
+            out += char((b >> 16) & 0xFF);
+            out += char((b >> 8) & 0xFF);
+            out += char(b & 0xFF);
+        }
+        pos += nchars;
+    }
+    return out.left(n);  // 只返回有效字节
+}
+
+bool MainWindow::parseDzxProcesses(const QString &dzxPath, QList<DzxProcess> &processes)
+{
+    QFile f(dzxPath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+
+    QXmlStreamReader xml(&f);
+    while (!xml.atEnd()) {
+        xml.readNext();
+        if (xml.tokenType() == QXmlStreamReader::StartElement && xml.name() == QLatin1String("BinaryData")) {
+            DzxProcess proc;
+            QString rawText = xml.readElementText();
+            proc.rawData = uuDecode(rawText);
+            if (proc.rawData.size() >= 9)
+                proc.typeId = static_cast<quint8>(proc.rawData.at(8));
+            processes.append(proc);
+        }
+    }
+    return !processes.isEmpty();
+}
+
+void MainWindow::applyDzxProcessing(const QString &dzxPath)
+{
+    QList<DzxProcess> processes;
+    if (!parseDzxProcesses(dzxPath, processes)) return;
+
+    int samplesPerTrace = m_pixelsPerRow;  // 512
+    int totalSamples = m_rawData.size() / 4;
+    int traceCount = totalSamples / samplesPerTrace;
+    char *data = m_rawData.data();
+
+    for (const auto &proc : processes) {
+        const QByteArray &blob = proc.rawData;
+        int typeId = proc.typeId;
+
+        if (typeId == 99 && blob.size() >= 12) {
+            // DC 去除:每道减去前 N 样本均值
+            int winStart = static_cast<quint8>(blob.at(10)) | (static_cast<quint8>(blob.at(11)) << 8);
+            int win = qBound(1, winStart, samplesPerTrace);
+            for (int t = 0; t < traceCount; ++t) {
+                double sum = 0;
+                int base = t * samplesPerTrace * 4;
+                for (int s = 0; s < win; ++s) {
+                    int idx = base + s * 4;
+                    if (idx + 4 > m_rawData.size()) break;
+                    qint32 v = static_cast<qint32>(
+                        (static_cast<quint8>(data[idx+3]) << 24) |
+                        (static_cast<quint8>(data[idx+2]) << 16) |
+                        (static_cast<quint8>(data[idx+1]) << 8) |
+                        static_cast<quint8>(data[idx]));
+                    sum += v;
+                }
+                qint32 dcOffset = static_cast<qint32>(sum / win);
+                for (int s = 0; s < samplesPerTrace; ++s) {
+                    int idx = base + s * 4;
+                    if (idx + 4 > m_rawData.size()) break;
+                    qint32 v = static_cast<qint32>(
+                        (static_cast<quint8>(data[idx+3]) << 24) |
+                        (static_cast<quint8>(data[idx+2]) << 16) |
+                        (static_cast<quint8>(data[idx+1]) << 8) |
+                        static_cast<quint8>(data[idx]));
+                    v -= dcOffset;
+                    data[idx]   = v & 0xFF;
+                    data[idx+1] = (v >> 8) & 0xFF;
+                    data[idx+2] = (v >> 16) & 0xFF;
+                    data[idx+3] = (v >> 24) & 0xFF;
+                }
+            }
+        }
+        else if (typeId == 77 && blob.size() >= 16) {
+            // 时间零点:沿时间轴平移(简单实现:按 float@0x0A 偏移量做上移/补零)
+            float shiftNs = 0.0f;
+            memcpy(&shiftNs, blob.constData() + 10, 4);
+            // 将 ns 偏移转换为采样点数
+            float range = m_headerRange;  // ns
+            int shiftSamples = qRound(shiftNs * samplesPerTrace / range);
+            if (shiftSamples > 0 && shiftSamples < samplesPerTrace) {
+                for (int t = 0; t < traceCount; ++t) {
+                    int base = t * samplesPerTrace * 4;
+                    // 上移 shiftSamples: memmove
+                    memmove(data + base, data + base + shiftSamples * 4,
+                            (samplesPerTrace - shiftSamples) * 4);
+                    // 底部补零
+                    memset(data + base + (samplesPerTrace - shiftSamples) * 4, 0, shiftSamples * 4);
+                }
+            }
+        }
+        else if (typeId == 59 && blob.size() >= 12) {
+            // 增益:59 类型,offset 0x09 = 增益点数,offset 0x0B 起 = float[dB]
+            int npts = static_cast<quint8>(blob.at(9));
+            if (npts < 1 || npts > 20) continue;
+            QVector<float> gainDb(npts);
+            for (int i = 0; i < npts; ++i) {
+                int off = 0x0B + i * 4;
+                if (off + 4 > blob.size()) break;
+                memcpy(&gainDb[i], blob.constData() + off, 4);
+            }
+            // 沿深度方向线性插值增益
+            QVector<float> gainLin(samplesPerTrace);
+            for (int s = 0; s < samplesPerTrace; ++s) {
+                float frac = static_cast<float>(s) / (samplesPerTrace - 1) * (npts - 1);
+                int idx0 = static_cast<int>(frac);
+                int idx1 = qMin(idx0 + 1, npts - 1);
+                float t = frac - idx0;
+                float db = gainDb[idx0] * (1 - t) + gainDb[idx1] * t;
+                gainLin[s] = std::pow(10.0f, db / 20.0f);
+            }
+            // 应用增益到每道
+            for (int t = 0; t < traceCount; ++t) {
+                int base = t * samplesPerTrace * 4;
+                for (int s = 0; s < samplesPerTrace; ++s) {
+                    int idx = base + s * 4;
+                    if (idx + 4 > m_rawData.size()) break;
+                    qint32 v = static_cast<qint32>(
+                        (static_cast<quint8>(data[idx+3]) << 24) |
+                        (static_cast<quint8>(data[idx+2]) << 16) |
+                        (static_cast<quint8>(data[idx+1]) << 8) |
+                        static_cast<quint8>(data[idx]));
+                    float result = gainLin[s] * static_cast<float>(v);
+                    if (result > 8388607.0f) result = 8388607.0f;
+                    if (result < -8388608.0f) result = -8388608.0f;
+                    v = static_cast<qint32>(result);
+                    data[idx]   = v & 0xFF;
+                    data[idx+1] = (v >> 8) & 0xFF;
+                    data[idx+2] = (v >> 16) & 0xFF;
+                    data[idx+3] = (v >> 24) & 0xFF;
+                }
+            }
+        }
+        // TODO: IIR(4)/FIR(63,64)/背景去除(14,68)/叠加(13,67) 需后续实现
+    }
+}
+
+void MainWindow::saveProcessedWithDzx(const QString &origDztPath, const QList<DzxProcess> &processes)
+{
+    QFileInfo fi(origDztPath);
+    QString procDir = fi.absolutePath() + "/Proc";
+    QDir().mkpath(procDir);
+
+    // 找下一个可用编号 _P_##.DZT
+    QString baseName = fi.completeBaseName();
+    static QRegularExpression reSuffix("_P_\\d+$", QRegularExpression::CaseInsensitiveOption);
+    baseName.remove(reSuffix);
+    QString outDzt, outDzx;
+    int N = 1;
+    do {
+        outDzt = procDir + QString("/%1_P_%2.DZT").arg(baseName).arg(N, 2, 10, QChar('0'));
+        outDzx = procDir + QString("/%1_P_%2.DZX").arg(baseName).arg(N, 2, 10, QChar('0'));
+        N++;
+    } while (QFile::exists(outDzt));
+
+    // 写 DZT: 原始头(0x20000) + 处理后 m_rawData
+    QFile srcFile(origDztPath);
+    QFile outFile(outDzt);
+    if (!srcFile.open(QIODevice::ReadOnly) || !outFile.open(QIODevice::WriteOnly)) {
+        QMessageBox::warning(this, "Error", "Failed to save processed file.");
+        return;
+    }
+    QByteArray header = srcFile.read(m_dataOffset);
+    outFile.write(header);
+    srcFile.close();
+    outFile.write(m_rawData);
+    outFile.close();
+
+    // 写 DZX: Proc 格式(无 Macro,简化版)
+    int traceCount = m_rawData.size() / 4 / m_pixelsPerRow;
+    double dielectric = m_epsr;
+    double unitsPerScan = (m_headerRange > 0 && dielectric > 0)
+        ? 0.299792458 * m_headerRange / (2.0 * std::sqrt(dielectric) * traceCount) : 0.01;
+
+    QString dzxXml = QString::fromUtf8(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<DZX xmlns=\"www.geophysical.com/DZX/1.02\">\n"
+        "  <GlobalProperties>\n"
+        "    <verticalUnit>m</verticalUnit>\n"
+        "    <horizontalUnit>m</horizontalUnit>\n"
+        "    <dielectric>%1</dielectric>\n"
+        "    <readOnly>0</readOnly>\n"
+        "    <unitsPerMark>0.0000000</unitsPerMark>\n"
+        "    <unitsPerScan>%2</unitsPerScan>\n"
+        "  </GlobalProperties>\n"
+        "  <File>\n"
+        "    <scanRange>0,%3</scanRange>\n"
+        "    <name>%4</name>\n"
+        "    <Profile>\n"
+        "      <scanRange>0,%3</scanRange>\n"
+        "      <WayPt>\n"
+        "        <scan>0</scan>\n"
+        "        <distance>0.0000000</distance>\n"
+        "        <localCoords>0.0000000,0.0000000,0.0000000</localCoords>\n"
+        "      </WayPt>\n"
+        "      <WayPt>\n"
+        "        <scan>%3</scan>\n"
+        "        <localCoords>%5,0.0000000,0.0000000</localCoords>\n"
+        "      </WayPt>\n"
+        "    </Profile>\n"
+        "  </File>\n"
+        "  <DataCollection>\n"
+        "    <system>SIR4K</system>\n"
+        "    <softwareVersion>1.4.21</softwareVersion>\n"
+        "  </DataCollection>\n"
+        "</DZX>\n")
+        .arg(dielectric, 0, 'f', 7)
+        .arg(unitsPerScan, 0, 'f', 7)
+        .arg(traceCount)
+        .arg(QFileInfo(outDzt).fileName())
+        .arg(unitsPerScan * traceCount, 0, 'f', 7);
+
+    QFile dzxFile(outDzx);
+    if (dzxFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        dzxFile.write(dzxXml.toUtf8());
+        dzxFile.close();
+    }
+
+    // 在新 tab 打开处理后的 DZT
+    QImage image = loadDZTFile(outDzt);
+    if (!image.isNull()) {
+        createTab(outDzt, image);
+    }
 }
 
 void MainWindow::applyGain()

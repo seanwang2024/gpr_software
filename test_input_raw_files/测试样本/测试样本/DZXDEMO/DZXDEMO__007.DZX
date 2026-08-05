@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DZX xmlns="www.geophysical.com/DZX/1.020000">
+    <GlobalProperties>
+        <verticalUnit>m</verticalUnit>
+        <horizontalUnit>m</horizontalUnit>
+        <dielectric>3.5</dielectric>
+        <readOnly>0</readOnly>
+        <unitsPerMark>0.000000</unitsPerMark>
+        <unitsPerScan>0.012500</unitsPerScan>
+    </GlobalProperties>
+    <DataCollection>
+        <system>SIR4K</system>
+        <softwareVersion>1.4.21</softwareVersion>
+        <Ctable>11</Ctable>
+        <colorStretch>0.000000</colorStretch>
+        <colorSlide>0.000000</colorSlide>
+        <displayGain>0</displayGain>
+        <depthRange>9.140334</depthRange>
+        <originalDielectric>3.500000</originalDielectric>
+        <scanPerMeters>0.000000</scanPerMeters>
+        <gridId>Grid</gridId>
+        <antSerialNumber>0</antSerialNumber>
+        <antModelNumber>34</antModelNumber>
+        <scanRate>110</scanRate>
+        <transmitRate>100</transmitRate>
+    </DataCollection>
+    <Macro>
+        <state>0</state>
+        <Process>
+            <state>0</state>
+            <BinaryData size="16">0&amp;``!```!$`!C``(``````"`@
+
+</BinaryData>
+        </Process>
+        <Process>
+            <state>0</state>
+            <BinaryData size="44">L+``!```!)`!-`JJJ2L$``````````%55_4(````````````````````````@
+
+</BinaryData>
+        </Process>
+        <Process>
+            <state>0</state>
+            <BinaryData size="150">ME@`!```!C@`[!````%#!```@P0``B,$``"1"````````````````````````
+
+M``````````````````````````````````````````#E````````````````
+
+M````````````````````````````````````````````````````````````
+
+/````````````````````
+
+</BinaryData>
+        </Process>
+        <Process>
+            <state>0</state>
+            <BinaryData size="72">M2``!```!0``$"``````#"``````````````````````V`5````#E````````
+
+;````````````````````````````````````
+
+</BinaryData>
+        </Process>
+        <Process>
+            <state>0</state>
+            <BinaryData size="72">M2``!```!0`!``````#\`````````````````````D@F^````Y0``````````
+
+;````````````````````````````````````
+
+</BinaryData>
+        </Process>
+        <Process>
+            <state>0</state>
+            <BinaryData size="72">M2``!```!0``-````D$$```````````````````````````````#E````````
+
+;````````````````````````````````````
+
+</BinaryData>
+        </Process>
+        <Process>
+            <state>0</state>
+            <BinaryData size="72">M2``!```!0`!#``"(00``````````````````````````````Y0``````````
+
+;````````````````````````````````````
+
+</BinaryData>
+        </Process>
+    </Macro>
+    <File>
+        <Profile>
+            <scanRange>0,749</scanRange>
+            <WayPt>
+                <scan>0</scan>
+                <localCoords>0.000000, 0.000000, 0</localCoords>
+            </WayPt>
+            <WayPt>
+                <scan>749</scan>
+                <localCoords>10.000000, 0.000000, 0</localCoords>
+            </WayPt>
+        </Profile>
+        <scanRange>0,749</scanRange>
+    </File>
+</DZX>
