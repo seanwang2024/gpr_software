@@ -571,7 +571,9 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
         m_showCrosshair = true;
         int clampedY = qBound(0, event->pos().y(), height() - 1);
         int origY = (height() > 1) ? clampedY * (m_originalSize.height() - 1) / (height() - 1) : 0;
-        QPoint origPos(event->pos().x(), origY);
+        int clampedX = qBound(0, event->pos().x(), width() - 1);
+        int origX = (width() > 1) ? clampedX * (m_originalSize.width() - 1) / (width() - 1) : 0;
+        QPoint origPos(origX, origY);
         emit imageClicked(origPos);
         update();
     }
@@ -584,7 +586,9 @@ void ImageLabel::mouseMoveEvent(QMouseEvent *event)
         m_crosshairPos = event->pos();
         int clampedY = qBound(0, event->pos().y(), height() - 1);
         int origY = (height() > 1) ? clampedY * (m_originalSize.height() - 1) / (height() - 1) : 0;
-        QPoint origPos(event->pos().x(), origY);
+        int clampedX = qBound(0, event->pos().x(), width() - 1);
+        int origX = (width() > 1) ? clampedX * (m_originalSize.width() - 1) / (width() - 1) : 0;
+        QPoint origPos(origX, origY);
         emit imageClicked(origPos);
         update();
     }
@@ -1739,6 +1743,7 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     tab->timeRange = m_timeRange;
     tab->depthRange = m_depthRange;
     tab->signalPosition = m_signalPos;
+    tab->hZoom = 1.0f;           // 新文件默认无缩放
     tab->header = m_header;
     tab->nsamp = m_nsamp;
     tab->headerRange = m_headerRange;
@@ -1923,6 +1928,7 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
             m_gain = tab->gain;
             m_transformMode = tab->transformMode;
             m_traceCount = tab->traceCount;
+            m_hZoom = tab->hZoom;
             m_timeRange = tab->timeRange;
             m_depthRange = tab->depthRange;
             scrollArea = tab->scrollArea;
@@ -2064,6 +2070,7 @@ void MainWindow::switchToTab(int index)
     m_gain = tab->gain;
     m_transformMode = tab->transformMode;
     m_traceCount = tab->traceCount;
+    m_hZoom = tab->hZoom;
     m_timeRange = tab->timeRange;
     m_depthRange = tab->depthRange;
     updateTraceRange();
@@ -3634,9 +3641,10 @@ void MainWindow::resizeImageLabel()
     int viewH = m_currentTab->scrollArea->viewport()->height();
     if (viewH <= 0) viewH = drawRows;
 
-    m_currentTab->imageLabel->setFixedSize(m_traceCount, viewH);
+    m_currentTab->imageLabel->setFixedSize(qMax(1, qRound(m_traceCount * m_hZoom)), viewH);
 
-    int maxVal = qMax(0, m_traceCount - m_currentTab->scrollArea->viewport()->width());
+    int imgW = qMax(1, qRound(m_traceCount * m_hZoom));
+    int maxVal = qMax(0, imgW - m_currentTab->scrollArea->viewport()->width());
     m_currentTab->extHScrollBar->setRange(0, maxVal);
     m_currentTab->extHScrollBar->setPageStep(m_currentTab->scrollArea->viewport()->width());
     m_currentTab->extHScrollBar->setVisible(maxVal > 0);
@@ -4082,9 +4090,31 @@ void MainWindow::createMenuBar()
     // 图像缩放 group
     QVBoxLayout *zoomGroup = addGroup(startLayout, "图像缩放");
     QHBoxLayout *zoomBtns = qobject_cast<QHBoxLayout*>(zoomGroup->itemAt(0)->layout());
-    zoomBtns->addWidget(makeBtn(":/icons/resources/hzoomin.png", "水平放大"));
-    zoomBtns->addWidget(makeBtn(":/icons/resources/hzoomout.png", "水平缩小"));
-    zoomBtns->addWidget(makeBtn(":/icons/resources/restore.png", "图像还原"));
+    QToolButton *btnHZoomIn = makeBtn(":/icons/resources/hzoomin.png", "水平放大");
+    QToolButton *btnHZoomOut = makeBtn(":/icons/resources/hzoomout.png", "水平缩小");
+    QToolButton *btnHRestore = makeBtn(":/icons/resources/restore.png", "图像还原");
+    zoomBtns->addWidget(btnHZoomIn);
+    zoomBtns->addWidget(btnHZoomOut);
+    zoomBtns->addWidget(btnHRestore);
+    connect(btnHZoomIn, &QToolButton::clicked, this, [this]() {
+        if (!requireOpenFile()) return;
+        m_hZoom *= 1.25f;
+        if (m_currentTab) m_currentTab->hZoom = m_hZoom;
+        resizeImageLabel();
+    });
+    connect(btnHZoomOut, &QToolButton::clicked, this, [this]() {
+        if (!requireOpenFile()) return;
+        m_hZoom *= 0.8f;
+        if (m_hZoom < 0.05f) m_hZoom = 0.05f;
+        if (m_currentTab) m_currentTab->hZoom = m_hZoom;
+        resizeImageLabel();
+    });
+    connect(btnHRestore, &QToolButton::clicked, this, [this]() {
+        if (!requireOpenFile()) return;
+        m_hZoom = 1.0f;
+        if (m_currentTab) m_currentTab->hZoom = m_hZoom;
+        resizeImageLabel();
+    });
     zoomBtns->addWidget(makeBtn(":/icons/resources/stack.png", "堆积图"));
 
     // 调色板 button with dropdown menu
