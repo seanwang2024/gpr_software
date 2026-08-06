@@ -3996,42 +3996,40 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         auto *tabBar = qobject_cast<QTabBar*>(watched);
         if (tabBar) {
             tabBar->setCursor(Qt::ArrowCursor);
-            if (m_dragging && m_dragSrcIdx >= 0 && m_dragSrcIdx < m_dragSrcGroup->count()) {
+            // 先捕获拖拽状态并立即复位,避免后续事件干扰
+            QTabWidget *srcGroup = m_dragSrcGroup;
+            int srcIdx = m_dragSrcIdx;
+            bool dragging = m_dragging;
+            m_dragging = false;
+            m_dragSrcGroup = nullptr;
+            m_dragSrcIdx = -1;
+
+            if (dragging && srcGroup && srcIdx >= 0 && srcIdx < srcGroup->count()) {
                 auto *me = static_cast<QMouseEvent*>(event);
                 QPoint globalPos = me->globalPosition().toPoint();
 
-                // Find target group under mouse
+                // 找鼠标释放位置所在的目标组
                 QTabWidget *dstGroup = nullptr;
                 for (auto *grp : m_tabGroups) {
-                    if (grp == m_dragSrcGroup) continue;
-                    QPoint localPos = grp->mapFromGlobal(globalPos);
-                    if (grp->rect().contains(localPos)) {
+                    if (grp == srcGroup) continue;
+                    if (grp->rect().contains(grp->mapFromGlobal(globalPos))) {
                         dstGroup = grp;
                         break;
                     }
                 }
 
                 if (dstGroup) {
-                    // Move tab from source to destination
-                    QWidget *page = m_dragSrcGroup->widget(m_dragSrcIdx);
-                    QString title = m_dragSrcGroup->tabText(m_dragSrcIdx);
-                    m_dragSrcGroup->removeTab(m_dragSrcIdx);
-                    dstGroup->addTab(page, title);
-                    dstGroup->setCurrentIndex(dstGroup->count() - 1);
-
-                    // Clean up empty source group
-                    if (m_dragSrcGroup->count() == 0 && m_dragSrcGroup != m_docTabWidget) {
-                        m_tabGroups.removeOne(m_dragSrcGroup);
-                        delete m_dragSrcGroup;
-                        collapseEmptySplitters();
-                    }
-                    m_activeTabGroup = dstGroup;
-                    updateGroupStyles(dstGroup, m_tabGroups);
+                    // 关键:延迟到当前鼠标释放事件处理完毕后再移动/删除。
+                    // 若在此事件中直接 delete 源组(其 tabBar 即 watched),
+                    // 会造成 use-after-free,程序稳定闪退。
+                    QTabWidget *src = srcGroup, *dst = dstGroup;
+                    int idx = srcIdx;
+                    QTimer::singleShot(0, this, [this, src, dst, idx]() {
+                        if (!m_tabGroups.contains(src) || !m_tabGroups.contains(dst)) return;
+                        moveTabToGroup(src, idx, dst);   // 复用右键移动逻辑(已验证稳定)
+                    });
                 }
             }
-            m_dragging = false;
-            m_dragSrcGroup = nullptr;
-            m_dragSrcIdx = -1;
         }
     }
     return QMainWindow::eventFilter(watched, event);
