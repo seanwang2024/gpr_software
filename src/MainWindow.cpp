@@ -548,6 +548,12 @@ void ImageLabel::setHyperbolaTracking(bool on)
     }
 }
 
+void ImageLabel::setCrosshairDark(bool dark)
+{
+    m_crosshairDark = dark;
+    update();
+}
+
 void ImageLabel::setHyperbolaParams(double firstWave, double velocity, int width,
                                     double traceSpacing, double timePerSample)
 {
@@ -620,7 +626,8 @@ void ImageLabel::paintEvent(QPaintEvent *event)
 
     if (m_showCrosshair && !m_image.isNull()) {
         QPainter painter(this);
-        QPen pen(Qt::white, 1);
+        // 浅色背景(堆积图)用黑色十字,深色背景(B-SCAN雷达图)用白色十字
+        QPen pen(m_crosshairDark ? Qt::black : Qt::white, 1);
         painter.setPen(pen);
 
         int x = m_crosshairPos.x();
@@ -2114,6 +2121,7 @@ void MainWindow::switchToTab(int index)
         QSignalBlocker b(m_btnStack);   // 同步 checked 不触发 clicked
         m_btnStack->setChecked(m_wiggleMode);
     }
+    tab->imageLabel->setCrosshairDark(m_wiggleMode);   // 切tab同步十字颜色
     m_timeRange = tab->timeRange;
     m_depthRange = tab->depthRange;
     updateTraceRange();
@@ -4252,7 +4260,10 @@ void MainWindow::createMenuBar()
             return;
         }
         m_wiggleMode = btnStack->isChecked();
-        if (m_currentTab) m_currentTab->wiggleMode = m_wiggleMode;
+        if (m_currentTab) {
+            m_currentTab->wiggleMode = m_wiggleMode;
+            m_currentTab->imageLabel->setCrosshairDark(m_wiggleMode);  // 堆积图白底→黑十字
+        }
         refreshImage();
         resizeImageLabel();
     });

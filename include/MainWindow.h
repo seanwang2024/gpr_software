@@ -125,6 +125,7 @@ public:
     ImageLabel(QWidget *parent = nullptr);
     void setImage(const QImage &img);
     void setHyperbolaTracking(bool on);
+    void setCrosshairDark(bool dark);   // 浅色背景(堆积图)用黑色十字,深色背景(B-SCAN)用白色
     void setHyperbolaParams(double firstWave, double velocity, int width,
                             double traceSpacing, double timePerSample);
 
@@ -145,6 +146,7 @@ private:
     QImage m_image;
     QPoint m_crosshairPos;
     bool m_showCrosshair;
+    bool m_crosshairDark = false;   // 十字颜色:true=黑(浅底),false=白(深底)
     float m_currentGainDb;
     int m_transformMode;
     QSize m_originalSize;
