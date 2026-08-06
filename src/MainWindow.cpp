@@ -2372,6 +2372,78 @@ void MainWindow::moveTabToGroup(QTabWidget *srcGroup, int tabIdx, QTabWidget *ds
     updateWindowTitle();
 }
 
+// 激活指定 tab:在所有选项卡组中定位其所在组并选中(触发 switchToTab)
+void MainWindow::activateTabData(TabData *tab)
+{
+    if (!tab) return;
+    for (QTabWidget *g : m_tabGroups) {
+        int idx = g->indexOf(tab->page);
+        if (idx >= 0) {
+            m_activeTabGroup = g;
+            g->setCurrentIndex(idx);   // 触发 currentChanged → switchToTab
+            return;
+        }
+    }
+}
+
+// 下拉显示所有已加载文件:每行 = [缩略图] + [文件名],点击切换为当前活动窗体
+void MainWindow::showFileSwitchDropdown()
+{
+    if (m_tabs.isEmpty()) return;
+    const int THUMB_W = 72, THUMB_H = 54;
+
+    QFrame *popup = new QFrame(this, Qt::Popup);
+    popup->setAttribute(Qt::WA_DeleteOnClose);
+    popup->setFrameShape(QFrame::Box);
+    popup->setStyleSheet(
+        "QFrame { background: #ffffff; }"
+        "QPushButton { text-align: left; border: none; border-radius: 3px;"
+        " padding: 4px 8px; font-size: 12px; color: #222; }"
+        "QPushButton:hover { background: #dce7f5; }"
+    );
+    QVBoxLayout *vl = new QVBoxLayout(popup);
+    vl->setContentsMargins(4, 4, 4, 4);
+    vl->setSpacing(2);
+
+    for (TabData *tab : m_tabs) {
+        QString name = QFileInfo(tab->filePath).fileName();
+        // 缩略图:抓取该 tab 的图像当前显示,等比放大后居中裁剪到固定尺寸
+        QPixmap thumb;
+        if (tab->imageLabel) {
+            QPixmap g = tab->imageLabel->grab();
+            if (!g.isNull()) {
+                QPixmap s = g.scaled(QSize(THUMB_W, THUMB_H),
+                                     Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+                int x = (s.width()  - THUMB_W) / 2;
+                int y = (s.height() - THUMB_H) / 2;
+                thumb = s.copy(qMax(0, x), qMax(0, y), THUMB_W, THUMB_H);
+            }
+        }
+        QPushButton *row = new QPushButton(popup);
+        row->setIcon(QIcon(thumb));
+        row->setIconSize(QSize(THUMB_W, THUMB_H));
+        row->setText(name);
+        row->setToolTip(tab->filePath);
+        if (tab == m_currentTab) {
+            QFont f = row->font();
+            f.setBold(true);
+            row->setFont(f);
+            row->setStyleSheet("color: #1a5fb4;");
+        }
+        TabData *t = tab;
+        QObject::connect(row, &QPushButton::clicked, popup, [this, popup, t]() {
+            popup->close();
+            activateTabData(t);
+        });
+        vl->addWidget(row);
+    }
+    popup->setFixedWidth(300);
+    popup->adjustSize();
+    popup->move(m_btnSwitchFile->mapToGlobal(QPoint(0, m_btnSwitchFile->height())));
+    popup->setFocus();
+    popup->show();
+}
+
 void MainWindow::showAbout()
 {
     QDialog dlg(this);
@@ -4245,6 +4317,32 @@ void MainWindow::createMenuBar()
     fileBtns->addWidget(btnSave);
     fileBtns->addWidget(btnClose);
     fileBtns->addWidget(btnHeader);
+
+    // 切换文件:向下三角,点击下拉所有已加载文件(缩略图+文件名)
+    QToolButton *btnSwitch = new QToolButton();
+    btnSwitch->setText(QString::fromUtf8("切换"));
+    btnSwitch->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    {
+        const int isz = 32;
+        QPixmap pix(isz, isz); pix.fill(Qt::transparent);
+        QPainter pt(&pix); pt.setRenderHint(QPainter::Antialiasing, true);
+        pt.setBrush(Qt::black); pt.setPen(Qt::NoPen);
+        QPolygon tri;
+        tri << QPoint(isz * 3 / 10, isz * 4 / 10)
+            << QPoint(isz * 7 / 10, isz * 4 / 10)
+            << QPoint(isz / 2, isz * 7 / 10);
+        pt.drawPolygon(tri); pt.end();
+        btnSwitch->setIcon(QIcon(pix));
+    }
+    btnSwitch->setIconSize(QSize(32, 32));
+    btnSwitch->setFixedSize(56, 64);
+    btnSwitch->setStyleSheet(
+        "QToolButton { border: none; border-radius: 3px; background: transparent; font-size: 11px; }"
+        "QToolButton:hover { background: #dce7f5; }"
+        "QToolButton:pressed { background: #b8d0ea; }");
+    m_btnSwitchFile = btnSwitch;
+    fileBtns->addWidget(btnSwitch);
+    connect(btnSwitch, &QToolButton::clicked, this, &MainWindow::showFileSwitchDropdown);
 
     connect(btnOpen, &QToolButton::clicked, this, &MainWindow::onOpenFile);
     connect(btnHeader, &QToolButton::clicked, this, &MainWindow::showFileHeader);

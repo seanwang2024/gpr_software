@@ -348,6 +348,9 @@ private:
     float m_hZoom = 1.0f;        // 当前 tab 的水平缩放
     bool m_wiggleMode = false;   // 当前 tab 的堆积图(wiggle)显示模式
     QToolButton *m_btnStack = nullptr;  // 堆积图按钮(同步 checked 状态)
+    QToolButton *m_btnSwitchFile = nullptr;  // 切换文件下拉按钮(向下三角)
+    void showFileSwitchDropdown();        // 弹出所有已加载文件缩略图+文件名下拉
+    void activateTabData(TabData *tab);   // 激活指定 tab(跨选项卡组定位并选中)
     double m_timeRange;
     double m_depthRange;
     float m_signalPos = 0.0f;  // rhf_position from current file
