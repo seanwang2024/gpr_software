@@ -44,11 +44,13 @@ public:
     explicit HRulerWidget(QWidget *parent = nullptr);
     void setDataRange(int dataWidth);
     void setOffset(int offset);
+    void setZoom(float zoom);   // 水平缩放因子(像素/道),道号标尺据此换算像素↔道号
 protected:
     void paintEvent(QPaintEvent *event) override;
 private:
-    int m_offset = 0;
-    int m_dataWidth = 0;
+    int m_offset = 0;       // 滚动条偏移(显示像素)
+    int m_dataWidth = 0;    // 总道数
+    float m_hZoom = 1.0f;   // 每道占多少显示像素
 };
 
 class VRulerWidget : public QWidget

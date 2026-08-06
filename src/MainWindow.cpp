@@ -762,6 +762,13 @@ void HRulerWidget::setOffset(int offset)
     update();
 }
 
+void HRulerWidget::setZoom(float zoom)
+{
+    if (zoom < 0.01f) zoom = 0.01f;
+    m_hZoom = zoom;
+    update();
+}
+
 void HRulerWidget::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
@@ -775,31 +782,55 @@ void HRulerWidget::paintEvent(QPaintEvent *)
     p.drawText(QRect(2, 2, 40, 16), Qt::AlignLeft | Qt::AlignTop,
                QString::fromUtf8("道号"));
 
-    if (m_dataWidth <= 0) return;
+    if (m_dataWidth <= 0 || m_hZoom <= 0.0f) return;
 
     p.drawLine(0, h - 1, w, h - 1);
 
-    int startTrace = m_offset;
-    int endTrace = m_offset + w;
+    const float zoom = m_hZoom;
 
-    int firstMinor = (startTrace / 10) * 10;
-    if (firstMinor < startTrace) firstMinor += 10;
+    // 显示像素 ↔ 道号换算: 道号 = (m_offset + x) / zoom
+    double startTrace = m_offset / zoom;            // 左边缘对应的道号
+    double endTrace   = (m_offset + w) / zoom;      // 右边缘对应的道号
+    if (endTrace > m_dataWidth) endTrace = m_dataWidth;
+    if (startTrace < 0) startTrace = 0;
 
-    for (int val = firstMinor; val <= endTrace; val += 10) {
-        int x = val - m_offset;
-        if (val % 100 != 0)
+    // 自适应刻度间隔: 主刻度间距约 100px, 副刻度 5 等分
+    auto niceStep = [](double targetTraces) -> int {
+        if (targetTraces < 1.0) return 1;
+        double mag = std::pow(10.0, std::floor(std::log10(targetTraces)));
+        double norm = targetTraces / mag;            // 1..10
+        double step;
+        if (norm < 1.5) step = 1;
+        else if (norm < 3.5) step = 2;
+        else if (norm < 7.5) step = 5;
+        else step = 10;
+        return qMax(1, int(step * mag));
+    };
+    int majorStep = niceStep(100.0 / zoom);          // ~100px 一格主刻度
+    int minorStep = (majorStep >= 5) ? majorStep / 5 : 1;
+
+    // 副刻度
+    {
+        int firstMinor = int(std::floor(startTrace / minorStep)) * minorStep;
+        for (int val = firstMinor; val <= int(std::ceil(endTrace)); val += minorStep) {
+            if (val % majorStep == 0) continue;       // 主刻度单独画
+            int x = qRound(val * zoom - m_offset);
+            if (x < -2 || x > w + 2) continue;
             p.drawLine(x, h - 5, x, h);
+        }
     }
 
-    int firstMajor = (startTrace / 100) * 100;
-    if (firstMajor < startTrace) firstMajor += 100;
-
-    for (int val = firstMajor; val <= endTrace; val += 100) {
-        int x = val - m_offset;
-        p.drawLine(x, h - 10, x, h);
-        int textX = qMax(0, x - 30);
-        p.drawText(textX, 14, 60, h - 24, Qt::AlignLeft,
-                   QString::number(val));
+    // 主刻度 + 数字
+    {
+        int firstMajor = int(std::floor(startTrace / majorStep)) * majorStep;
+        for (int val = firstMajor; val <= int(std::ceil(endTrace)); val += majorStep) {
+            int x = qRound(val * zoom - m_offset);
+            if (x < -30 || x > w + 30) continue;
+            p.drawLine(x, h - 10, x, h);
+            int textX = qMax(0, x - 30);
+            p.drawText(textX, 14, 60, h - 24, Qt::AlignLeft,
+                       QString::number(val));
+        }
     }
 }
 
@@ -3649,6 +3680,8 @@ void MainWindow::resizeImageLabel()
     m_currentTab->extHScrollBar->setPageStep(m_currentTab->scrollArea->viewport()->width());
     m_currentTab->extHScrollBar->setVisible(maxVal > 0);
 
+    // 道号标尺:同步当前水平缩放,使显示的道号 RANGE 随放大/缩小而变化
+    m_currentTab->topRuler->setZoom(m_hZoom);
     m_currentTab->leftRuler->update();
     m_currentTab->rightRuler->update();
 }
