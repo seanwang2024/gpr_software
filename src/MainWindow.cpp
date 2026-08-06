@@ -1570,6 +1570,15 @@ MainWindow::MainWindow(QWidget *parent)
 
         outFile.close();
 
+        // 恢复原 tab 到未调节零点状态:调节结果已写入新文件,
+        // 原文件(显示)应保持不变(与 RADAN 逻辑一致)。
+        // 必须在 loadDZTFile/createTab 之前刷新,此时 m_currentTab 仍是原 tab。
+        m_currentTab->zeroApplied = false;
+        m_currentTab->zeroSkipRows = 0;
+        if (m_zeroBtnApply) m_zeroBtnApply->setText(QString::fromUtf8("应用"));
+        refreshImage();
+        updateRulers();
+
         // 打开新文件作为新 tab
         QImage image = loadDZTFile(outPath);
         if (!image.isNull()) {
@@ -3491,6 +3500,32 @@ void MainWindow::saveProcessedWithDzx(const QString &origDztPath, const QList<Dz
     }
 }
 
+// 重置增益面板到默认值:整体/分段增益归 0 dB(线性模式归 1.0),
+// chart 手柄与 m_gain 同步复位。每次打开面板时调用,避免再次打开仍显示上次调节的数值。
+void MainWindow::resetGainPanel()
+{
+    bool isLinear = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
+    double defVal = isLinear ? 1.0 : 0.0;
+    for (int i = 0; i < m_gainSpinBoxes.size(); ++i) {
+        if (m_gainSpinBoxes[i]) {
+            m_gainSpinBoxes[i]->blockSignals(true);
+            m_gainSpinBoxes[i]->setValue(defVal);
+            m_gainSpinBoxes[i]->blockSignals(false);
+        }
+    }
+    m_gain = 1.0f;
+    if (m_currentTab) m_currentTab->gain = 1.0f;
+    if (chartView) {
+        int cnt = chartView->lineCount();
+        int actual = (cnt <= 1) ? 2 : cnt;
+        float hDef = isLinear ? 1.0f : 0.0f;
+        for (int j = 0; j < actual; ++j)
+            chartView->setHandleX(j, hDef);
+        float range = isLinear ? 10.0f : 6.0f;
+        chartView->setGainRange(isLinear ? 0.0f : -range, range);
+    }
+}
+
 void MainWindow::applyGain()
 {
     if (!requireOpenFile()) return;
@@ -4431,6 +4466,7 @@ void MainWindow::createMenuBar()
         m_leftPanel->setWindowIcon(QIcon(":/icons/resources/adjustgain.png"));
         m_leftPanel->setVisible(!m_leftPanel->isVisible());
         if (m_leftPanel->isVisible() && chartView) {
+            resetGainPanel();   // 打开时重置增益为默认,清除上次残留值
             chartView->setGainVisible(true);
             chartView->setYScale(1.0f);
             QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
@@ -4514,6 +4550,7 @@ void MainWindow::createMenuBar()
         m_leftPanel->setWindowIcon(QIcon(":/icons/resources/adjustgain.png"));
         m_leftPanel->setVisible(!m_leftPanel->isVisible());
         if (m_leftPanel->isVisible() && chartView) {
+            resetGainPanel();   // 打开时重置增益为默认,清除上次残留值
             chartView->setGainVisible(true);
             chartView->setYScale(1.0f);
             QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));

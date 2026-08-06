@@ -268,6 +268,7 @@ private:
     void closeTab(int index);
     void switchToTab(int index);
     void applyGain();
+    void resetGainPanel();   // 打开增益面板时重置为默认值(0dB/线性1.0),清除上次残留
     void saveProcessedFile();
     void showWelcome();
     void hideWelcome();
