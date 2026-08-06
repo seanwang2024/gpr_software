@@ -1611,8 +1611,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     // --- Bottom bar ---
     coordinateLabel = new QLabel("", this);
-    coordinateLabel->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 5px; font-family: monospace;");
-    coordinateLabel->setVisible(false);   // 不再显示坐标栏:空框与"道号..."信息都不要
+    coordinateLabel->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 4px 14px; font-family: monospace; color: #222;");
+    coordinateLabel->setVisible(false);   // 无内容时隐藏(避免空框);updateCoordinateLabel 填入文字后显示
 
     m_progressBar = new QProgressBar(this);
     m_net = new QNetworkAccessManager(this);
@@ -1624,6 +1624,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     QHBoxLayout *buttonLayout = new QHBoxLayout();
     buttonLayout->addWidget(m_progressBar);
+    buttonLayout->addStretch(1);
+    buttonLayout->addWidget(coordinateLabel);   // 居中:鼠标当前 道号/采样点/双程走时/深度/振幅
     buttonLayout->addStretch(1);
 
     mainLayout->addLayout(buttonLayout);
@@ -2177,6 +2179,8 @@ void MainWindow::showWelcome()
     m_leftPanel->hide();
     m_docSplitter->hide();
     welcomeLabel->show();
+    coordinateLabel->setText("");
+    coordinateLabel->setVisible(false);   // 回到 welcome:无活动文件,隐藏鼠标坐标栏
     QTimer::singleShot(0, this, [this]() { updateWelcomePixmap(); });  // 布局稳定后按比例铺满
     m_btnApply->setEnabled(false);
     m_btnOK->setEnabled(false);
@@ -2844,6 +2848,7 @@ void MainWindow::openDztFile(const QString &filePath)
     }
 
     coordinateLabel->setText("");
+    coordinateLabel->setVisible(false);   // 新文件打开:清空旧的鼠标坐标显示
 
     if (m_tabs.isEmpty()) hideWelcome();
 
@@ -2963,6 +2968,7 @@ void MainWindow::updateCoordinateLabel(int x, int y)
                            .arg(twt, 0, 'f', 2)
                            .arg(depth, 0, 'f', 3)
                            .arg(amp));
+    coordinateLabel->setVisible(true);   // 有内容才显示(避免空框)
 
     updateChart(x);
 }
