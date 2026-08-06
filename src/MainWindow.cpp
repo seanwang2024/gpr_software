@@ -2074,6 +2074,11 @@ void MainWindow::switchToTab(int index)
         m_gain = 1.0f;
         m_transformMode = 0;
         m_traceCount = 0;
+        m_wiggleMode = false;
+        if (m_btnStack) {
+            QSignalBlocker b(m_btnStack);
+            m_btnStack->setChecked(false);
+        }
         m_timeRange = 20.0;
         m_depthRange = 1.25;
         updateTraceRange();
@@ -2104,6 +2109,11 @@ void MainWindow::switchToTab(int index)
     m_transformMode = tab->transformMode;
     m_traceCount = tab->traceCount;
     m_hZoom = tab->hZoom;
+    m_wiggleMode = tab->wiggleMode;
+    if (m_btnStack) {
+        QSignalBlocker b(m_btnStack);   // 同步 checked 不触发 clicked
+        m_btnStack->setChecked(m_wiggleMode);
+    }
     m_timeRange = tab->timeRange;
     m_depthRange = tab->depthRange;
     updateTraceRange();
@@ -2956,21 +2966,24 @@ void MainWindow::updateCoordinateLabel(int x, int y)
     if (m_rawData.isEmpty()) return;
     if (x < 0 || y < 0) return;
 
-    qint32 pixelValue = getPixelValue(x, y);
+    // 堆积图模式下 x 是图像像素(0..numWiggles*32),需换算为道号(步长2,每槽32列)
+    int traceNo = m_wiggleMode ? (x / 32) * 2 : x;
+
+    qint32 pixelValue = getPixelValue(traceNo, y);
     // 双程走时/深度:按当前左/右标尺范围随采样点 y 线性换算
     double twt   = m_pixelsPerRow ? y * m_timeRange  / m_pixelsPerRow : 0.0;   // 双程走时 ns
     double depth = m_pixelsPerRow ? y * m_depthRange / m_pixelsPerRow : 0.0;   // 深度 m(按右RANGE换算)
     int amp = pixelValue / 256;                                                // 振幅÷256(整数,保留符号)
 
     coordinateLabel->setText(QString::fromUtf8("道号: %1 | 采样点数: %2 | 双程走时: %3 ns | 深度: %4 m | 振幅: %5")
-                           .arg(x)
+                           .arg(traceNo)
                            .arg(y)
                            .arg(twt, 0, 'f', 2)
                            .arg(depth, 0, 'f', 3)
                            .arg(amp));
     coordinateLabel->setVisible(true);   // 有内容才显示(避免空框)
 
-    updateChart(x);
+    updateChart(traceNo);
 }
 
 void MainWindow::updateChart(int xValue)
@@ -3073,6 +3086,69 @@ qint32 MainWindow::getPixelValue(int x, int y)
     );
 
     return pixelValue;
+}
+
+// 堆积图(wiggle)渲染:每个堆积占 32 列,依次显示道号 0/2/4/6...(步长 2)
+// 黑色波形线画在白色背景上,幅度按全局最大绝对值归一化到 ±16 像素(槽宽 32 的一半)
+QImage MainWindow::renderWiggleImage(int traceCount, int drawRows, int skipRows)
+{
+    const int slotW = 32;                              // 每个堆积占 32 列
+    const int halfW  = slotW / 2;                      // 中心线两侧各 16 像素
+    const int step   = 2;                              // 道号步长:0,2,4,...
+    int numWiggles = (traceCount + step - 1) / step;   // 需要画的堆积条数
+    if (numWiggles < 1) numWiggles = 1;
+
+    int imgW = numWiggles * slotW;
+    int imgH = qMax(1, drawRows);
+    QImage image(imgW, imgH, QImage::Format_RGB32);
+    image.fill(Qt::white);
+
+    // 显示增益:与普通模式一致(已应用增益则不再叠加)
+    float displayGain = (m_currentTab && m_currentTab->gainApplied) ? 1.0f : m_gain;
+
+    // 第一遍:统计所有堆积所有样本的全局最大绝对值(用于归一化,保留各道相对幅度)
+    double globalMax = 0.0;
+    for (int k = 0; k < numWiggles; ++k) {
+        int t = k * step;
+        if (t >= traceCount) break;
+        for (int y = 0; y < drawRows; ++y) {
+            double dv = displayGain * static_cast<double>(getPixelValue(t, y + skipRows));
+            if (dv > 8388607.0) dv = 8388607.0;
+            if (dv < -8388608.0) dv = -8388608.0;
+            double a = std::fabs(dv);
+            if (a > globalMax) globalMax = a;
+        }
+    }
+    double scale = (globalMax > 0.0) ? (halfW / globalMax) : 0.0;
+
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing, false);
+    QPen pen(Qt::black, 1);
+    p.setPen(pen);
+
+    for (int k = 0; k < numWiggles; ++k) {
+        int t = k * step;
+        if (t >= traceCount) break;
+        int centerX = k * slotW + halfW;
+
+        // 构造波形折线点
+        QVector<QPointF> pts;
+        pts.reserve(drawRows);
+        for (int y = 0; y < drawRows; ++y) {
+            double dv = displayGain * static_cast<double>(getPixelValue(t, y + skipRows));
+            if (dv > 8388607.0) dv = 8388607.0;
+            if (dv < -8388608.0) dv = -8388608.0;
+            double defl = dv * scale;
+            if (defl > halfW) defl = halfW;
+            if (defl < -halfW) defl = -halfW;
+            pts.append(QPointF(centerX + defl, y));
+        }
+        if (pts.size() >= 2)
+            p.drawPolyline(pts.constData(), pts.size());
+    }
+    p.end();
+
+    return image.convertToFormat(QImage::Format_RGB32);
 }
 
 QImage MainWindow::loadDZTFile(const QString &filePath)
@@ -3568,6 +3644,13 @@ void MainWindow::refreshImage()
 
     QImage image(rows, drawRows, QImage::Format_RGB32);
 
+    // 堆积图(wiggle)模式:单独渲染,不走普通热图分支
+    if (m_wiggleMode) {
+        image = renderWiggleImage(rows, drawRows, skipRows);
+        imageLabel->setImage(image);
+        return;
+    }
+
     if (m_transformMode == 3) {
         for (int col = 0; col < rows; ++col) {
             std::vector<std::complex<double>> data(512);
@@ -3678,16 +3761,21 @@ void MainWindow::resizeImageLabel()
     int viewH = m_currentTab->scrollArea->viewport()->height();
     if (viewH <= 0) viewH = drawRows;
 
-    m_currentTab->imageLabel->setFixedSize(qMax(1, qRound(m_traceCount * m_hZoom)), viewH);
+    // 逻辑图像宽度:普通模式=道数,堆积图模式=(道数/2)*32(每堆积32列,步长2)
+    int logicalW = m_wiggleMode ? (((m_traceCount + 1) / 2) * 32) : m_traceCount;
 
-    int imgW = qMax(1, qRound(m_traceCount * m_hZoom));
+    m_currentTab->imageLabel->setFixedSize(qMax(1, qRound(logicalW * m_hZoom)), viewH);
+
+    int imgW = qMax(1, qRound(logicalW * m_hZoom));
     int maxVal = qMax(0, imgW - m_currentTab->scrollArea->viewport()->width());
     m_currentTab->extHScrollBar->setRange(0, maxVal);
     m_currentTab->extHScrollBar->setPageStep(m_currentTab->scrollArea->viewport()->width());
     m_currentTab->extHScrollBar->setVisible(maxVal > 0);
 
     // 道号标尺:同步当前水平缩放,使显示的道号 RANGE 随放大/缩小而变化
-    m_currentTab->topRuler->setZoom(m_hZoom);
+    // 堆积图模式下每道占 16 个显示像素(32列槽/步长2),故等效 zoom = 16*m_hZoom
+    float rulerZoom = m_wiggleMode ? (16.0f * m_hZoom) : m_hZoom;
+    m_currentTab->topRuler->setZoom(rulerZoom);
     m_currentTab->leftRuler->update();
     m_currentTab->rightRuler->update();
 }
@@ -4154,7 +4242,20 @@ void MainWindow::createMenuBar()
         if (m_currentTab) m_currentTab->hZoom = m_hZoom;
         resizeImageLabel();
     });
-    zoomBtns->addWidget(makeBtn(":/icons/resources/stack.png", "堆积图"));
+    QToolButton *btnStack = makeBtn(":/icons/resources/stack.png", "堆积图");
+    m_btnStack = btnStack;
+    zoomBtns->addWidget(btnStack);
+    btnStack->setCheckable(true);
+    connect(btnStack, &QToolButton::clicked, this, [this, btnStack]() {
+        if (!requireOpenFile()) {
+            btnStack->setChecked(false);
+            return;
+        }
+        m_wiggleMode = btnStack->isChecked();
+        if (m_currentTab) m_currentTab->wiggleMode = m_wiggleMode;
+        refreshImage();
+        resizeImageLabel();
+    });
 
     // 调色板 button with dropdown menu
     {

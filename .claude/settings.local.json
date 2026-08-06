@@ -20,7 +20,8 @@
       "Bash(grep -E --line-buffered \"Built target|Error|error:|fatal|undefined reference|ninja: build halted|Generating|Linking|\\\\.o$|\\\\.cpp\\\\.obj$|^\\\\[1[0-9][0-9]/[0-9]+\\\\]|^\\\\[[0-9]+/[0-9]+\\\\] \\(Linking|Building CXX|Building RC\\)\")",
       "Bash(grep -rn \"Module \\\\${the_module} can not be built\" D:/opencv/cmake/)",
       "Bash(cmake -G \"MinGW Makefiles\" -DBUILD_LIST=\"core,imgproc,imgcodecs,highgui,dnn\" .)",
-      "Bash(cmake ..)"
+      "Bash(cmake ..)",
+      "Bash(cmake --build . --target MyQtApp)"
     ]
   }
 }

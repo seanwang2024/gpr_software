@@ -198,6 +198,7 @@ struct TabData {
     int zeroSkipRows = 0;
     float signalPosition = 0.0f;  // rhf_position from offset 22
     float hZoom = 1.0f;           // 水平缩放因子(像素/道,1.0=原始)
+    bool wiggleMode = false;      // 堆积图(wiggle)显示模式
     QByteArray header;            // 前 1024 字节原始文件头(保留所有文件头信息)
     int nsamp = 512;              // 采样点数/扫描 (offset 4)
     float headerRange = 20.0f;    // 记录长度 ns (offset 26)
@@ -233,6 +234,7 @@ private slots:
 
 private:
     QImage loadDZTFile(const QString &filePath);
+    QImage renderWiggleImage(int traceCount, int drawRows, int skipRows);  // 堆积图(wiggle)渲染
     void openDztFile(const QString &filePath);
     void updateCoordinateLabel(int x, int y);
     qint32 getPixelValue(int x, int y);
@@ -341,6 +343,8 @@ private:
     void loadLUT(int index = 1);
     int m_traceCount;
     float m_hZoom = 1.0f;        // 当前 tab 的水平缩放
+    bool m_wiggleMode = false;   // 当前 tab 的堆积图(wiggle)显示模式
+    QToolButton *m_btnStack = nullptr;  // 堆积图按钮(同步 checked 状态)
     double m_timeRange;
     double m_depthRange;
     float m_signalPos = 0.0f;  // rhf_position from current file
