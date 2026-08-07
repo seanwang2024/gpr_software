@@ -1314,6 +1314,29 @@ MainWindow::MainWindow(QWidget *parent)
     );
     m_docTabWidget->tabBar()->installEventFilter(this);
 
+    // 标签栏最右端的"切换文件"向下三角按钮(corner widget,与TAB平行,无文字)
+    {
+        QToolButton *btnSwitch = new QToolButton(m_docTabWidget);
+        const int isz = 16;
+        QPixmap pix(isz, isz); pix.fill(Qt::transparent);
+        QPainter pt(&pix); pt.setRenderHint(QPainter::Antialiasing, true);
+        pt.setBrush(QColor("#333333")); pt.setPen(Qt::NoPen);
+        QPolygon tri;
+        tri << QPoint(isz * 2 / 8, isz * 3 / 8)
+            << QPoint(isz * 6 / 8, isz * 3 / 8)
+            << QPoint(isz / 2, isz * 6 / 8);
+        pt.drawPolygon(tri); pt.end();
+        btnSwitch->setIcon(QIcon(pix));
+        btnSwitch->setIconSize(QSize(16, 16));
+        btnSwitch->setToolTip(QString::fromUtf8("切换文件(显示所有已加载文件)"));
+        btnSwitch->setAutoRaise(true);
+        btnSwitch->setStyleSheet("QToolButton { border: none; padding: 6px 8px; }"
+                                 "QToolButton:hover { background: #dce7f5; border-radius: 3px; }");
+        m_btnSwitchFile = btnSwitch;
+        m_docTabWidget->setCornerWidget(btnSwitch, Qt::TopRightCorner);
+        connect(btnSwitch, &QToolButton::clicked, this, &MainWindow::showFileSwitchDropdown);
+    }
+
     // Splitter wrapping tab groups for horizontal/vertical splits
     m_docSplitter = new QSplitter(Qt::Vertical, this);
     m_docSplitter->addWidget(m_docTabWidget);
@@ -2439,7 +2462,9 @@ void MainWindow::showFileSwitchDropdown()
     }
     popup->setFixedWidth(300);
     popup->adjustSize();
-    popup->move(m_btnSwitchFile->mapToGlobal(QPoint(0, m_btnSwitchFile->height())));
+    // 右对齐到按钮(按钮在标签栏最右端,避免下拉溢出屏幕右侧)
+    QPoint p = m_btnSwitchFile->mapToGlobal(QPoint(m_btnSwitchFile->width(), m_btnSwitchFile->height()));
+    popup->move(qMax(0, p.x() - popup->width()), p.y());
     popup->setFocus();
     popup->show();
 }
@@ -4317,32 +4342,6 @@ void MainWindow::createMenuBar()
     fileBtns->addWidget(btnSave);
     fileBtns->addWidget(btnClose);
     fileBtns->addWidget(btnHeader);
-
-    // 切换文件:向下三角,点击下拉所有已加载文件(缩略图+文件名)
-    QToolButton *btnSwitch = new QToolButton();
-    btnSwitch->setText(QString::fromUtf8("切换"));
-    btnSwitch->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-    {
-        const int isz = 32;
-        QPixmap pix(isz, isz); pix.fill(Qt::transparent);
-        QPainter pt(&pix); pt.setRenderHint(QPainter::Antialiasing, true);
-        pt.setBrush(Qt::black); pt.setPen(Qt::NoPen);
-        QPolygon tri;
-        tri << QPoint(isz * 3 / 10, isz * 4 / 10)
-            << QPoint(isz * 7 / 10, isz * 4 / 10)
-            << QPoint(isz / 2, isz * 7 / 10);
-        pt.drawPolygon(tri); pt.end();
-        btnSwitch->setIcon(QIcon(pix));
-    }
-    btnSwitch->setIconSize(QSize(32, 32));
-    btnSwitch->setFixedSize(56, 64);
-    btnSwitch->setStyleSheet(
-        "QToolButton { border: none; border-radius: 3px; background: transparent; font-size: 11px; }"
-        "QToolButton:hover { background: #dce7f5; }"
-        "QToolButton:pressed { background: #b8d0ea; }");
-    m_btnSwitchFile = btnSwitch;
-    fileBtns->addWidget(btnSwitch);
-    connect(btnSwitch, &QToolButton::clicked, this, &MainWindow::showFileSwitchDropdown);
 
     connect(btnOpen, &QToolButton::clicked, this, &MainWindow::onOpenFile);
     connect(btnHeader, &QToolButton::clicked, this, &MainWindow::showFileHeader);
