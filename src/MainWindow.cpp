@@ -2236,6 +2236,7 @@ void MainWindow::showWelcome()
     welcomeLabel->show();
     coordinateLabel->setText("");
     coordinateLabel->setVisible(false);   // 回到 welcome:无活动文件,隐藏鼠标坐标栏
+    QTimer::singleShot(0, this, [this]() { repositionSwitchButton(); });  // 无文件→隐藏三角按钮
     QTimer::singleShot(0, this, [this]() { updateWelcomePixmap(); });  // 布局稳定后按比例铺满
     m_btnApply->setEnabled(false);
     m_btnOK->setEnabled(false);
@@ -2416,19 +2417,17 @@ void MainWindow::activateTabData(TabData *tab)
 
 // 把切换三角按钮固定到文档区(m_docSplitter)的右上角 = 整个窗体最右、与TAB平行。
 // 无论水平/垂直如何分组,m_docSplitter 始终铺满文档区,其右上角即窗体最右端。
+// 只要有打开的文件就显示(welcome/无文件时隐藏)。
 void MainWindow::repositionSwitchButton()
 {
     if (!m_btnSwitchFile || !m_docSplitter) return;
-    bool show = m_docSplitter->isVisible() && !m_tabs.isEmpty();
-    m_btnSwitchFile->setVisible(show);
-    if (!show) return;
+    if (m_tabs.isEmpty()) { m_btnSwitchFile->hide(); return; }
     QWidget *cw = centralWidget();
     if (!cw) return;
     QPoint tr = m_docSplitter->mapTo(cw, QPoint(m_docSplitter->width(), 0));
-    int x = tr.x() - m_btnSwitchFile->width();
-    int y = tr.y();
-    m_btnSwitchFile->move(qMax(0, x), y);
+    m_btnSwitchFile->move(qMax(0, tr.x() - m_btnSwitchFile->width()), tr.y());
     m_btnSwitchFile->raise();
+    m_btnSwitchFile->show();   // 有文件即显示(不再依赖 isVisible 的瞬时状态)
 }
 
 // 下拉显示所有已加载文件:每行 = [缩略图] + [文件名],点击切换为当前活动窗体
@@ -2997,6 +2996,7 @@ void MainWindow::openDztFile(const QString &filePath)
     coordinateLabel->setVisible(false);   // 新文件打开:清空旧的鼠标坐标显示
 
     if (m_tabs.isEmpty()) hideWelcome();
+    QTimer::singleShot(0, this, [this]() { repositionSwitchButton(); });  // 有文件→显示三角按钮
 
     if (!m_tabGroups.contains(m_activeTabGroup))
         m_activeTabGroup = m_docTabWidget;
@@ -3944,10 +3944,10 @@ void MainWindow::resizeImageLabel()
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
-    // 文档区尺寸/显隐变化:重定位文件切换三角按钮
+    // 文档区尺寸/显隐变化:重定位文件切换三角按钮(延迟到事件处理完毕,几何/可见性才准确)
     if (watched == m_docSplitter &&
         (event->type() == QEvent::Resize || event->type() == QEvent::Show || event->type() == QEvent::Hide)) {
-        repositionSwitchButton();
+        QTimer::singleShot(0, this, [this]() { repositionSwitchButton(); });
     }
     // welcome 底部图标悬停:放大该图标(Enter 显示,Leave 隐藏)
     int whi = m_welcomeHotspots.indexOf(qobject_cast<QWidget*>(watched));
