@@ -5,14 +5,18 @@
 #include <cstdio>
 #endif
 
-// 统一消息处理:强制 UTF-8 输出到 stderr,配合控制台 CP_UTF8 使中文不乱码
-static void diagMessageHandler(QtMsgType, const QMessageLogContext &, const QString &msg)
+// 终端诊断输出:直接写 UTF-8 到 stderr(控制台),绕过 Qt 消息系统。
+// 供 MainWindow 的 DZX 诊断调用——终端只显示这些内容。
+void diagPrint(const QString &msg)
 {
     QByteArray ba = msg.toUtf8();
     fputs(ba.constData(), stderr);
     fputc('\n', stderr);
     fflush(stderr);
 }
+
+// 消息处理:抑制所有 qDebug/qWarning,避免其他调试信息刷屏(终端只留 DZX 诊断)
+static void silentMessageHandler(QtMsgType, const QMessageLogContext &, const QString &) {}
 
 int main(int argc, char *argv[])
 {
@@ -26,17 +30,16 @@ int main(int argc, char *argv[])
         SetConsoleTitleW(L"DZX Processing Diagnostic");
     }
 #endif
-    qInstallMessageHandler(diagMessageHandler);   // qDebug 统一走 UTF-8
+    qInstallMessageHandler(silentMessageHandler); // 屏蔽其他 qDebug
 
     QApplication app(argc, argv);
 
 #ifdef Q_OS_WIN
     if (hasConsole) {
-        qDebug().noquote() << "==== 劳雷AI数据处理 [诊断测试版] ====";
-        qDebug().noquote() << "本终端用于显示 DZX 处理信息。";
-        qDebug().noquote() << "请打开带 DZX 的 DZT 文件,下方会打印该文件的处理步骤,";
-        qDebug().noquote() << "再与 RADAN 主机的处理设置逐项对照。";
-        qDebug().noquote() << "=====================================";
+        diagPrint("==== 劳雷AI数据处理 [诊断测试版] ====");
+        diagPrint("本终端只显示 DZX 处理信息。");
+        diagPrint("请打开带 DZX 的 DZT 文件,下方会打印该文件的处理步骤,再与 RADAN 逐项对照。");
+        diagPrint("=====================================");
     }
 #endif
 
