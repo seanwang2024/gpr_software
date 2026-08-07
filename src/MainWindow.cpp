@@ -3429,6 +3429,65 @@ void MainWindow::applyDzxProcessing(const QString &dzxPath)
     int traceCount = totalSamples / samplesPerTrace;
     char *data = m_rawData.data();
 
+    // ---- 诊断输出:DZX 文件名 + 所有处理步骤及其参数(用于与 RADAN 对比) ----
+    auto typeName = [](int id) -> const char* {
+        switch (id) {
+        case 99: return "DC去除";
+        case 77: return "时间零点";
+        case 59: return "增益";
+        case 4:  return "IIR滤波";
+        case 63: return "FIR高通";
+        case 64: return "FIR低通";
+        case 13: return "叠加(水平平滑)";
+        case 14: return "背景去除";
+        case 67: return "叠加2";
+        case 68: return "背景去除2";
+        default: return "未知类型";
+        }
+    };
+    auto isHandled = [](int id) -> const char* {
+        return (id == 99 || id == 77 || id == 59) ? "[已实现-将应用]" : "[未实现-跳过!]";
+    };
+    auto hexDump = [](const QByteArray &b) {
+        QString s;
+        for (int i = 0; i < b.size(); ++i) {
+            s += QString::number(static_cast<quint8>(b.at(i)), 16).rightJustified(2, '0') + " ";
+            if ((i + 1) % 16 == 0) s += "\n      ";
+        }
+        return s.trimmed();
+    };
+    qDebug().noquote() << "========== DZX 处理诊断 ==========";
+    qDebug().noquote() << "DZX 文件:" << dzxPath;
+    qDebug().noquote() << "DZT 道数:" << traceCount
+                       << " 每道采样:" << samplesPerTrace
+                       << " 记录长度:" << m_headerRange << "ns"
+                       << " signalPos:" << m_signalPos;
+    qDebug().noquote() << "找到" << processes.size() << "个处理步骤:";
+    for (int i = 0; i < processes.size(); ++i) {
+        const auto &p = processes[i];
+        const QByteArray &blob = p.rawData;
+        qDebug().noquote() << QString("[%1] typeId=%2 (%3)  blob=%4字节  %5")
+            .arg(i + 1).arg(p.typeId).arg(typeName(p.typeId)).arg(blob.size()).arg(isHandled(p.typeId));
+        if (p.typeId == 99 && blob.size() >= 12) {
+            int win = static_cast<quint8>(blob.at(10)) | (static_cast<quint8>(blob.at(11)) << 8);
+            qDebug().noquote() << "     → DC去除 窗口/前N样本 win =" << win;
+        } else if (p.typeId == 77 && blob.size() >= 14) {
+            float shiftNs = 0.0f; memcpy(&shiftNs, blob.constData() + 10, 4);
+            qDebug().noquote() << "     → 时间零点 shiftNs =" << shiftNs
+                               << "  对应采样点 =" << qRound(shiftNs * samplesPerTrace / m_headerRange);
+        } else if (p.typeId == 59 && blob.size() >= 11) {
+            int npts = static_cast<quint8>(blob.at(9));
+            QString gains;
+            for (int k = 0; k < npts && 0x0B + k * 4 + 4 <= blob.size(); ++k) {
+                float g = 0.0f; memcpy(&g, blob.constData() + 0x0B + k * 4, 4);
+                gains += QString::number(g, 'f', 3) + " ";
+            }
+            qDebug().noquote() << "     → 增益 npts =" << npts << " gainDb(dB) = [" << gains << "]";
+        }
+        qDebug().noquote() << "     hex:" << hexDump(blob);
+    }
+    qDebug().noquote() << "==================================";
+
     for (const auto &proc : processes) {
         const QByteArray &blob = proc.rawData;
         int typeId = proc.typeId;
