@@ -1314,29 +1314,6 @@ MainWindow::MainWindow(QWidget *parent)
     );
     m_docTabWidget->tabBar()->installEventFilter(this);
 
-    // 标签栏最右端的"切换文件"向下三角按钮(corner widget,与TAB平行,无文字)
-    {
-        QToolButton *btnSwitch = new QToolButton(m_docTabWidget);
-        const int isz = 16;
-        QPixmap pix(isz, isz); pix.fill(Qt::transparent);
-        QPainter pt(&pix); pt.setRenderHint(QPainter::Antialiasing, true);
-        pt.setBrush(QColor("#333333")); pt.setPen(Qt::NoPen);
-        QPolygon tri;
-        tri << QPoint(isz * 2 / 8, isz * 3 / 8)
-            << QPoint(isz * 6 / 8, isz * 3 / 8)
-            << QPoint(isz / 2, isz * 6 / 8);
-        pt.drawPolygon(tri); pt.end();
-        btnSwitch->setIcon(QIcon(pix));
-        btnSwitch->setIconSize(QSize(16, 16));
-        btnSwitch->setToolTip(QString::fromUtf8("切换文件(显示所有已加载文件)"));
-        btnSwitch->setAutoRaise(true);
-        btnSwitch->setStyleSheet("QToolButton { border: none; padding: 6px 8px; }"
-                                 "QToolButton:hover { background: #dce7f5; border-radius: 3px; }");
-        m_btnSwitchFile = btnSwitch;
-        m_docTabWidget->setCornerWidget(btnSwitch, Qt::TopRightCorner);
-        connect(btnSwitch, &QToolButton::clicked, this, &MainWindow::showFileSwitchDropdown);
-    }
-
     // Splitter wrapping tab groups for horizontal/vertical splits
     m_docSplitter = new QSplitter(Qt::Vertical, this);
     m_docSplitter->addWidget(m_docTabWidget);
@@ -1670,6 +1647,34 @@ MainWindow::MainWindow(QWidget *parent)
     mainLayout->addLayout(buttonLayout);
 
     setCentralWidget(centralWidget);
+
+    // 文件切换"向下三角"按钮:浮在文档区右上角(整个窗体最右边,与TAB平行)。
+    // 用 corner widget 会随某个分组固定,故改为覆盖层,resize/分组变化时重新定位。
+    {
+        QToolButton *btnSwitch = new QToolButton(centralWidget);
+        const int isz = 16;
+        QPixmap pix(isz, isz); pix.fill(Qt::transparent);
+        QPainter pt(&pix); pt.setRenderHint(QPainter::Antialiasing, true);
+        pt.setBrush(QColor("#333333")); pt.setPen(Qt::NoPen);
+        QPolygon tri;
+        tri << QPoint(isz * 2 / 8, isz * 3 / 8)
+            << QPoint(isz * 6 / 8, isz * 3 / 8)
+            << QPoint(isz / 2, isz * 6 / 8);
+        pt.drawPolygon(tri); pt.end();
+        btnSwitch->setIcon(QIcon(pix));
+        btnSwitch->setIconSize(QSize(16, 16));
+        btnSwitch->setToolTip(QString::fromUtf8("切换文件(显示所有已加载文件)"));
+        btnSwitch->setAutoRaise(true);
+        btnSwitch->setCursor(Qt::ArrowCursor);
+        btnSwitch->setStyleSheet("QToolButton { border: none; padding: 6px 8px; background: transparent; }"
+                                 "QToolButton:hover { background: #dce7f5; border-radius: 3px; }");
+        btnSwitch->hide();   // 无文件时隐藏,由 repositionSwitchButton() 控制显隐
+        m_btnSwitchFile = btnSwitch;
+        connect(btnSwitch, &QToolButton::clicked, this, &MainWindow::showFileSwitchDropdown);
+    }
+    // 文档区尺寸/可见性变化时重定位三角按钮
+    if (m_docSplitter) m_docSplitter->installEventFilter(this);
+
     setWindowTitle("劳雷AI数据处理");
     setAcceptDrops(true);
 
@@ -2407,6 +2412,23 @@ void MainWindow::activateTabData(TabData *tab)
             return;
         }
     }
+}
+
+// 把切换三角按钮固定到文档区(m_docSplitter)的右上角 = 整个窗体最右、与TAB平行。
+// 无论水平/垂直如何分组,m_docSplitter 始终铺满文档区,其右上角即窗体最右端。
+void MainWindow::repositionSwitchButton()
+{
+    if (!m_btnSwitchFile || !m_docSplitter) return;
+    bool show = m_docSplitter->isVisible() && !m_tabs.isEmpty();
+    m_btnSwitchFile->setVisible(show);
+    if (!show) return;
+    QWidget *cw = centralWidget();
+    if (!cw) return;
+    QPoint tr = m_docSplitter->mapTo(cw, QPoint(m_docSplitter->width(), 0));
+    int x = tr.x() - m_btnSwitchFile->width();
+    int y = tr.y();
+    m_btnSwitchFile->move(qMax(0, x), y);
+    m_btnSwitchFile->raise();
 }
 
 // 下拉显示所有已加载文件:每行 = [缩略图] + [文件名],点击切换为当前活动窗体
@@ -3922,6 +3944,11 @@ void MainWindow::resizeImageLabel()
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
+    // 文档区尺寸/显隐变化:重定位文件切换三角按钮
+    if (watched == m_docSplitter &&
+        (event->type() == QEvent::Resize || event->type() == QEvent::Show || event->type() == QEvent::Hide)) {
+        repositionSwitchButton();
+    }
     // welcome 底部图标悬停:放大该图标(Enter 显示,Leave 隐藏)
     int whi = m_welcomeHotspots.indexOf(qobject_cast<QWidget*>(watched));
     if (whi >= 0 && m_welcomeZoom) {
@@ -4195,6 +4222,7 @@ void MainWindow::resizeEvent(QResizeEvent *event)
 {
     QMainWindow::resizeEvent(event);
     resizeImageLabel();
+    repositionSwitchButton();   // 窗体尺寸变化:三角按钮跟随文档区右上角
     // 延后到布局重算完成后再缩放(此时 welcomeLabel 尺寸才正确),否则启动时用旧尺寸、要拖动才生效
     QTimer::singleShot(0, this, [this]() { updateWelcomePixmap(); });
 }

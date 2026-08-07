@@ -351,6 +351,7 @@ private:
     QToolButton *m_btnSwitchFile = nullptr;  // 切换文件下拉按钮(向下三角)
     void showFileSwitchDropdown();        // 弹出所有已加载文件缩略图+文件名下拉
     void activateTabData(TabData *tab);   // 激活指定 tab(跨选项卡组定位并选中)
+    void repositionSwitchButton();        // 把切换三角按钮固定到文档区右上角(整个窗体最右)
     double m_timeRange;
     double m_depthRange;
     float m_signalPos = 0.0f;  // rhf_position from current file
