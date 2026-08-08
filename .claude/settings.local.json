@@ -21,7 +21,9 @@
       "Bash(grep -rn \"Module \\\\${the_module} can not be built\" D:/opencv/cmake/)",
       "Bash(cmake -G \"MinGW Makefiles\" -DBUILD_LIST=\"core,imgproc,imgcodecs,highgui,dnn\" .)",
       "Bash(cmake ..)",
-      "Bash(cmake --build . --target MyQtApp)"
+      "Bash(cmake --build . --target MyQtApp)",
+      "Bash(python -c ' *)",
+      "Bash(python analyze_filters.py)"
     ]
   }
 }
