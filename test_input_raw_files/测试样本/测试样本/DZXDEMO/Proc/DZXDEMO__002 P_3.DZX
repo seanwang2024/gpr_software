@@ -6,7 +6,7 @@
     <dielectric>2.0000000</dielectric>
     <readOnly>0</readOnly>
     <unitsPerMark>0.0000000</unitsPerMark>
-    <unitsPerScan>0.0283176</unitsPerScan>
+    <unitsPerScan>0.0125000</unitsPerScan>
     <Setting>
       <name>DisplayGPSUnits</name>
       <state>0</state>
@@ -21,6 +21,21 @@
       <name>ColorTransform</name>
       <state>0</state>
       <value>3</value>
+    </Setting>
+    <Setting>
+      <name>RibbonCategory</name>
+      <state>0</state>
+      <value>1</value>
+    </Setting>
+    <Setting>
+      <name>DisplayViews</name>
+      <state>0</state>
+      <value>1</value>
+    </Setting>
+    <Setting>
+      <name>PickType</name>
+      <state>0</state>
+      <value>1</value>
     </Setting>
     <Setting>
       <name>AmpUnits</name>
@@ -50,6 +65,7 @@
   </GlobalProperties>
   <File>
     <scanRange>0,393</scanRange>
+    <name>DZXDEMO__002 P_3.DZT</name>
     <Profile>
       <scanRange>0,393</scanRange>
       <WayPt>
@@ -58,8 +74,13 @@
         <localCoords>0.0000000,0.0000000,0.0000000</localCoords>
       </WayPt>
       <WayPt>
+        <scan>391</scan>
+        <localCoords>10.0000000,0.0000000,0.0000000</localCoords>
+      </WayPt>
+      <WayPt>
         <scan>393</scan>
-        <distance>11.1288164</distance>
+        <distance>4.9125000</distance>
+        <localCoords>10.0000000,0.0000000,0.0000000</localCoords>
       </WayPt>
     </Profile>
   </File>
@@ -175,7 +196,7 @@
     <sizePx>3</sizePx>
     <outline>1</outline>
     <readOnly>0</readOnly>
-    <diameter>0.1699056</diameter>
+    <diameter>0.0750000</diameter>
     <link>1</link>
     <pickType>1</pickType>
     <layerNum>7</layerNum>
@@ -190,7 +211,7 @@
     <tZRelToDCPeak>0.0000000</tZRelToDCPeak>
     <detectionLevel>0.0000000</detectionLevel>
     <scanDirection>0</scanDirection>
-    <Ctable>0</Ctable>
+    <Ctable>11</Ctable>
     <Xtable>0</Xtable>
     <displayGain>0.0000000</displayGain>
   </DataCollection>
