@@ -2752,10 +2752,13 @@ void MainWindow::showUpgrade()
 
     QObject::connect(close, &QPushButton::clicked, &dlg, &QDialog::accept);
     dlg.exec();
-    if (m_upgradeRestart) {            // 升级:批处理已启动,此处可靠地退出整个应用
+    if (m_upgradeRestart) {            // 升级:批处理已启动,此处强制终止本进程以释放 exe
         m_upgradeRestart = false;
 #ifdef Q_OS_WIN
-        FreeConsole();                 // 先关闭诊断终端,避免其阻碍进程退出导致重启失败
+        FreeConsole();                 // 关闭诊断终端
+        // 立即终止进程(不依赖 quit() 的异步退出与清理——诊断终端的句柄可能令进程迟迟不退出,
+        // 导致批处理覆盖 exe 失败、重启失败)。批处理已独立启动,会等待本 PID 退出后覆盖并重启。
+        ::ExitProcess(0);
 #endif
         QCoreApplication::quit();
     }
