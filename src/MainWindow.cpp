@@ -2692,16 +2692,32 @@ void MainWindow::showUpgrade()
                     "setlocal enabledelayedexpansion\r\n"
                     "set \"APP=__APP__\"\r\n"
                     "set \"NEW=__NEW__\"\r\n"
+                    "set \"PID=__PID__\"\r\n"
                     "set \"LOG=%TEMP%\\gpr_update.log\"\r\n"
                     ">\"%LOG%\" echo === gpr_updater %date% %time% restart\r\n"
-                    ">>\"%LOG%\" echo APP=%APP%\r\n"
+                    ">>\"%LOG%\" echo APP=%APP% PID=%PID%\r\n"
+                    "rem 1) 等本程序自行退出(诊断版带终端,最多等约10s)\r\n"
+                    "set /a w=0\r\n"
+                    ":waitpid\r\n"
+                    "tasklist /fi \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n"
+                    "if errorlevel 1 goto dead\r\n"
+                    "set /a w+=1\r\n"
+                    "if !w! geq 10 goto forcekill\r\n"
+                    "ping 127.0.0.1 -n 2 >nul\r\n"
+                    "goto waitpid\r\n"
+                    ":forcekill\r\n"
+                    ">>\"%LOG%\" echo still_alive_force_kill_after_!w!\r\n"
+                    "taskkill /PID %PID% /F >nul 2>&1\r\n"
+                    "ping 127.0.0.1 -n 3 >nul\r\n"
+                    ":dead\r\n"
+                    "rem 2) 等 exe 解锁后覆盖(最多约30s)\r\n"
                     "set /a tries=0\r\n"
-                    ":wait\r\n"
+                    ":copyloop\r\n"
                     "copy /y \"%NEW%\" \"%APP%\" >nul 2>&1 && goto ok\r\n"
                     "set /a tries+=1\r\n"
-                    "if !tries! geq 60 goto fail\r\n"
+                    "if !tries! geq 30 goto fail\r\n"
                     "ping 127.0.0.1 -n 2 >nul\r\n"
-                    "goto wait\r\n"
+                    "goto copyloop\r\n"
                     ":ok\r\n"
                     ">>\"%LOG%\" echo OK_copied_after_%tries%_tries\r\n"
                     "del /f /q \"%NEW%\" >nul 2>&1\r\n"
@@ -2709,12 +2725,13 @@ void MainWindow::showUpgrade()
                     "del /f /q \"%~f0\" 2>nul\r\n"
                     "exit /b\r\n"
                     ":fail\r\n"
-                    ">>\"%LOG%\" echo FAIL_copy_after_60_tries\r\n"
+                    ">>\"%LOG%\" echo FAIL_copy_after_30_tries\r\n"
                     "del /f /q \"%~f0\" 2>nul\r\n"
                     "exit /b\r\n"
                 );
                 bat.replace(QString::fromUtf8("__APP__"), appPath);
                 bat.replace(QString::fromUtf8("__NEW__"), QDir::toNativeSeparators(newPath));
+                bat.replace(QString::fromUtf8("__PID__"), QString::number(QCoreApplication::applicationPid()));
                 QFile bf(batPath);
                 if (bf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
                     bf.write(bat.toLocal8Bit()); bf.close();
@@ -2737,6 +2754,9 @@ void MainWindow::showUpgrade()
     dlg.exec();
     if (m_upgradeRestart) {            // 升级:批处理已启动,此处可靠地退出整个应用
         m_upgradeRestart = false;
+#ifdef Q_OS_WIN
+        FreeConsole();                 // 先关闭诊断终端,避免其阻碍进程退出导致重启失败
+#endif
         QCoreApplication::quit();
     }
 }
@@ -2752,28 +2772,45 @@ void MainWindow::closeEvent(QCloseEvent *event)
             "setlocal enabledelayedexpansion\r\n"
             "set \"APP=__APP__\"\r\n"
             "set \"NEW=__NEW__\"\r\n"
+            "set \"PID=__PID__\"\r\n"
             "set \"LOG=%TEMP%\\gpr_update.log\"\r\n"
             ">\"%LOG%\" echo === gpr_updater %date% %time% later\r\n"
-            ">>\"%LOG%\" echo APP=%APP%\r\n"
+            ">>\"%LOG%\" echo APP=%APP% PID=%PID%\r\n"
+            "rem 1) 等本程序自行退出(诊断版带终端,最多等约10s)\r\n"
+            "set /a w=0\r\n"
+            ":waitpid\r\n"
+            "tasklist /fi \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n"
+            "if errorlevel 1 goto dead\r\n"
+            "set /a w+=1\r\n"
+            "if !w! geq 10 goto forcekill\r\n"
+            "ping 127.0.0.1 -n 2 >nul\r\n"
+            "goto waitpid\r\n"
+            ":forcekill\r\n"
+            ">>\"%LOG%\" echo still_alive_force_kill_after_!w!\r\n"
+            "taskkill /PID %PID% /F >nul 2>&1\r\n"
+            "ping 127.0.0.1 -n 3 >nul\r\n"
+            ":dead\r\n"
+            "rem 2) 等 exe 解锁后覆盖(最多约30s)\r\n"
             "set /a tries=0\r\n"
-            ":wait\r\n"
+            ":copyloop\r\n"
             "copy /y \"%NEW%\" \"%APP%\" >nul 2>&1 && goto ok\r\n"
             "set /a tries+=1\r\n"
-            "if !tries! geq 60 goto fail\r\n"
+            "if !tries! geq 30 goto fail\r\n"
             "ping 127.0.0.1 -n 2 >nul\r\n"
-            "goto wait\r\n"
+            "goto copyloop\r\n"
             ":ok\r\n"
             ">>\"%LOG%\" echo OK_copied_after_%tries%_tries\r\n"
             "del /f /q \"%NEW%\" >nul 2>&1\r\n"
             "del /f /q \"%~f0\" 2>nul\r\n"
             "exit /b\r\n"
             ":fail\r\n"
-            ">>\"%LOG%\" echo FAIL_copy_after_60_tries\r\n"
+            ">>\"%LOG%\" echo FAIL_copy_after_30_tries\r\n"
             "del /f /q \"%~f0\" 2>nul\r\n"
             "exit /b\r\n"
         );
         bat.replace(QString::fromUtf8("__APP__"), m_pendingUpgradeAppPath);
         bat.replace(QString::fromUtf8("__NEW__"), QDir::toNativeSeparators(m_pendingUpgradeNewPath));
+        bat.replace(QString::fromUtf8("__PID__"), QString::number(QCoreApplication::applicationPid()));
         QFile bf(batPath);
         if (bf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
             bf.write(bat.toLocal8Bit()); bf.close();
@@ -2781,6 +2818,9 @@ void MainWindow::closeEvent(QCloseEvent *event)
         }
         m_pendingUpgradeNewPath.clear();
         m_pendingUpgradeAppPath.clear();
+#ifdef Q_OS_WIN
+        FreeConsole();   // 关闭诊断终端,避免阻碍进程退出导致替换失败(批处理另有 taskkill 兜底)
+#endif
     }
     QMainWindow::closeEvent(event);
 }
