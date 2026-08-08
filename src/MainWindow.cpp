@@ -2828,6 +2828,16 @@ void MainWindow::closeEvent(QCloseEvent *event)
     QMainWindow::closeEvent(event);
 }
 
+// 天线型号(DZT 头 offset 0x62/98)→ 中心频率(MHz)对照表(GSSI)。仅内部使用,不显示。
+// 后续 PROCESS/深度换算等可据此判断天线频段;型号需持续补充。
+static int antennaFreqMHz(const QString &type)
+{
+    QString t = type.trimmed();
+    if (t == "3207") return 100;
+    if (t == "3101") return 900;
+    return 0;   // 未知型号
+}
+
 void MainWindow::showFileHeader()
 {
     if (!requireOpenFile()) return;
