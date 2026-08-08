@@ -1865,7 +1865,7 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     axisX->setTickCount(5);
 
     QValueAxis *axisY = new QValueAxis();
-    axisY->setRange(0, 511);     // 每道波形 Y 轴固定 0..511(512 个采样点),不随 sigPos 变
+    axisY->setRange(0, m_pixelsPerRow - 1);     // 每道波形 Y 轴 0..nsamp-1(随文件头采样点数)
     axisY->setTickCount(6);
     axisY->setLabelFormat("%d");
     axisY->setReverse(true);
@@ -3238,7 +3238,7 @@ void MainWindow::updateChart(int xValue)
     m_lastChartX = xValue;
     chartSeries->clear();
 
-    const int maxPoints = 512;
+    const int maxPoints = m_pixelsPerRow;   // 采样点数取自文件头(随 nsamp 变,非写死 512)
     qint32 minVal = 0, maxVal = 0;
     float yscale = chartView ? chartView->yScale() : 1.0f;
 
@@ -3306,7 +3306,7 @@ void MainWindow::updateChart(int xValue)
             axisY->setRange(zeroOff, 20.0 + zeroOff);
             axisY->setLabelFormat("%.1f");
         } else {
-            axisY->setRange(0, 511);     // 普通模式:Y 轴 0..511(512 采样点),不再因 sigPos 切时间模式
+            axisY->setRange(0, m_pixelsPerRow - 1);     // 普通模式:Y 轴 0..nsamp-1
             axisY->setLabelFormat("%d");
         }
     }
@@ -3407,10 +3407,8 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
 
     const qint64 dataOffset = 0x20000;
     const int bytesPerPixel = 4;
-    const int pixelsPerRow = 512;
 
     m_dataOffset = dataOffset;
-    m_pixelsPerRow = pixelsPerRow;
 
     // Read signal position (rhf_position) at offset 22
     file.seek(22);
@@ -3429,6 +3427,9 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
         memcpy(&m_epsr, m_header.constData() + 54, 4);          // epsr 介电常数
         m_nsamp = (static_cast<quint8>(m_header[5]) << 8) | static_cast<quint8>(m_header[4]);  // nsamp (int16 LE)
     }
+    // 采样点数取自文件头(256/512 等),不再写死 512 —— 决定 B-SCAN 高度、数据索引、波形 Y 轴
+    const int pixelsPerRow = (m_nsamp > 0) ? m_nsamp : 512;
+    m_pixelsPerRow = pixelsPerRow;
 
     if (!file.seek(dataOffset)) {
         QMessageBox::warning(this, "Error", "open file failed.");
