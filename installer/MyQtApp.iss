@@ -4,7 +4,7 @@
 
 #define MyAppName "劳雷AI数据处理"
 #define MyAppNameEn "MyQtApp"
-#define MyAppVersion "1.0.36"
+#define MyAppVersion "1.0.53"
 #define MyAppPublisher "劳雷"
 #define MyAppExeName "MyQtApp.exe"
 
@@ -37,7 +37,7 @@ Name: "desktopicon"; Description: "创建桌面快捷方式(&D)"; GroupDescripti
 
 [Files]
 ; 整个 Release 部署目录(含 Qt DLL、插件、MinGW 运行时、AI 模型),排除测试用的 log 目录
-Source: "D:\gpr_test\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "log,log\*"
+Source: "D:\gpr_test\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "log,log\*,dzx_diag.log"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
