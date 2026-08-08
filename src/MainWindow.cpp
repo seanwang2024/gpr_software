@@ -1865,16 +1865,10 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     axisX->setTickCount(5);
 
     QValueAxis *axisY = new QValueAxis();
-    axisY->setRange(0, 511);
+    axisY->setRange(0, 511);     // 每道波形 Y 轴固定 0..511(512 个采样点),不随 sigPos 变
     axisY->setTickCount(6);
     axisY->setLabelFormat("%d");
     axisY->setReverse(true);
-
-    // If signalPosition < 0, set axis range only (data offset handled in updateChart)
-    if (m_signalPos < 0.0f) {
-        axisY->setRange(0, 20.0 + m_signalPos);
-        axisY->setLabelFormat("%.1f");
-    }
 
     tab->chartView->chart()->setAxisX(axisX, tab->chartSeries);
     tab->chartView->chart()->setAxisY(axisY, tab->chartSeries);
@@ -3140,9 +3134,10 @@ void MainWindow::updateChart(int xValue)
     bool isLinear = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
     bool isZeroMode = (yscale != 1.0f);
 
-    // Signal position offset from file header (e.g., -2.79)
+    // 波形固定按采样点 0..511 显示,不再用 sigPos 裁剪/切时间模式
     float sigPos = m_currentTab ? m_currentTab->signalPosition : 0.0f;
-    int sigPad = (sigPos < 0.0f) ? qRound(maxPoints * (-sigPos) / 20.0f) : 0;
+    (void)sigPos;
+    int sigPad = 0;
 
     // Zero-point manual overrides
     double zeroOff = 0.0;
@@ -3154,8 +3149,7 @@ void MainWindow::updateChart(int xValue)
             zeroPad = qRound(maxPoints * m_zeroOffsetSpin->value() / 20.0);
     }
 
-    int totalOff = sigPad + zeroPad;
-    double displayRange = isZeroMode ? 20.0 : (20.0 + sigPos);
+    int totalOff = sigPad + zeroPad;   // sigPad=0,仅零点预览的 zeroPad 生效
 
     // Use original data when gain is already applied, so chart preview is always vs original
     const QByteArray &chartRawData = (m_currentTab && m_currentTab->gainApplied)
@@ -3184,10 +3178,8 @@ void MainWindow::updateChart(int xValue)
         qreal yCoord;
         if (isZeroMode)
             yCoord = zeroOff + static_cast<qreal>(i) * (20.0 / 511.0);
-        else if (sigPad > 0)
-            yCoord = static_cast<qreal>(i) * (displayRange / 511.0);
         else
-            yCoord = static_cast<qreal>(i);
+            yCoord = static_cast<qreal>(i);     // 普通模式:采样点 0..511
         chartSeries->append(static_cast<qreal>(displayValue), yCoord);
         if (i == 0 || displayValue < minVal) minVal = displayValue;
         if (i == 0 || displayValue > maxVal) maxVal = displayValue;
@@ -3202,9 +3194,9 @@ void MainWindow::updateChart(int xValue)
         if (isZeroMode) {
             axisY->setRange(zeroOff, 20.0 + zeroOff);
             axisY->setLabelFormat("%.1f");
-        } else if (sigPos < 0.0f) {
-            axisY->setRange(0, 20.0 + sigPos);
-            axisY->setLabelFormat("%.1f");
+        } else {
+            axisY->setRange(0, 511);     // 普通模式:Y 轴 0..511(512 采样点),不再因 sigPos 切时间模式
+            axisY->setLabelFormat("%d");
         }
     }
 }
@@ -3336,7 +3328,7 @@ QImage MainWindow::loadDZTFile(const QString &filePath)
     int dataSize = m_rawData.size();
     int totalPixels = dataSize / bytesPerPixel;
     int rows = totalPixels / pixelsPerRow;
-    int sigPad = (m_signalPos < 0.0f) ? qRound(pixelsPerRow * (-m_signalPos) / 20.0f) : 0;
+    int sigPad = 0;   // 始终显示全部 512 采样点(不再按 sigPos 裁剪)
     int drawRows = pixelsPerRow - sigPad;
     qDebug() << "dataSize = " << dataSize << "rows = " << rows << "sigPad = " << sigPad << "drawRows = " << drawRows;
 
@@ -3863,8 +3855,7 @@ void MainWindow::refreshImage()
     const int pixelsPerRow = m_pixelsPerRow;
     int totalPixels = m_rawData.size() / 4;
     int rows = totalPixels / pixelsPerRow;
-    int sigPad = (m_currentTab->signalPosition < 0.0f)
-        ? qRound(pixelsPerRow * (-m_currentTab->signalPosition) / 20.0f) : 0;
+    int sigPad = 0;   // 始终显示全部 512 采样点
     int skipRows = sigPad + (m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0);
     int drawRows = pixelsPerRow - skipRows;
 
@@ -3954,11 +3945,12 @@ void MainWindow::updateRulers()
     m_currentTab->traceCount = m_traceCount;
     updateTraceRange();
 
-    // Time range from file header record length (rhf_range), adjusted by signal position
+    // Time range from file header record length (rhf_range)
     float sigPos = m_currentTab->signalPosition;
     double range = m_currentTab->headerRange;   // 记录长度 ns (offset 26)
     double epsr  = m_currentTab->epsr;          // 介电常数 (offset 54)
-    m_timeRange = range + sigPos;               // 保留信号位置偏移(原硬编码 20 → 真实记录长度)
+    (void)sigPos;
+    m_timeRange = range;                        // 时间标尺 0..记录长度(不用 sigPos 偏移,显示全部 512 采样点)
     if (epsr > 0.0)
         m_depthRange = 0.299792458 * m_timeRange / (2.0 * std::sqrt(epsr));  // c·t/(2√εr), c=0.2998 m/ns
     else
@@ -3966,7 +3958,7 @@ void MainWindow::updateRulers()
     m_currentTab->timeRange = m_timeRange;
     m_currentTab->depthRange = m_depthRange;
 
-    int sigPad = (sigPos < 0.0f) ? qRound(m_pixelsPerRow * (-sigPos) / 20.0f) : 0;
+    int sigPad = 0;   // 不再用 sigPos 裁剪行(始终显示全部 512 采样点)
     int skipRows = sigPad + (m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0);
     int drawRows = m_pixelsPerRow - skipRows;
     m_currentTab->topRuler->setDataRange(m_traceCount);
@@ -3980,8 +3972,7 @@ void MainWindow::resizeImageLabel()
 {
     if (!m_currentTab || m_rawData.isEmpty()) return;
 
-    int sigPad = (m_currentTab->signalPosition < 0.0f)
-        ? qRound(m_pixelsPerRow * (-m_currentTab->signalPosition) / 20.0f) : 0;
+    int sigPad = 0;   // 始终显示全部 512 采样点
     int skipRows = sigPad + (m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0);
     int drawRows = m_pixelsPerRow - skipRows;
     int viewH = m_currentTab->scrollArea->viewport()->height();
@@ -4057,8 +4048,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                     resizeImageLabel();
                 } else {
                     // Resize non-current tab's image independently
-                    int sigPad = (tab->signalPosition < 0.0f)
-                        ? qRound(tab->pixelsPerRow * (-tab->signalPosition) / 20.0f) : 0;
+                    int sigPad = 0;   // 始终显示全部 512 采样点
                     int skipRows = sigPad + (tab->zeroApplied ? tab->zeroSkipRows : 0);
                     int drawRows = tab->pixelsPerRow - skipRows;
                     int viewH = tab->scrollArea->viewport()->height();
