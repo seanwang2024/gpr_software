@@ -23,7 +23,9 @@
       "Bash(cmake ..)",
       "Bash(cmake --build . --target MyQtApp)",
       "Bash(python -c ' *)",
-      "Bash(python analyze_filters.py)"
+      "Bash(python analyze_filters.py)",
+      "Bash(cp /d/gpr_software/build/MyQtApp.exe /d/gpr_test/MyQtApp.exe)",
+      "Read(//d/gpr_software/build/**)"
     ]
   }
 }

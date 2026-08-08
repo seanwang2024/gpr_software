@@ -299,10 +299,20 @@ void CustomChartView::setLineCount(int count)
         if (m_lineCount == 1)
             m_lineY[i] = 0;
         else
-            m_lineY[i] = 511.0f * i / (m_lineCount - 1);
+            m_lineY[i] = (float)(m_sampleCount - 1) * i / (m_lineCount - 1);
         if (m_handleX[i] == 0) m_handleX[i] = 0;
     }
     update();
+}
+
+void CustomChartView::setSampleCount(int n)
+{
+    if (n > 0) m_sampleCount = n;
+    if (m_lineCount > 0) {   // 重新分布手柄 Y 位置到 0..nsamp-1
+        for (int i = 0; i < m_lineCount; ++i)
+            m_lineY[i] = (m_lineCount == 1) ? 0.0f : (float)(m_sampleCount - 1) * i / (m_lineCount - 1);
+        update();
+    }
 }
 
 int CustomChartView::lineCount() const { return m_lineCount; }
@@ -1102,9 +1112,9 @@ MainWindow::MainWindow(QWidget *parent)
     QTreeWidgetItem *startItem = new QTreeWidgetItem(sampleItem, QStringList() << "开始" << "0");
     startItem->setFlags(startItem->flags() & ~Qt::ItemIsEditable);
 
-    // 结束 (固定值，不可编辑)
-    QTreeWidgetItem *endItem = new QTreeWidgetItem(sampleItem, QStringList() << "结束" << "511");
-    endItem->setFlags(endItem->flags() & ~Qt::ItemIsEditable);
+    // 结束 (随文件头采样点数更新,默认 511)
+    m_gainSampleEndItem = new QTreeWidgetItem(sampleItem, QStringList() << "结束" << "511");
+    m_gainSampleEndItem->setFlags(m_gainSampleEndItem->flags() & ~Qt::ItemIsEditable);
 
     // Helper: compute gain range from spin boxes and apply to chartView
     auto updateGainRange = [this]() {
@@ -2077,6 +2087,7 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
             }
         }
         int actual = (pointCount == 1) ? 2 : pointCount;
+        tab->chartView->setSampleCount(tab->pixelsPerRow);   // 增益手柄 Y 跨度按 nsamp
         tab->chartView->setLineCount(pointCount);
 
         bool isLinear = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
@@ -2147,6 +2158,7 @@ void MainWindow::switchToTab(int index)
     m_rawData = tab->rawData;
     m_dataOffset = tab->dataOffset;
     m_pixelsPerRow = tab->pixelsPerRow;
+    if (m_gainSampleEndItem) m_gainSampleEndItem->setText(1, QString::number(m_pixelsPerRow - 1));
     m_gain = tab->gain;
     m_transformMode = tab->transformMode;
     m_traceCount = tab->traceCount;
@@ -3828,8 +3840,9 @@ void MainWindow::applyGain()
         m_currentTab->originalRawData = m_rawData;
 
         bool isLinear = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
-        float gainTable[512];
-        for (int x = 0; x < 512; ++x) {
+        const int gN = m_pixelsPerRow;
+        QVector<float> gainTable(gN);
+        for (int x = 0; x < gN; ++x) {
             float rawGain = (chartView) ? chartView->interpolatedGain(x) : m_gain;
             gainTable[x] = isLinear ? rawGain : std::pow(10.0f, rawGain / 20.0f);
         }
@@ -3842,7 +3855,7 @@ void MainWindow::applyGain()
                          (static_cast<quint8>(data[idx+2]) << 16) |
                          (static_cast<quint8>(data[idx+1]) << 8) |
                          (static_cast<quint8>(data[idx]));
-            float result = gainTable[i % 512] * static_cast<float>(val);
+            float result = gainTable[i % gN] * static_cast<float>(val);
             if (result > 8388607.0f) result = 8388607.0f;
             if (result < -8388608.0f) result = -8388608.0f;
             val = static_cast<qint32>(result);
@@ -3868,8 +3881,9 @@ void MainWindow::saveProcessedFile()
         // 先应用增益
         m_currentTab->originalRawData = m_rawData;
         bool isLinear2 = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
-        float gainTable[512];
-        for (int x = 0; x < 512; ++x) {
+        const int gN = m_pixelsPerRow;
+        QVector<float> gainTable(gN);
+        for (int x = 0; x < gN; ++x) {
             float rawGain = (chartView) ? chartView->interpolatedGain(x) : m_gain;
             gainTable[x] = isLinear2 ? rawGain : std::pow(10.0f, rawGain / 20.0f);
         }
@@ -3881,7 +3895,7 @@ void MainWindow::saveProcessedFile()
                          (static_cast<quint8>(data[idx+2]) << 16) |
                          (static_cast<quint8>(data[idx+1]) << 8) |
                          (static_cast<quint8>(data[idx]));
-            float result = gainTable[i % 512] * static_cast<float>(val);
+            float result = gainTable[i % gN] * static_cast<float>(val);
             if (result > 8388607.0f) result = 8388607.0f;
             if (result < -8388608.0f) result = -8388608.0f;
             val = static_cast<qint32>(result);
@@ -4762,7 +4776,7 @@ void MainWindow::createMenuBar()
             chartView->setYScale(1.0f);
             QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
             if (axisY) {
-                axisY->setRange(0, 511);
+                axisY->setRange(0, m_pixelsPerRow - 1);
                 axisY->setLabelFormat("%d");
             }
             updateChart(m_lastChartX);
@@ -4846,7 +4860,7 @@ void MainWindow::createMenuBar()
             chartView->setYScale(1.0f);
             QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
             if (axisY) {
-                axisY->setRange(0, 511);
+                axisY->setRange(0, m_pixelsPerRow - 1);
                 axisY->setLabelFormat("%d");
             }
             updateChart(m_lastChartX);
@@ -8254,7 +8268,7 @@ void MainWindow::showOneClickProcess()
 
     QValueAxis *axisY = new QValueAxis();
     axisY->setTitleText("采样点");
-    axisY->setRange(0, 511);
+    axisY->setRange(0, m_pixelsPerRow - 1);
     axisY->setLabelFormat("%d");
     axisY->setReverse(true);
     m_oneClickChart->addAxis(axisY, Qt::AlignLeft);
@@ -8525,8 +8539,9 @@ void MainWindow::applyOneClickProcess()
 
     // Step 4: 调节增益 (apply interpolated gain from CustomChartView handles)
     if (m_oneClickAdjGain && m_oneClickAdjGain->isChecked() && m_oneClickChartView) {
-        float gainTable[512];
-        for (int x = 0; x < 512; ++x) {
+        const int gN = m_pixelsPerRow;
+        QVector<float> gainTable(gN);
+        for (int x = 0; x < gN; ++x) {
             float rawGain = m_oneClickChartView->interpolatedGain(x);
             gainTable[x] = std::pow(10.0f, rawGain / 20.0f);
         }
@@ -8537,7 +8552,7 @@ void MainWindow::applyOneClickProcess()
                          (static_cast<quint8>(data[idx+2]) << 16) |
                          (static_cast<quint8>(data[idx+1]) << 8) |
                          static_cast<quint8>(data[idx]);
-            float result = gainTable[i % 512] * static_cast<float>(val);
+            float result = gainTable[i % gN] * static_cast<float>(val);
             if (result > 8388607.0f) result = 8388607.0f;
             if (result < -8388608.0f) result = -8388608.0f;
             val = static_cast<qint32>(result);
@@ -8755,13 +8770,14 @@ void MainWindow::updateOneClickRefChart()
 
     // Preview: 调节增益 (interpolated gain from CustomChartView handles)
     if (m_oneClickAdjGain && m_oneClickAdjGain->isChecked() && m_oneClickChartView) {
-        float gainTable[512];
-        for (int x = 0; x < 512; ++x) {
+        const int gN = m_pixelsPerRow;
+        QVector<float> gainTable(gN);
+        for (int x = 0; x < gN; ++x) {
             float rawGain = m_oneClickChartView->interpolatedGain(x);
             gainTable[x] = std::pow(10.0f, rawGain / 20.0f);
         }
         for (int i = 0; i < samplesPerTrace; ++i) {
-            float result = gainTable[i % 512] * static_cast<float>(samples[i]);
+            float result = gainTable[i % gN] * static_cast<float>(samples[i]);
             if (result > 8388607.0f) result = 8388607.0f;
             if (result < -8388608.0f) result = -8388608.0f;
             samples[i] = static_cast<qint32>(result);

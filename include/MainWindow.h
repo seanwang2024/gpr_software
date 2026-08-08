@@ -89,6 +89,7 @@ public:
     float interpolatedGain(float y) const;
     void setGainVisible(bool visible);
     void setYScale(float scale);
+    void setSampleCount(int n);   // 采样点数(决定增益手柄 Y 跨度 0..n-1,随文件头 nsamp)
     float yScale() const;
     void setZeroOffset(float offset);
 
@@ -105,6 +106,7 @@ private:
     int m_lineCount;
     QVector<qreal> m_handleX;
     QVector<float> m_lineY;
+    int m_sampleCount = 512;   // 增益手柄 Y 跨度上限(= nsamp,随文件头)
     int m_draggingIdx;
     QLineSeries *m_series;
     float m_gainMin = -6.0f;
@@ -287,6 +289,7 @@ private:
     QString m_pendingUpgradeAppPath;   // 对应的应用 exe 路径
     QLabel *coordinateLabel;
     QTreeWidget *gainTree;
+    QTreeWidgetItem *m_gainSampleEndItem = nullptr;  // 增益面板"采样点数/结束"(随 nsamp 更新)
     QDialog *m_leftPanel;
     QStackedWidget *m_leftStack;
     QWidget *m_gainPage;
