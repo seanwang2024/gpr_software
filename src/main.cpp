@@ -2,6 +2,7 @@
 #include <QFile>
 #include <QCoreApplication>
 #include "MainWindow.h"
+#include "version.h"
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <cstdio>
@@ -37,7 +38,7 @@ static void silentMessageHandler(QtMsgType, const QMessageLogContext &, const QS
 int main(int argc, char *argv[])
 {
 #ifdef Q_OS_WIN
-    // 【诊断测试版】启动即弹出终端窗口,供测试人员查看 DZX 处理信息并与 RADAN 对照
+    // 【诊断版】启动即弹出终端窗口,显示 DZX 处理信息(供与 RADAN 对照)
     bool hasConsole = AllocConsole();
     if (hasConsole) {
         SetConsoleOutputCP(CP_UTF8);              // 控制台按 UTF-8 显示,中文不乱码
@@ -59,7 +60,7 @@ int main(int argc, char *argv[])
 
 #ifdef Q_OS_WIN
     if (hasConsole) {
-        diagPrint("==== 劳雷AI数据处理 [诊断测试版] ====");
+        diagPrint("==== 劳雷AI数据处理 [诊断版 " APP_VERSION "] ====");
         diagPrint("本终端只显示 DZX 处理信息。");
         diagPrint("复制方法:①终端内鼠标选中文字 -> 按 回车 或 右键 复制;");
         diagPrint("          ②或直接用记事本打开下面的日志文件,Ctrl+C/Ctrl+A 正常复制:");
