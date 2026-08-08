@@ -2969,18 +2969,18 @@ void MainWindow::showFileHeader()
                                    QString::fromUtf8("形状:方块  高通%1 / 低通%2 MHz").arg(hpMHz,0,'f',0).arg(lpMHz,0,'f',0) });
                 cur += 12;
             } else if (tid==0x40 && cur+5<=he) {  // FIR 垂直高通(可能紧跟低通3f)
-                double hpMHz = (fsMHz>0 && HFL(cur+1)>0) ? 1.165*fsMHz/HFL(cur+1) : 0;
+                double hpMHz = (fsMHz>0 && HFL(cur+1)>0) ? 1.17*fsMHz/HFL(cur+1) : 0;
                 cur += 5;
                 QString lp;
                 if (cur<he && static_cast<quint8>(hdr[cur])==0x3f && cur+5<=he) {
                     double lpc = HFL(cur+1);
-                    lp = (lpc >= 0.99) ? QString::fromUtf8(" / 低通:关")
-                                       : QString::fromUtf8(" / 低通%1 MHz").arg(1.165*fsMHz/lpc,0,'f',0);
+                    lp = (lpc >= 0.99) ? QString::fromUtf8(" / 低通%1 MHz").arg(0.6434*fsMHz,0,'f',0)
+                                       : QString::fromUtf8(" / 低通%1 MHz").arg(1.17*fsMHz/lpc,0,'f',0);
                     cur += 5;
                 }
                 procSteps.append({ QString::fromUtf8("FIR滤波器 垂直"),
                                    QString::fromUtf8("形状:方块  高通%1 MHz%2").arg(hpMHz,0,'f',0).arg(lp) });
-            } else if (tid==0x0e && cur+6<=he) {  // IIR 水平
+            } else if ((tid==0x0e || tid==0x0d) && cur+6<=he) {  // IIR 水平(0x0e 或 0x0d)
                 procSteps.append({ QString::fromUtf8("IIR滤波器 水平"), QString::number(HFL(cur+2),'f',0) + QString::fromUtf8(" 扫描数") });
                 cur += 6;
             } else if (tid==0x43 && cur+5<=he) {  // FIR 水平平滑
