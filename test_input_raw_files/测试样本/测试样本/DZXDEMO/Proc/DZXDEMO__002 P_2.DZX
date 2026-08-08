@@ -5,8 +5,8 @@
     <horizontalUnit>m</horizontalUnit>
     <dielectric>2.0000000</dielectric>
     <readOnly>0</readOnly>
-    <unitsPerMark>0.0000000</unitsPerMark>
-    <unitsPerScan>0.0125000</unitsPerScan>
+    <unitsPerMark>1.0000000</unitsPerMark>
+    <unitsPerScan>0.1111111</unitsPerScan>
     <Setting>
       <name>DisplayGPSUnits</name>
       <state>0</state>

@@ -2933,34 +2933,47 @@ void MainWindow::showFileHeader()
         }
     }
 
-    // 时间零点(主机参数,存 DZT 头 offset 0x82)
-    float timeZero = rdFloat(0x82);
-
-    // 把 DZX 的每个 BinaryData 处理格式化为 RADAN 风格(标题 + 参数明细)
-    auto fmtProc = [timeZero](int typeId, const QByteArray &blob) -> QPair<QString, QVector<QPair<QString,QString>>> {
-        auto U16 = [&blob](int off)->int { if (off+2 > blob.size()) return 0; return static_cast<quint8>(blob[off]) | (static_cast<quint8>(blob[off+1] << 8)); };
-        auto FL  = [&blob](int off)->float { float v=0.0f; if (off+4 <= blob.size()) memcpy(&v, blob.constData()+off, 4); return v; };
-        QString title; QVector<QPair<QString,QString>> d;
-        switch (typeId) {
-        case 99: title = QString::fromUtf8("时间零点"); d.append({QString::fromUtf8("修整量 (ns)"), QString::number(timeZero,'f',2)}); break;
-        case 77: title = QString::fromUtf8("振幅偏移去除"); d.append({QString::fromUtf8("修整量 (ns)"), QString::number(FL(0x0A),'f',2)}); break;
-        case 59: {
-            title = QString::fromUtf8("增益调整");
-            int npts = (blob.size() > 9) ? static_cast<quint8>(blob.at(9)) : 0;
-            d.append({QString::fromUtf8("点数"), QString::number(npts)});
-            QString g;
-            for (int i=0;i<npts && 0x0B+i*4+4<=blob.size();++i) g += QString::number(FL(0x0B+i*4),'f',1) + (i<npts-1?" / ":"");
-            d.append({QString::fromUtf8("增益 (dB)"), g});
-            break; }
-        case 4:  title = QString::fromUtf8("IIR滤波器 垂直"); d.append({QString::fromUtf8("低通 (MHz)"), QString::number(U16(0x20))}); d.append({QString::fromUtf8("高通 (MHz)"), QString::number(U16(0x22))}); break;
-        case 64: title = QString::fromUtf8("FIR滤波器 垂直 高通"); d.append({QString::fromUtf8("高通 (MHz)"), QString::number(U16(0x20))}); break;
-        case 63: title = QString::fromUtf8("FIR滤波器 垂直 低通"); d.append({QString::fromUtf8("低通 (MHz)"), QString::number(U16(0x1E))}); break;
-        case 14: title = QString::fromUtf8("IIR滤波器 水平"); d.append({QString::fromUtf8("高通 (扫描数)"), QString::number(FL(0x0A),'f',0)}); break;
-        case 67: title = QString::fromUtf8("FIR滤波器 水平 平滑"); d.append({QString::fromUtf8("长度 (扫描数)"), QString::number(FL(0x0A),'f',0)}); break;
-        default: title = QString::fromUtf8("处理 (typeId %1)").arg(typeId); break;
+    // 解析 DZT 头处理历史(procOff@48 .. +procSize),按 typeId 还原 RADAN 风格处理记录(不依赖 DZX)
+    auto HFL = [&hdr](int off)->float { float v=0.0f; if(off+4<=hdr.size()) memcpy(&v, hdr.constData()+off,4); return v; };
+    QVector<QPair<QString,QString>> procSteps;  // (标题, 摘要)
+    if (procOff > 0 && procSize > 0 && procOff + procSize <= hdr.size()) {
+        int cur = procOff, he = procOff + procSize;
+        while (cur < he) {
+            quint8 tid = static_cast<quint8>(hdr[cur]);
+            if (tid==0x4d && cur+6<=he) {  // 77: 时间零点(sub=0x00)/振幅偏移去除(sub=0x02)
+                quint8 sub = static_cast<quint8>(hdr[cur+1]); float v = HFL(cur+2);
+                procSteps.append({ sub==0x00 ? QString::fromUtf8("时间零点") : QString::fromUtf8("振幅偏移去除"),
+                                   QString::number(v,'f',2) + QString::fromUtf8(" ns") });
+                cur += 6;
+            } else if (tid==0x3b && cur+3<=he) {  // 59 增益
+                int npts = static_cast<quint8>(hdr[cur+1]); QString g;
+                for (int i=0; i<npts && cur+3+i*4+4<=he; ++i) g += QString::number(HFL(cur+3+i*4),'f',1) + (i<npts-1?"/":"");
+                procSteps.append({ QString::fromUtf8("增益调整"), QString::fromUtf8("%1点 %2 dB").arg(npts).arg(g) });
+                cur += 3 + npts*4;
+            } else if (tid==0x04 && cur+12<=he) {  // IIR 垂直(截止频率以系数形式存储)
+                procSteps.append({ QString::fromUtf8("IIR滤波器 垂直"),
+                                   QString::fromUtf8("带通(系数:%1/%2,MHz待解码)").arg(HFL(cur+2),0,'f',2).arg(HFL(cur+8),0,'f',2) });
+                cur += 12;
+            } else if (tid==0x40 && cur+5<=he) {  // FIR 垂直(高通40,可能紧跟低通3f)
+                QString s = QString::fromUtf8("高通(系数:%1)").arg(HFL(cur+1),0,'f',2);
+                cur += 5;
+                if (cur<he && static_cast<quint8>(hdr[cur])==0x3f && cur+5<=he) { s += QString::fromUtf8(" +低通(系数:%1)").arg(HFL(cur+1),0,'f',2); cur += 5; }
+                procSteps.append({ QString::fromUtf8("FIR滤波器 垂直"), s + QString::fromUtf8("(MHz待解码)") });
+            } else if (tid==0x0e && cur+6<=he) {  // IIR 水平
+                procSteps.append({ QString::fromUtf8("IIR滤波器 水平"), QString::number(HFL(cur+2),'f',0) + QString::fromUtf8(" 扫描数") });
+                cur += 6;
+            } else if (tid==0x43 && cur+5<=he) {  // FIR 水平平滑
+                procSteps.append({ QString::fromUtf8("FIR滤波器 水平 平滑"), QString::number(HFL(cur+1),'f',0) + QString::fromUtf8(" 扫描数") });
+                cur += 5;
+            } else if (tid==0x65 && cur+5<=he) {  // 采样范围记录(1..486),并入上一条,不单列
+                cur += 5;
+            } else if (tid==0x63 && cur+4<=he) {  // 99 标记
+                cur += 4;
+            } else {
+                cur += 1;
+            }
         }
-        return {title, d};
-    };
+    }
 
     // --- Build dialog ---
     QDialog dlg(this);
@@ -3029,21 +3042,16 @@ void MainWindow::showFileHeader()
     addRow(chanRoot, "# 采样叠加", QString::number(repeatsSample));
     addRow(chanRoot, "# 扫描叠加", QString::number(npass));
 
-    // 处理记录(来自配对 DZX 的 BinaryData,RADAN 风格)
+    // 处理记录(来自 DZT 头处理历史,RADAN 风格,不依赖 DZX)
     QTreeWidgetItem *procRoot = new QTreeWidgetItem(tree, QStringList() << QString::fromUtf8("处理记录") << "");
-    QString dzxPath = QFileInfo(m_currentTab->filePath).absolutePath() + "/" +
-                      QFileInfo(m_currentTab->filePath).completeBaseName() + ".DZX";
-    QList<DzxProcess> dzxProcs;
-    if (QFile::exists(dzxPath) && parseDzxProcesses(dzxPath, dzxProcs) && !dzxProcs.isEmpty()) {
-        for (int i = 0; i < dzxProcs.size(); ++i) {
-            auto desc = fmtProc(dzxProcs[i].typeId, dzxProcs[i].rawData);
-            QTreeWidgetItem *pNode = new QTreeWidgetItem(procRoot, QStringList() << QString("%1. %2").arg(i+1).arg(desc.first) << "");
+    if (!procSteps.isEmpty()) {
+        for (int i = 0; i < procSteps.size(); ++i) {
+            QTreeWidgetItem *pNode = new QTreeWidgetItem(procRoot, QStringList() << QString("%1. %2").arg(i+1).arg(procSteps[i].first) << "");
             pNode->setFlags(pNode->flags() & ~Qt::ItemIsEditable);
-            for (const auto &dd : desc.second)
-                addRow(pNode, dd.first, dd.second);
+            addRow(pNode, QString::fromUtf8("参数"), procSteps[i].second);
         }
     } else {
-        addRow(procRoot, QString::fromUtf8("无配对 DZX"), QString::fromUtf8("本文件无 DZX 处理记录"));
+        addRow(procRoot, QString::fromUtf8("无"), QString::fromUtf8("本文件无处理记录"));
     }
 
     tree->expandAll();
