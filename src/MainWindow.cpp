@@ -3568,22 +3568,30 @@ void MainWindow::applyDzxProcessing(const QString &dzxPath)
     // ---- 诊断输出:DZX 文件名 + 所有处理步骤及其参数(只显示在诊断终端,用于与 RADAN 对比) ----
     auto typeName = [](int id) -> const char* {
         switch (id) {
-        case 99: return "DC去除";
-        case 77: return "时间零点";
+        case 99: return "时间零点(主机参数)";
+        case 77: return "DC去除(振幅偏移去除)";
         case 59: return "增益";
-        case 4:  return "IIR滤波";
-        case 63: return "FIR高通";
-        case 64: return "FIR低通";
+        case 4:  return "IIR垂直";
+        case 63: return "FIR垂直低通";
+        case 64: return "FIR垂直高通";
+        case 65: return "FIR垂直低通(三角)";
+        case 66: return "FIR垂直高通(三角)";
         case 13: return "IIR水平(叠加)";
         case 14: return "IIR水平(背景去除)";
         case 67: return "FIR水平平滑(叠加)";
         case 68: return "FIR水平背景去除";
+        case 69: return "FIR水平平滑(三角)";
+        case 70: return "FIR水平背景去除(三角)";
+        case 95: return "专用背景去除";
         case 39: return "信号底跟踪";
         default: return "未知类型";
         }
     };
     auto isHandled = [](int id) -> const char* {
-        return (id == 99 || id == 77 || id == 59) ? "[已实现-将应用]" : "[未实现-跳过!]";
+        // 99=时间零点(主机参数,跳过); 77=DC去除(暂不执行); 59=增益(暂不执行)
+        // 实际时间零点处理用 rhf_position(offset 22),不依赖 DZX typeId
+        if (id == 99) return "[主机参数-跳过]";
+        return "[暂不执行-跳过]";
     };
     auto hexDump = [](const QByteArray &b) {
         QString s;
@@ -3645,11 +3653,16 @@ void MainWindow::applyDzxProcessing(const QString &dzxPath)
     }
 
     // === 只做时间零点处理(其他操作暂不做) ===
-    // 读信号位置(rhf_position, offset 22)
+    // 时间零点偏移 = rhf_position(offset 22),不是 DZX 的 typeId 99/77
     m_dzxTimeZeroSkip = 0;
     m_dzxOriginalSignalPos = m_signalPos;
+    diagPrint(QString::fromUtf8("--- 执行时间零点处理 ---"));
+    diagPrint(QString::fromUtf8("  信号位置 rhf_position = %1 ns").arg(QString::number(m_signalPos, 'f', 3)));
     if (m_signalPos < 0.0f && m_headerRange > 0.0f) {
         int skip = qRound(samplesPerTrace * (-m_signalPos) / m_headerRange);
+        diagPrint(QString::fromUtf8("  跳过采样点 = %1 × %2 / %3 = %4")
+                  .arg(samplesPerTrace).arg(QString::number(-m_signalPos,'f',3))
+                  .arg(QString::number(m_headerRange,'f',3)).arg(skip));
         if (skip > 0 && skip < samplesPerTrace) {
             for (int t = 0; t < traceCount; ++t) {
                 int base = t * samplesPerTrace * 4;
@@ -3658,8 +3671,13 @@ void MainWindow::applyDzxProcessing(const QString &dzxPath)
                 memset(data + base + (samplesPerTrace - skip) * 4, 0, skip * 4);
             }
             m_dzxTimeZeroSkip = skip;
+            diagPrint(QString::fromUtf8("  完成:每道上移 %1 采样,底部补零,显示 %2 行")
+                      .arg(skip).arg(samplesPerTrace - skip));
         }
+    } else {
+        diagPrint(QString::fromUtf8("  信号位置 >= 0,无需处理"));
     }
+    diagPrint(QString::fromUtf8("--- 其他处理(DC去除/增益/滤波等)暂不执行 ---"));
 }
 
 void MainWindow::saveProcessedWithDzx(const QString &origDztPath, const QList<DzxProcess> &processes)
