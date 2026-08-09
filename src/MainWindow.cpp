@@ -3558,9 +3558,9 @@ void MainWindow::applyDzxProcessing(const QString &dzxPath)
         case 4:  return "IIR滤波";
         case 63: return "FIR高通";
         case 64: return "FIR低通";
-        case 13: return "叠加(水平平滑)";
-        case 14: return "背景去除";
-        case 67: return "叠加2";
+        case 13: return "IIR水平";
+        case 14: return "IIR水平";
+        case 67: return "FIR水平平滑";
         case 68: return "背景去除2";
         default: return "未知类型";
         }
@@ -3588,22 +3588,35 @@ void MainWindow::applyDzxProcessing(const QString &dzxPath)
         const QByteArray &blob = p.rawData;
         diagPrint(QString("[%1] typeId=%2 (%3)   blob=%4 字节   %5")
             .arg(i + 1).arg(p.typeId).arg(typeName(p.typeId)).arg(blob.size()).arg(isHandled(p.typeId)));
-        if (p.typeId == 99 && blob.size() >= 12) {
-            int win = static_cast<quint8>(blob.at(10)) | (static_cast<quint8>(blob.at(11)) << 8);
-            diagPrint(QString("     -> DC去除 窗口/前N样本 win = %1").arg(win));
-        } else if (p.typeId == 77 && blob.size() >= 14) {
-            float shiftNs = 0.0f; memcpy(&shiftNs, blob.constData() + 10, 4);
-            int shiftSamples = qRound(shiftNs * samplesPerTrace / m_headerRange);
-            diagPrint(QString("     -> 时间零点 shiftNs = %1 ns   对应采样点 = %2")
-                      .arg(QString::number(shiftNs, 'f', 3)).arg(shiftSamples));
-        } else if (p.typeId == 59 && blob.size() >= 11) {
+        if (p.typeId == 99) {
+            diagPrint(QString::fromUtf8("     -> 时间零点(主机参数, 跳过)"));
+        } else if (p.typeId == 77 && blob.size() >= 0x0E) {
+            float v = 0.0f; memcpy(&v, blob.constData() + 0x0A, 4);
+            diagPrint(QString::fromUtf8("     -> 振幅偏移去除 修整量 = %1 ns").arg(QString::number(v, 'f', 3)));
+        } else if (p.typeId == 59 && blob.size() >= 0x0F) {
             int npts = static_cast<quint8>(blob.at(9));
             QString gains;
             for (int k = 0; k < npts && 0x0B + k * 4 + 4 <= blob.size(); ++k) {
                 float g = 0.0f; memcpy(&g, blob.constData() + 0x0B + k * 4, 4);
-                gains += QString::number(g, 'f', 3) + " ";
+                gains += QString::number(g, 'f', 1) + " ";
             }
-            diagPrint(QString("     -> 增益 npts = %1   gainDb(dB) = [ %2 ]").arg(npts).arg(gains.trimmed()));
+            diagPrint(QString::fromUtf8("     -> 增益 npts=%1  gainDb=[ %2 ]").arg(npts).arg(gains.trimmed()));
+        } else if (p.typeId == 4 && blob.size() >= 0x24) {
+            int lp = static_cast<quint8>(blob.at(0x20)) | (static_cast<quint8>(blob.at(0x21)) << 8);
+            int hp = static_cast<quint8>(blob.at(0x22)) | (static_cast<quint8>(blob.at(0x23)) << 8);
+            diagPrint(QString::fromUtf8("     -> IIR垂直 LP=%1  HP=%2 MHz (u16)").arg(lp).arg(hp));
+        } else if (p.typeId == 64 && blob.size() >= 0x22) {
+            int hp = static_cast<quint8>(blob.at(0x20)) | (static_cast<quint8>(blob.at(0x21)) << 8);
+            diagPrint(QString::fromUtf8("     -> FIR垂直HP = %1 MHz").arg(hp));
+        } else if (p.typeId == 63 && blob.size() >= 0x20) {
+            int lp = static_cast<quint8>(blob.at(0x1E)) | (static_cast<quint8>(blob.at(0x1F)) << 8);
+            diagPrint(QString::fromUtf8("     -> FIR垂直LP = %1 MHz").arg(lp));
+        } else if ((p.typeId == 14 || p.typeId == 13) && blob.size() >= 0x0E) {
+            float v = 0.0f; memcpy(&v, blob.constData() + 0x0A, 4);
+            diagPrint(QString::fromUtf8("     -> IIR水平 = %1 扫描数").arg(QString::number(v, 'f', 1)));
+        } else if (p.typeId == 67 && blob.size() >= 0x0D) {
+            float v = 0.0f; memcpy(&v, blob.constData() + 0x09, 4);
+            diagPrint(QString::fromUtf8("     -> FIR水平平滑 长度 = %1 扫描数").arg(QString::number(v, 'f', 1)));
         }
         diagPrint(QString("     hex: %1").arg(hexDump(blob)));
     }
