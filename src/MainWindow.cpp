@@ -2200,6 +2200,7 @@ void MainWindow::switchToTab(int index)
         if (m_currentTab) {
             updateRulers();
             resizeImageLabel();
+            refreshImage();   // 刷新图像(zeroApplied 等属性可能刚被设置)
         }
     });
 
