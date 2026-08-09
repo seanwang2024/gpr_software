@@ -2885,7 +2885,7 @@ void MainWindow::showFileHeader()
         memcpy(&val, hdr.constData() + off, 4);
         return val;
     };
-    // Helper: decode tagRFDate (4 bytes at offset) → "Mon,DD YYYY,HH:MM:SS"
+    // Helper: decode tagRFDate (4 bytes at offset) → "Mon,DD YYYY,HH:MM:SS" 或 "00:00:00"(值为0时)
     auto rdDate = [&hdr](int off) -> QString {
         const char *months[] = {
             "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -2895,6 +2895,7 @@ void MainWindow::showFileHeader()
                     | (static_cast<quint8>(hdr[off+1]) << 8)
                     | (static_cast<quint8>(hdr[off+2]) << 16)
                     | (static_cast<quint8>(hdr[off+3]) << 24);
+        if (val == 0) return QString("00:00:00");  // 未设置
         int sec2  = val & 0x1F;
         int min   = (val >> 5) & 0x3F;
         int hour  = (val >> 11) & 0x1F;
@@ -3713,6 +3714,26 @@ void MainWindow::saveProcessedWithDzx(const QString &origDztPath, const QList<Dz
             qint16 newSize = static_cast<qint16>(procSize + rec.size());
             header[50] = static_cast<char>(newSize & 0xFF);
             header[51] = static_cast<char>((newSize >> 8) & 0xFF);
+        }
+    }
+
+    // 写入编辑时间(rhb_mdt, offset 36)
+    {
+        QDateTime now = QDateTime::currentDateTime();
+        QDate d = now.date();
+        QTime t = now.time();
+        quint32 mdt = 0;
+        mdt |= (t.second() / 2) & 0x1F;
+        mdt |= (t.minute() & 0x3F) << 5;
+        mdt |= (t.hour() & 0x1F) << 11;
+        mdt |= (d.day() & 0x1F) << 16;
+        mdt |= (d.month() & 0xF) << 21;
+        mdt |= ((d.year() - 1980) & 0x7F) << 25;
+        if (header.size() >= 40) {
+            header[36] = static_cast<char>(mdt & 0xFF);
+            header[37] = static_cast<char>((mdt >> 8) & 0xFF);
+            header[38] = static_cast<char>((mdt >> 16) & 0xFF);
+            header[39] = static_cast<char>((mdt >> 24) & 0xFF);
         }
     }
 
