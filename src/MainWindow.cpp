@@ -2748,23 +2748,18 @@ void MainWindow::showUpgrade()
                 if (bf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
                     bf.write(bat.toLocal8Bit()); bf.close();
                 }
-                // 用 VBS 启动批处理(wscript.exe 完全独立,不共享诊断终端的控制台)
-                QString vbsPath = QDir::tempPath() + "/gpr_launch.vbs";
-                QString vbs = QString(
-                    "Set sh = CreateObject(\"WScript.Shell\")\r\n"
-                    "sh.Run \"cmd /c \"%1\"\", 0, False\r\n"
-                ).arg(QDir::toNativeSeparators(batPath).replace('"', "\"\""));
-                QFile vf(vbsPath);
-                if (vf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-                    vf.write(vbs.toLocal8Bit()); vf.close();
-                }
+                // 用 ShellExecuteW 启动批处理(完全独立进程,不共享诊断终端控制台)
                 notes->setPlainText(QString::fromUtf8("正在关闭本程序、覆盖 exe 并重启..."));
                 m_upgradeRestart = true;
 #ifdef Q_OS_WIN
-                QProcess::startDetached("wscript.exe", QStringList{vbsPath});
-                ::Sleep(500);       // 给 wscript 500ms 启动 cmd 批处理
-                FreeConsole();      // 关闭诊断终端
-                ::ExitProcess(0);   // 硬终止(永不返回)
+                {
+                    QString cmd = QString("/c \"") + QDir::toNativeSeparators(batPath) + "\"";
+                    std::wstring wcmd = cmd.toStdWString();
+                    ShellExecuteW(NULL, L"open", L"cmd.exe", wcmd.c_str(), NULL, SW_HIDE);
+                }
+                ::Sleep(500);
+                FreeConsole();
+                ::ExitProcess(0);
 #endif
                 dlg.accept();
             } else {
