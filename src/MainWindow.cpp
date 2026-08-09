@@ -3568,8 +3568,8 @@ void MainWindow::applyDzxProcessing(const QString &dzxPath)
     // ---- 诊断输出:DZX 文件名 + 所有处理步骤及其参数(只显示在诊断终端,用于与 RADAN 对比) ----
     auto typeName = [](int id) -> const char* {
         switch (id) {
-        case 99: return "时间零点(主机参数)";
-        case 77: return "DC去除(振幅偏移去除)";
+        case 99: return "DC去除(振幅偏移去除)";
+        case 77: return "时间零点";
         case 59: return "增益";
         case 4:  return "IIR垂直";
         case 63: return "FIR垂直低通";
@@ -3588,9 +3588,7 @@ void MainWindow::applyDzxProcessing(const QString &dzxPath)
         }
     };
     auto isHandled = [](int id) -> const char* {
-        // 99=时间零点(主机参数,跳过); 77=DC去除(暂不执行); 59=增益(暂不执行)
-        // 实际时间零点处理用 rhf_position(offset 22),不依赖 DZX typeId
-        if (id == 99) return "[主机参数-跳过]";
+        // 所有 DZX typeId 暂不执行;时间零点处理用 rhf_position(offset 22)
         return "[暂不执行-跳过]";
     };
     auto hexDump = [](const QByteArray &b) {
@@ -3614,7 +3612,7 @@ void MainWindow::applyDzxProcessing(const QString &dzxPath)
         diagPrint(QString("[%1] typeId=%2 (%3)   blob=%4 字节   %5")
             .arg(i + 1).arg(p.typeId).arg(typeName(p.typeId)).arg(blob.size()).arg(isHandled(p.typeId)));
         if (p.typeId == 99) {
-            diagPrint(QString::fromUtf8("     -> 时间零点(主机参数, 跳过)"));
+            diagPrint(QString::fromUtf8("     -> DC去除(振幅偏移去除) 无参数"));
         } else if (p.typeId == 77 && blob.size() >= 0x0E) {
             float v = 0.0f; memcpy(&v, blob.constData() + 0x0A, 4);
             diagPrint(QString::fromUtf8("     -> 振幅偏移去除 修整量 = %1 ns").arg(QString::number(v, 'f', 3)));
