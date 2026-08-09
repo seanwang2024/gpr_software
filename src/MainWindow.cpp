@@ -3264,7 +3264,7 @@ void MainWindow::updateChart(int xValue)
     m_lastChartX = xValue;
     chartSeries->clear();
 
-    const int maxPoints = m_pixelsPerRow - (m_currentTab && m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0);
+    const int maxPoints = m_pixelsPerRow;   // 波形Y轴始终 0..nsamp-1(不变)
     qint32 minVal = 0, maxVal = 0;
     float yscale = chartView ? chartView->yScale() : 1.0f;
 
@@ -3332,7 +3332,7 @@ void MainWindow::updateChart(int xValue)
             axisY->setRange(zeroOff, 20.0 + zeroOff);
             axisY->setLabelFormat("%.1f");
         } else {
-            axisY->setRange(0, maxPoints - 1);     // 普通模式:Y 轴 0..(有效采样点-1)
+            axisY->setRange(0, m_pixelsPerRow - 1);     // 普通模式:Y 轴 0..nsamp-1(不变)
             axisY->setLabelFormat("%d");
         }
     }
