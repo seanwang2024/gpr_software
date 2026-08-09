@@ -37,10 +37,20 @@
       <state>0</state>
       <value>1</value>
     </Setting>
+    <Setting>
+      <name>AmpUnits</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>LayerFill</name>
+      <state>0</state>
+      <value>1</value>
+    </Setting>
   </GlobalProperties>
   <File>
     <scanRange>0,393</scanRange>
-    <name>DZXDEMO__002 P_1.DZT</name>
+    <name>DZXDEMO__002 P_11.DZT</name>
     <Profile>
       <scanRange>0,393</scanRange>
       <WayPt>
@@ -55,6 +65,7 @@
       <WayPt>
         <scan>393</scan>
         <distance>4.9125000</distance>
+        <localCoords>10.0000000,0.0000000,0.0000000</localCoords>
       </WayPt>
     </Profile>
   </File>

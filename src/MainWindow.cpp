@@ -3002,6 +3002,10 @@ void MainWindow::showFileHeader()
                 cur += 5;
             } else if (tid==0x63 && cur+4<=he) {  // 99 标记
                 cur += 4;
+            } else if (tid==0x1b && cur+7<=he) {  // 27 = 增益调整(手动追加)
+                float gv = HFL(cur+3);
+                procSteps.append({ QString::fromUtf8("增益调整(手动)"), QString::number(gv,'f',1) + QString::fromUtf8(" dB") });
+                cur += 7;
             } else {
                 cur += 1;
             }
@@ -3558,10 +3562,11 @@ void MainWindow::applyDzxProcessing(const QString &dzxPath)
         case 4:  return "IIR滤波";
         case 63: return "FIR高通";
         case 64: return "FIR低通";
-        case 13: return "IIR水平";
-        case 14: return "IIR水平";
-        case 67: return "FIR水平平滑";
-        case 68: return "背景去除2";
+        case 13: return "IIR水平(叠加)";
+        case 14: return "IIR水平(背景去除)";
+        case 67: return "FIR水平平滑(叠加)";
+        case 68: return "FIR水平背景去除";
+        case 39: return "信号底跟踪";
         default: return "未知类型";
         }
     };
