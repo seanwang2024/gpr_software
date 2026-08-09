@@ -3264,7 +3264,7 @@ void MainWindow::updateChart(int xValue)
     m_lastChartX = xValue;
     chartSeries->clear();
 
-    const int maxPoints = m_pixelsPerRow;   // 采样点数取自文件头(随 nsamp 变,非写死 512)
+    const int maxPoints = m_pixelsPerRow - (m_currentTab && m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0);
     qint32 minVal = 0, maxVal = 0;
     float yscale = chartView ? chartView->yScale() : 1.0f;
 
@@ -3332,7 +3332,7 @@ void MainWindow::updateChart(int xValue)
             axisY->setRange(zeroOff, 20.0 + zeroOff);
             axisY->setLabelFormat("%.1f");
         } else {
-            axisY->setRange(0, m_pixelsPerRow - 1);     // 普通模式:Y 轴 0..nsamp-1
+            axisY->setRange(0, maxPoints - 1);     // 普通模式:Y 轴 0..(有效采样点-1)
             axisY->setLabelFormat("%d");
         }
     }
@@ -3963,9 +3963,16 @@ void MainWindow::refreshImage()
     const int pixelsPerRow = m_pixelsPerRow;
     int totalPixels = m_rawData.size() / 4;
     int rows = totalPixels / pixelsPerRow;
-    int sigPad = 0;   // 始终显示全部 512 采样点
-    int skipRows = sigPad + (m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0);
-    int drawRows = pixelsPerRow - skipRows;
+    int sigPad = 0;
+    // zeroApplied(时间零点处理后):数据已上移,只减少 drawRows,不偏移 srcX
+    int drawRows = pixelsPerRow;
+    int srcOffset = sigPad;  // 数据读取偏移(仅 sigPad 跳预触发;zeroApplied 不偏移)
+    if (m_currentTab->zeroApplied) {
+        drawRows -= m_currentTab->zeroSkipRows;  // 只减少显示行数,去掉底部零区
+    } else {
+        srcOffset += 0;
+    }
+    int skipRows = srcOffset;  // 兼容旧代码变量名
 
     QImage image(rows, drawRows, QImage::Format_RGB32);
 
@@ -4008,7 +4015,7 @@ void MainWindow::refreshImage()
 
         for (int y = 0; y < rows; ++y) {
             for (int x = 0; x < drawRows; ++x) {
-                int srcX = x + skipRows;
+                int srcX = x + srcOffset;
                 int dataIdx = (y * pixelsPerRow + srcX) * bytesPerPixel;
                 if (dataIdx + 4 > dataSize) continue;
                 qint32 pixelValue = static_cast<qint32>(
