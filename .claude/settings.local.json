@@ -26,7 +26,8 @@
       "Bash(python analyze_filters.py)",
       "Bash(cp /d/gpr_software/build/MyQtApp.exe /d/gpr_test/MyQtApp.exe)",
       "Read(//d/gpr_software/build/**)",
-      "Bash(cp MyQtApp.exe /d/gpr_test/MyQtApp.exe)"
+      "Bash(cp MyQtApp.exe /d/gpr_test/MyQtApp.exe)",
+      "Bash(\"C:/Program Files \\(x86\\)/Inno Setup 6/ISCC.exe\" MyQtApp.iss)"
     ]
   }
 }
