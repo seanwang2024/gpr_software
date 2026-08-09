@@ -2750,7 +2750,14 @@ void MainWindow::showUpgrade()
                     QProcess::startDetached("cmd.exe", QStringList{"/c", batPath});
                 }
                 notes->setPlainText(QString::fromUtf8("正在关闭本程序、覆盖 exe 并重启..."));
-                m_upgradeRestart = true;   // exec()返回后据此退出整个应用
+                m_upgradeRestart = true;
+#ifdef Q_OS_WIN
+                // 批处理已独立启动 → 立即硬终止本进程(不等 dlg.exec() 返回,
+                // 避免事件循环卡住导致终端窗口不关闭、重启失败)
+                ::Sleep(300);      // 给批处理 300ms 完成启动
+                FreeConsole();     // 关闭诊断终端
+                ::ExitProcess(0);  // 硬终止(永不返回)
+#endif
                 dlg.accept();
             } else {
                 // 下次启动再用:记下待应用,本程序正常退出时由 closeEvent 写"仅覆盖"批处理
