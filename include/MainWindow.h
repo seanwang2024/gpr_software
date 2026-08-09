@@ -263,6 +263,8 @@ private:
     };
     bool parseDzxProcesses(const QString &dzxPath, QList<DzxProcess> &processes);
     void applyDzxProcessing(const QString &dzxPath);
+    int m_dzxTimeZeroSkip = 0;            // DZX时间零点跳过的采样点数
+    float m_dzxOriginalSignalPos = 0.0f;  // 处理前信号位置(写入操作记录)
     void saveProcessedWithDzx(const QString &origDztPath, const QList<DzxProcess> &processes);
 
     // Tab management

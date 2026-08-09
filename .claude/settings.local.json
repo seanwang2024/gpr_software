@@ -25,7 +25,8 @@
       "Bash(python -c ' *)",
       "Bash(python analyze_filters.py)",
       "Bash(cp /d/gpr_software/build/MyQtApp.exe /d/gpr_test/MyQtApp.exe)",
-      "Read(//d/gpr_software/build/**)"
+      "Read(//d/gpr_software/build/**)",
+      "Bash(cp MyQtApp.exe /d/gpr_test/MyQtApp.exe)"
     ]
   }
 }

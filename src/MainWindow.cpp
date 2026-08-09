@@ -3634,105 +3634,26 @@ void MainWindow::applyDzxProcessing(const QString &dzxPath)
     }
     diagPrint("==================================");
 
+    // (其他处理暂不做 — 只做时间零点)
     for (const auto &proc : processes) {
-        const QByteArray &blob = proc.rawData;
-        int typeId = proc.typeId;
+        (void)proc;  // 跳过所有 DZX typeId 处理
+    }
 
-        if (typeId == 99 && blob.size() >= 12) {
-            // DC 去除:每道减去前 N 样本均值
-            int winStart = static_cast<quint8>(blob.at(10)) | (static_cast<quint8>(blob.at(11)) << 8);
-            int win = qBound(1, winStart, samplesPerTrace);
-            for (int t = 0; t < traceCount; ++t) {
-                double sum = 0;
-                int base = t * samplesPerTrace * 4;
-                for (int s = 0; s < win; ++s) {
-                    int idx = base + s * 4;
-                    if (idx + 4 > m_rawData.size()) break;
-                    qint32 v = static_cast<qint32>(
-                        (static_cast<quint8>(data[idx+3]) << 24) |
-                        (static_cast<quint8>(data[idx+2]) << 16) |
-                        (static_cast<quint8>(data[idx+1]) << 8) |
-                        static_cast<quint8>(data[idx]));
-                    sum += v;
-                }
-                qint32 dcOffset = static_cast<qint32>(sum / win);
-                for (int s = 0; s < samplesPerTrace; ++s) {
-                    int idx = base + s * 4;
-                    if (idx + 4 > m_rawData.size()) break;
-                    qint32 v = static_cast<qint32>(
-                        (static_cast<quint8>(data[idx+3]) << 24) |
-                        (static_cast<quint8>(data[idx+2]) << 16) |
-                        (static_cast<quint8>(data[idx+1]) << 8) |
-                        static_cast<quint8>(data[idx]));
-                    v -= dcOffset;
-                    data[idx]   = v & 0xFF;
-                    data[idx+1] = (v >> 8) & 0xFF;
-                    data[idx+2] = (v >> 16) & 0xFF;
-                    data[idx+3] = (v >> 24) & 0xFF;
-                }
-            }
-        }
-        else if (typeId == 77 && blob.size() >= 16) {
-            // 时间零点:沿时间轴平移(简单实现:按 float@0x0A 偏移量做上移/补零)
-            float shiftNs = 0.0f;
-            memcpy(&shiftNs, blob.constData() + 10, 4);
-            // 将 ns 偏移转换为采样点数
-            float range = m_headerRange;  // ns
-            int shiftSamples = qRound(shiftNs * samplesPerTrace / range);
-            if (shiftSamples > 0 && shiftSamples < samplesPerTrace) {
-                for (int t = 0; t < traceCount; ++t) {
-                    int base = t * samplesPerTrace * 4;
-                    // 上移 shiftSamples: memmove
-                    memmove(data + base, data + base + shiftSamples * 4,
-                            (samplesPerTrace - shiftSamples) * 4);
-                    // 底部补零
-                    memset(data + base + (samplesPerTrace - shiftSamples) * 4, 0, shiftSamples * 4);
-                }
-            }
-        }
-        else if (typeId == 59 && blob.size() >= 12) {
-            // 增益:59 类型,offset 0x09 = 增益点数,offset 0x0B 起 = float[dB]
-            int npts = static_cast<quint8>(blob.at(9));
-            if (npts < 1 || npts > 20) continue;
-            QVector<float> gainDb(npts);
-            for (int i = 0; i < npts; ++i) {
-                int off = 0x0B + i * 4;
-                if (off + 4 > blob.size()) break;
-                memcpy(&gainDb[i], blob.constData() + off, 4);
-            }
-            // 沿深度方向线性插值增益
-            QVector<float> gainLin(samplesPerTrace);
-            for (int s = 0; s < samplesPerTrace; ++s) {
-                float frac = static_cast<float>(s) / (samplesPerTrace - 1) * (npts - 1);
-                int idx0 = static_cast<int>(frac);
-                int idx1 = qMin(idx0 + 1, npts - 1);
-                float t = frac - idx0;
-                float db = gainDb[idx0] * (1 - t) + gainDb[idx1] * t;
-                gainLin[s] = std::pow(10.0f, db / 20.0f);
-            }
-            // 应用增益到每道
+    // === 只做时间零点处理(其他操作暂不做) ===
+    // 读信号位置(rhf_position, offset 22)
+    m_dzxTimeZeroSkip = 0;
+    m_dzxOriginalSignalPos = m_signalPos;
+    if (m_signalPos < 0.0f && m_headerRange > 0.0f) {
+        int skip = qRound(samplesPerTrace * (-m_signalPos) / m_headerRange);
+        if (skip > 0 && skip < samplesPerTrace) {
             for (int t = 0; t < traceCount; ++t) {
                 int base = t * samplesPerTrace * 4;
-                for (int s = 0; s < samplesPerTrace; ++s) {
-                    int idx = base + s * 4;
-                    if (idx + 4 > m_rawData.size()) break;
-                    qint32 v = static_cast<qint32>(
-                        (static_cast<quint8>(data[idx+3]) << 24) |
-                        (static_cast<quint8>(data[idx+2]) << 16) |
-                        (static_cast<quint8>(data[idx+1]) << 8) |
-                        static_cast<quint8>(data[idx]));
-                    float result = gainLin[s] * static_cast<float>(v);
-                    if (result > 8388607.0f) result = 8388607.0f;
-                    if (result < -8388608.0f) result = -8388608.0f;
-                    v = static_cast<qint32>(result);
-                    data[idx]   = v & 0xFF;
-                    data[idx+1] = (v >> 8) & 0xFF;
-                    data[idx+2] = (v >> 16) & 0xFF;
-                    data[idx+3] = (v >> 24) & 0xFF;
-                }
+                memmove(data + base, data + base + skip * 4,
+                        (samplesPerTrace - skip) * 4);
+                memset(data + base + (samplesPerTrace - skip) * 4, 0, skip * 4);
             }
+            m_dzxTimeZeroSkip = skip;
         }
-        // TODO: IIR(4)/FIR(63,64)/背景去除(14,68)/叠加(13,67) 需后续实现
     }
 }
 
@@ -3762,8 +3683,36 @@ void MainWindow::saveProcessedWithDzx(const QString &origDztPath, const QList<Dz
         return;
     }
     QByteArray header = srcFile.read(m_dataOffset);
-    outFile.write(header);
     srcFile.close();
+
+    // 修改头:信号位置归零(时间零点已处理)
+    if (header.size() >= 26) {
+        float zero = 0.0f;
+        memcpy(header.data() + 22, &zero, 4);  // rhf_position = 0
+    }
+    // 在处理记录区(procOff=128 处)增加一条:时间零点偏移
+    {
+        qint16 procOff = (header.size() >= 50) ?
+            static_cast<qint16>(static_cast<quint8>(header[48]) | (static_cast<quint8>(header[49]) << 8)) : 128;
+        qint16 procSize = (header.size() >= 52) ?
+            static_cast<qint16>(static_cast<quint8>(header[50]) | (static_cast<quint8>(header[51]) << 8)) : 0;
+        if (procOff <= 0) procOff = 128;
+        int writeOff = procOff + procSize;
+        // 记录格式: typeId(0x4d=77) + sub(0x00=时间零点) + float(偏移量ns) = 6字节
+        QByteArray rec;
+        rec.append(static_cast<char>(0x4d));  // typeId
+        rec.append(static_cast<char>(0x00));  // sub = 时间零点
+        float val = m_dzxOriginalSignalPos;
+        rec.append(reinterpret_cast<const char*>(&val), 4);
+        if (writeOff + rec.size() <= header.size()) {
+            memcpy(header.data() + writeOff, rec.constData(), rec.size());
+            qint16 newSize = static_cast<qint16>(procSize + rec.size());
+            header[50] = static_cast<char>(newSize & 0xFF);
+            header[51] = static_cast<char>((newSize >> 8) & 0xFF);
+        }
+    }
+
+    outFile.write(header);
     outFile.write(m_rawData);
     outFile.close();
 
@@ -3821,6 +3770,11 @@ void MainWindow::saveProcessedWithDzx(const QString &origDztPath, const QList<Dz
     QImage image = loadDZTFile(outDzt);
     if (!image.isNull()) {
         createTab(outDzt, image);
+        // 设置处理后 tab 的时间零点跳过信息(影响显示范围)
+        if (m_currentTab && m_dzxTimeZeroSkip > 0) {
+            m_currentTab->zeroApplied = true;
+            m_currentTab->zeroSkipRows = m_dzxTimeZeroSkip;
+        }
     }
 }
 
@@ -4101,7 +4055,10 @@ void MainWindow::updateRulers()
     double range = m_currentTab->headerRange;   // 记录长度 ns (offset 26)
     double epsr  = m_currentTab->epsr;          // 介电常数 (offset 54)
     (void)sigPos;
-    m_timeRange = range;                        // 时间标尺 0..记录长度(不用 sigPos 偏移,显示全部 512 采样点)
+    // 时间零点处理后(zeroApplied),时间范围按实际显示行数缩短
+    int skipR = (m_currentTab->zeroApplied) ? m_currentTab->zeroSkipRows : 0;
+    int drawR = m_pixelsPerRow - skipR;
+    m_timeRange = range * drawR / m_pixelsPerRow;  // 时间标尺 RANGE(处理后的有效范围)
     if (epsr > 0.0)
         m_depthRange = 0.299792458 * m_timeRange / (2.0 * std::sqrt(epsr));  // c·t/(2√εr), c=0.2998 m/ns
     else
