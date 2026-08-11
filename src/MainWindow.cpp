@@ -3940,12 +3940,13 @@ void MainWindow::saveProcessedFile()
         m_btnApply->setText("撤销");
     }
 
-    // 创建 proc 目录
+    // 创建 Proc 目录(与 RADAN 一致,大写 P)
     QFileInfo fi(m_currentTab->filePath);
-    QString procDir = fi.absolutePath() + "/proc";
+    QString procDir = fi.absolutePath() + "/Proc";
     QDir().mkpath(procDir);
 
     // 找到可用的文件名:如果原文件已有 _P_## 或  P_##(RADAN),编号递增;否则从 01
+    // 重名时继续递增
     QString baseName = fi.completeBaseName();
     int startN = 1;
     QRegularExpression reOur("_P_(\\d+)$", QRegularExpression::CaseInsensitiveOption);
@@ -3962,7 +3963,7 @@ void MainWindow::saveProcessedFile()
     int N = startN;
     QString outPath;
     do {
-        outPath = procDir + QString("/%1_p%2.DZT").arg(baseName).arg(N++, 2, 10, QChar('0'));
+        outPath = procDir + QString("/%1_P_%2.DZT").arg(baseName).arg(N++, 2, 10, QChar('0'));
     } while (QFile::exists(outPath));
 
     // 写文件：0x20000 头部 + 处理后的数据

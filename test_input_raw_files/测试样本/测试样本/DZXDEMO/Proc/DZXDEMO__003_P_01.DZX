@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DZX xmlns="www.geophysical.com/DZX/1.02">
+  <GlobalProperties>
+    <verticalUnit>m</verticalUnit>
+    <horizontalUnit>m</horizontalUnit>
+    <dielectric>3.5000000</dielectric>
+    <readOnly>0</readOnly>
+    <unitsPerMark>0.0000000</unitsPerMark>
+    <unitsPerScan>0.0170284</unitsPerScan>
+  </GlobalProperties>
+  <File>
+    <scanRange>0,596</scanRange>
+    <name>DZXDEMO__003_P_01.DZT</name>
+    <Profile>
+      <scanRange>0,596</scanRange>
+      <WayPt>
+        <scan>0</scan>
+        <distance>0.0000000</distance>
+        <localCoords>0.0000000,0.0000000,0.0000000</localCoords>
+      </WayPt>
+      <WayPt>
+        <scan>596</scan>
+        <localCoords>10.1489017,0.0000000,0.0000000</localCoords>
+      </WayPt>
+    </Profile>
+  </File>
+  <DataCollection>
+    <system>SIR4K</system>
+    <softwareVersion>1.4.21</softwareVersion>
+  </DataCollection>
+</DZX>
