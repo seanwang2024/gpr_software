@@ -3152,8 +3152,7 @@ void MainWindow::openDztFile(const QString &filePath)
         // 解析 DZX 处理参数
         QList<DzxProcess> processes;
         if (!parseDzxProcesses(dzxPath, processes)) {
-            QMessageBox::warning(this, QString::fromUtf8("提示"),
-                                QString::fromUtf8("无法打开此文件"));
+            // DZX 解析失败:静默,直接正常打开
             createTab(filePath, image);
             return;
         }
@@ -3681,7 +3680,10 @@ void MainWindow::applyDzxProcessing(const QString &dzxPath)
 void MainWindow::saveProcessedWithDzx(const QString &origDztPath, const QList<DzxProcess> &processes)
 {
     QFileInfo fi(origDztPath);
-    QString procDir = fi.absolutePath() + "/Proc";
+    // 如果已在 Proc 目录,直接用当前目录;否则在上级建 Proc
+    QString parentDir = fi.absolutePath();
+    QString procDir = (QDir(parentDir).dirName().compare("Proc", Qt::CaseInsensitive) == 0)
+                      ? parentDir : parentDir + "/Proc";
     QDir().mkpath(procDir);
 
     // 找下一个可用编号 _P_##.DZT
@@ -3940,9 +3942,11 @@ void MainWindow::saveProcessedFile()
         m_btnApply->setText("撤销");
     }
 
-    // 创建 Proc 目录(与 RADAN 一致,大写 P)
+    // 创建 Proc 目录(如果已在 Proc 目录则直接用当前目录)
     QFileInfo fi(m_currentTab->filePath);
-    QString procDir = fi.absolutePath() + "/Proc";
+    QString parentDir = fi.absolutePath();
+    QString procDir = (QDir(parentDir).dirName().compare("Proc", Qt::CaseInsensitive) == 0)
+                      ? parentDir : parentDir + "/Proc";
     QDir().mkpath(procDir);
 
     // 找到可用的文件名:如果原文件已有 _P_## 或  P_##(RADAN),编号递增;否则从 01
