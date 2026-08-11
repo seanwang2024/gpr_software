@@ -32,7 +32,8 @@
       "Bash(curl -T /d/gpr_software/build/version.json ftp://seanwang.gotoftp5.com/wwwroot/version.json --user seanwang:sean2020 --connect-timeout 30)",
       "Bash(curl -s --max-time 20 https://www.sxfpga.cn/version.json)",
       "Bash(awk '{print $5, $NF}')",
-      "Bash(python compare_p11_full.py)"
+      "Bash(python compare_p11_full.py)",
+      "Bash(python *)"
     ]
   }
 }
