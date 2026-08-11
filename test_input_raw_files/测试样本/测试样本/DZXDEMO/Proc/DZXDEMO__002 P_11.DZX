@@ -3,7 +3,7 @@
   <GlobalProperties>
     <verticalUnit>m</verticalUnit>
     <horizontalUnit>m</horizontalUnit>
-    <dielectric>1.9972277</dielectric>
+    <dielectric>2.0000000</dielectric>
     <readOnly>0</readOnly>
     <unitsPerMark>0.0000000</unitsPerMark>
     <unitsPerScan>0.0125000</unitsPerScan>
