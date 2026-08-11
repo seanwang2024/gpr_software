@@ -3685,11 +3685,22 @@ void MainWindow::saveProcessedWithDzx(const QString &origDztPath, const QList<Dz
     QDir().mkpath(procDir);
 
     // 找下一个可用编号 _P_##.DZT
+    // 如果原文件已有 _P_## 或  P_##(RADAN格式),编号递增;否则从 01 开始
     QString baseName = fi.completeBaseName();
-    static QRegularExpression reSuffix("_P_\\d+$", QRegularExpression::CaseInsensitiveOption);
-    baseName.remove(reSuffix);
+    int startN = 1;
+    QRegularExpression reOur("_P_(\\d+)$", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpression reRadan(" P_(\\d+)$", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatch mOur = reOur.match(baseName);
+    QRegularExpressionMatch mRadan = reRadan.match(baseName);
+    if (mOur.hasMatch()) {
+        startN = mOur.captured(1).toInt() + 1;
+        baseName = baseName.left(mOur.capturedStart());
+    } else if (mRadan.hasMatch()) {
+        startN = mRadan.captured(1).toInt() + 1;
+        baseName = baseName.left(mRadan.capturedStart());
+    }
     QString outDzt, outDzx;
-    int N = 1;
+    int N = startN;
     do {
         outDzt = procDir + QString("/%1_P_%2.DZT").arg(baseName).arg(N, 2, 10, QChar('0'));
         outDzx = procDir + QString("/%1_P_%2.DZX").arg(baseName).arg(N, 2, 10, QChar('0'));
@@ -3934,13 +3945,21 @@ void MainWindow::saveProcessedFile()
     QString procDir = fi.absolutePath() + "/proc";
     QDir().mkpath(procDir);
 
-    // 找到可用的文件名 原文件名_p01.DZT, _p02.DZT, ...
-    // 去掉末尾已有的 _p## 后缀，确保多次处理始终基于原始文件名递增
-    // 例如对 XXX_p01.DZT 再次处理，新文件应是 XXX_p02.DZT 而非 XXX_p01_p01.DZT
-    QString baseName = fi.completeBaseName();  // e.g. "SCAN001" 或 "SCAN001_p01"
-    static QRegularExpression reSuffix("_p\\d+$", QRegularExpression::CaseInsensitiveOption);
-    baseName.remove(reSuffix);
-    int N = 1;
+    // 找到可用的文件名:如果原文件已有 _P_## 或  P_##(RADAN),编号递增;否则从 01
+    QString baseName = fi.completeBaseName();
+    int startN = 1;
+    QRegularExpression reOur("_P_(\\d+)$", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpression reRadan(" P_(\\d+)$", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatch mOur = reOur.match(baseName);
+    QRegularExpressionMatch mRadan = reRadan.match(baseName);
+    if (mOur.hasMatch()) {
+        startN = mOur.captured(1).toInt() + 1;
+        baseName = baseName.left(mOur.capturedStart());
+    } else if (mRadan.hasMatch()) {
+        startN = mRadan.captured(1).toInt() + 1;
+        baseName = baseName.left(mRadan.capturedStart());
+    }
+    int N = startN;
     QString outPath;
     do {
         outPath = procDir + QString("/%1_p%2.DZT").arg(baseName).arg(N++, 2, 10, QChar('0'));

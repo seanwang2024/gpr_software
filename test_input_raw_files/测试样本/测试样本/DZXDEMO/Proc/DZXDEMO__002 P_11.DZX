@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DZX xmlns="www.geophysical.com/DZX/1.02">
+  <GlobalProperties>
+    <verticalUnit>m</verticalUnit>
+    <horizontalUnit>m</horizontalUnit>
+    <dielectric>0.0000000</dielectric>
+    <readOnly>0</readOnly>
+    <unitsPerMark>0.0000000</unitsPerMark>
+    <unitsPerScan>0.0000000</unitsPerScan>
+  </GlobalProperties>
+</DZX>
