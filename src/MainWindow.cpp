@@ -4010,13 +4010,36 @@ void MainWindow::saveProcessedFile()
 // 颜色变换表名称
 QString MainWindow::m_colorTransformName(int idx)
 {
-    if (idx == 0) return QString::fromUtf8("无变换");
     return QString::fromUtf8("变换 %1").arg(idx);
 }
 
 // 加载颜色变换 LUT(从 specs/color_transforms.bin 读取)
-static void cxLoadLUT(int idx, QRgb lut[256], const QByteArray &lutData)
+static QByteArray &cxGetLutData()
 {
+    static QByteArray lutData;
+    static bool loaded = false;
+    if (!loaded) {
+        // 尝试多个路径
+        QStringList paths = {
+            QCoreApplication::applicationDirPath() + "/specs/color_transforms.bin",
+            QCoreApplication::applicationDirPath() + "/color_transforms.bin",
+            QCoreApplication::applicationDirPath() + "/specs.bin",
+        };
+        for (const QString &p : paths) {
+            QFile bf(p);
+            if (bf.open(QIODevice::ReadOnly)) {
+                lutData = bf.readAll();
+                break;
+            }
+        }
+        loaded = true;
+    }
+    return lutData;
+}
+
+static void cxLoadLUT(int idx, QRgb lut[256])
+{
+    QByteArray &lutData = cxGetLutData();
     if (idx < 1 || idx > 20 || lutData.size() < 20 * 768) {
         for (int i = 0; i < 256; ++i) lut[i] = qRgb(i, i, i);
         return;
@@ -4030,22 +4053,11 @@ static void cxLoadLUT(int idx, QRgb lut[256], const QByteArray &lutData)
 void MainWindow::applyColorTransform(QImage &img)
 {
     if (m_colorTransformIndex <= 0 || img.isNull()) return;
-
-    // 从 exe 同级 specs 目录读取 LUT 数据
-    static QByteArray lutData;
-    static bool loaded = false;
-    if (!loaded) {
-        QString binPath = QCoreApplication::applicationDirPath() + "/specs/color_transforms.bin";
-        QFile bf(binPath);
-        if (bf.open(QIODevice::ReadOnly)) {
-            lutData = bf.readAll();
-        }
-        loaded = true;
-    }
+    QByteArray &lutData = cxGetLutData();
     if (lutData.size() < 20 * 768) return;  // 数据文件缺失
 
     QRgb lut[256];
-    cxLoadLUT(m_colorTransformIndex, lut, lutData);
+    cxLoadLUT(m_colorTransformIndex, lut);
 
     int w = img.width(), h = img.height();
     for (int yy = 0; yy < h; ++yy) {
@@ -4899,75 +4911,22 @@ void MainWindow::createMenuBar()
                 if (m_currentTab) refreshImage();
             }, cxMenu);
 
-        // 计算变换后颜色的 lambda(复用 applyColorTransform 的 LUT 逻辑,只算一小段渐变条)
-        auto makeCxBarPixmap = [this](int cxIdx, int barW, int barH) -> QPixmap {
-            QPixmap pm(barW, barH);
-            QPainter pt(&pm);
-            for (int x = 0; x < barW; ++x) {
-                double v = x / (double)(barW - 1);
-                int gray = qRound(v * 255);
-                // 用与 applyColorTransform 相同的公式
-                m_colorTransformIndex = cxIdx;
-                // 生成临时 1 像素图获取颜色
-                QImage tmp(1, 1, QImage::Format_RGB32);
-                tmp.setPixel(0, 0, qGray(gray, gray, gray) <= 255 ? qRgb(gray, gray, gray) : qRgb(0,0,0));
-                QImage tmp2 = tmp;
-                applyColorTransform(tmp2);
-                pt.setPen(QPen(QColor(tmp2.pixel(0, 0)), 1));
-                pt.drawLine(x, 0, x, barH);
-            }
-            pt.end();
-            return pm;
-        };
-
-        // 生成"无变换"的渐变条(灰度线性)
-        auto makeLinearBar = [](int barW, int barH) -> QPixmap {
+        // 直接从 LUT 生成渐变预览条(不经 applyColorTransform,确保每条独立)
+        auto makeCxBarPixmap = [](int cxIdx, int barW, int barH) -> QPixmap {
+            QRgb lut[256];
+            cxLoadLUT(cxIdx, lut);
             QPixmap pm(barW, barH);
             QPainter pt(&pm);
             for (int x = 0; x < barW; ++x) {
                 int gray = qRound(x * 255.0 / (barW - 1));
-                pt.setPen(QPen(QColor(gray, gray, gray), 1));
+                pt.setPen(QPen(QColor(lut[gray]), 1));
                 pt.drawLine(x, 0, x, barH);
             }
             pt.end();
             return pm;
         };
 
-        // 20种颜色(灰度)映射方式名称
-        QStringList cxNames = {
-            QString::fromUtf8("反色"), QString::fromUtf8("伽马 0.5"),
-            QString::fromUtf8("伽马 1.5"), QString::fromUtf8("对数"), QString::fromUtf8("指数"),
-            QString::fromUtf8("阈值二值化"), QString::fromUtf8("灰度拉伸"), QString::fromUtf8("直方图均衡"),
-            QString::fromUtf8("S形曲线"), QString::fromUtf8("灰度截断低"), QString::fromUtf8("灰度截断高"),
-            QString::fromUtf8("伪彩色热力"), QString::fromUtf8("伪彩色彩虹"), QString::fromUtf8("伪彩色冷色"),
-            QString::fromUtf8("边缘增强"), QString::fromUtf8("负片伽马"), QString::fromUtf8("对比度增强"),
-            QString::fromUtf8("平滑降阶"), QString::fromUtf8("灰度反转伽马"), QString::fromUtf8("灰度反转+伽马")
-        };
-
-        // "无变换"选项(渐变条 + 文字)
-        {
-            QWidgetAction *wa = new QWidgetAction(cxMenu);
-            QWidget *itemWidget = new QWidget;
-            itemWidget->setProperty("cxIndex", 0);
-            itemWidget->setMouseTracking(true);
-            itemWidget->installEventFilter(cxHover);
-            QHBoxLayout *il = new QHBoxLayout(itemWidget);
-            il->setContentsMargins(4, 2, 4, 2);
-            il->setSpacing(8);
-            QLabel *bar = new QLabel;
-            bar->setPixmap(makeLinearBar(128, 14));
-            bar->setFixedSize(128, 14);
-            il->addWidget(bar);
-            QLabel *name = new QLabel(QString::fromUtf8("无变换"));
-            name->setFixedWidth(100);
-            il->addWidget(name);
-            wa->setDefaultWidget(itemWidget);
-            cxMenu->addAction(wa);
-        }
-
-        cxMenu->addSeparator();
-
-        // 20 种变换(渐变条预览 + 编号 + 中文名)
+        // 20 种变换(渐变条预览 + 编号)
         for (int i = 1; i <= 20; ++i) {
             QWidgetAction *wa = new QWidgetAction(cxMenu);
             QWidget *itemWidget = new QWidget;
@@ -4984,8 +4943,9 @@ void MainWindow::createMenuBar()
             bar->setFixedSize(128, 14);
             il->addWidget(bar);
 
-            QLabel *name = new QLabel(cxNames[i-1]);
-            name->setFixedWidth(100);
+            QLabel *name = new QLabel(QString("%1").arg(i, 2, 10, QChar(' ')));
+            name->setFixedWidth(28);
+            name->setAlignment(Qt::AlignCenter);
             il->addWidget(name);
 
             wa->setDefaultWidget(itemWidget);

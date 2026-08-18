@@ -33,7 +33,11 @@
       "Bash(curl -s --max-time 20 https://www.sxfpga.cn/version.json)",
       "Bash(awk '{print $5, $NF}')",
       "Bash(python compare_p11_full.py)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(curl ftp://seanwang.gotoftp5.com/ --user seanwang:sean2020)",
+      "Bash(curl -T /d/gpr_software/specs/color_transforms.bin ftp://seanwang.gotoftp5.com/specs/color_transforms.bin --user seanwang:sean2020)",
+      "Bash(curl -T /d/gpr_software/specs/color_transforms.bin ftp://seanwang.gotoftp5.com/wwwroot/specs.bin --user seanwang:sean2020)",
+      "Bash(curl -s --max-time 20 https://www.sxfpga.cn/specs.bin -o /dev/null -w \"%{http_code} %{size_download}\")"
     ]
   }
 }
