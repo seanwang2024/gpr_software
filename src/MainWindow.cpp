@@ -4920,24 +4920,138 @@ void MainWindow::createMenuBar()
         );
         QMenu *cxMenu = new QMenu(colorXformBtn);
 
-        // 20种颜色(灰度)映射方式
+        // 悬停预览事件过滤器(与调色板风格一致)
+        class CxHoverFilter : public QObject {
+            int &m_cxIndex;
+            std::function<void(int)> m_onPreview;
+        public:
+            CxHoverFilter(int &cxIdx, std::function<void(int)> onPreview, QObject *parent = nullptr)
+                : QObject(parent), m_cxIndex(cxIdx), m_onPreview(onPreview) {}
+            bool eventFilter(QObject *watched, QEvent *event) override {
+                QWidget *w = qobject_cast<QWidget*>(watched);
+                if (!w) return QObject::eventFilter(watched, event);
+                int idx = w->property("cxIndex").toInt();
+                if (event->type() == QEvent::Enter) {
+                    w->setStyleSheet("QWidget { background: #E8E8E8; border-radius: 2px; }");
+                    if (m_onPreview) m_onPreview(idx);
+                } else if (event->type() == QEvent::Leave) {
+                    w->setStyleSheet("QWidget { background: transparent; border: none; }");
+                } else if (event->type() == QEvent::MouseButtonPress) {
+                    m_cxIndex = idx;
+                }
+                return QObject::eventFilter(watched, event);
+            }
+        };
+
+        int savedCxIndex = m_colorTransformIndex;
+        CxHoverFilter *cxHover = new CxHoverFilter(m_colorTransformIndex,
+            [this](int idx) {
+                m_colorTransformIndex = idx;
+                if (m_currentTab) refreshImage();
+            }, cxMenu);
+
+        // 计算变换后颜色的 lambda(复用 applyColorTransform 的 LUT 逻辑,只算一小段渐变条)
+        auto makeCxBarPixmap = [this](int cxIdx, int barW, int barH) -> QPixmap {
+            QPixmap pm(barW, barH);
+            QPainter pt(&pm);
+            for (int x = 0; x < barW; ++x) {
+                double v = x / (double)(barW - 1);
+                int gray = qRound(v * 255);
+                // 用与 applyColorTransform 相同的公式
+                m_colorTransformIndex = cxIdx;
+                // 生成临时 1 像素图获取颜色
+                QImage tmp(1, 1, QImage::Format_RGB32);
+                tmp.setPixel(0, 0, qGray(gray, gray, gray) <= 255 ? qRgb(gray, gray, gray) : qRgb(0,0,0));
+                QImage tmp2 = tmp;
+                applyColorTransform(tmp2);
+                pt.setPen(QPen(QColor(tmp2.pixel(0, 0)), 1));
+                pt.drawLine(x, 0, x, barH);
+            }
+            pt.end();
+            return pm;
+        };
+
+        // 生成"无变换"的渐变条(灰度线性)
+        auto makeLinearBar = [](int barW, int barH) -> QPixmap {
+            QPixmap pm(barW, barH);
+            QPainter pt(&pm);
+            for (int x = 0; x < barW; ++x) {
+                int gray = qRound(x * 255.0 / (barW - 1));
+                pt.setPen(QPen(QColor(gray, gray, gray), 1));
+                pt.drawLine(x, 0, x, barH);
+            }
+            pt.end();
+            return pm;
+        };
+
+        // 20种颜色(灰度)映射方式名称
         QStringList cxNames = {
-            QString::fromUtf8("无变换"), QString::fromUtf8("反色"), QString::fromUtf8("伽马 0.5"),
+            QString::fromUtf8("反色"), QString::fromUtf8("伽马 0.5"),
             QString::fromUtf8("伽马 1.5"), QString::fromUtf8("对数"), QString::fromUtf8("指数"),
             QString::fromUtf8("阈值二值化"), QString::fromUtf8("灰度拉伸"), QString::fromUtf8("直方图均衡"),
             QString::fromUtf8("S形曲线"), QString::fromUtf8("灰度截断低"), QString::fromUtf8("灰度截断高"),
             QString::fromUtf8("伪彩色热力"), QString::fromUtf8("伪彩色彩虹"), QString::fromUtf8("伪彩色冷色"),
             QString::fromUtf8("边缘增强"), QString::fromUtf8("负片伽马"), QString::fromUtf8("对比度增强"),
-            QString::fromUtf8("平滑降阶"), QString::fromUtf8("灰度反转伽马")
+            QString::fromUtf8("平滑降阶"), QString::fromUtf8("灰度反转伽马"), QString::fromUtf8("灰度反转+伽马")
         };
-        for (int i = 0; i <= 20; ++i) {
-            QAction *act = cxMenu->addAction(
-                i == 0 ? QString::fromUtf8("无变换") : cxNames[i-1]);
-            connect(act, &QAction::triggered, this, [this, i]() {
-                m_colorTransformIndex = i;
-                if (m_currentTab) refreshImage();
-            });
+
+        // "无变换"选项(渐变条 + 文字)
+        {
+            QWidgetAction *wa = new QWidgetAction(cxMenu);
+            QWidget *itemWidget = new QWidget;
+            itemWidget->setProperty("cxIndex", 0);
+            itemWidget->setMouseTracking(true);
+            itemWidget->installEventFilter(cxHover);
+            QHBoxLayout *il = new QHBoxLayout(itemWidget);
+            il->setContentsMargins(4, 2, 4, 2);
+            il->setSpacing(8);
+            QLabel *bar = new QLabel;
+            bar->setPixmap(makeLinearBar(128, 14));
+            bar->setFixedSize(128, 14);
+            il->addWidget(bar);
+            QLabel *name = new QLabel(QString::fromUtf8("无变换"));
+            name->setFixedWidth(100);
+            il->addWidget(name);
+            wa->setDefaultWidget(itemWidget);
+            cxMenu->addAction(wa);
         }
+
+        cxMenu->addSeparator();
+
+        // 20 种变换(渐变条预览 + 编号 + 中文名)
+        for (int i = 1; i <= 20; ++i) {
+            QWidgetAction *wa = new QWidgetAction(cxMenu);
+            QWidget *itemWidget = new QWidget;
+            itemWidget->setProperty("cxIndex", i);
+            itemWidget->setMouseTracking(true);
+            itemWidget->installEventFilter(cxHover);
+            QHBoxLayout *il = new QHBoxLayout(itemWidget);
+            il->setContentsMargins(4, 2, 4, 2);
+            il->setSpacing(8);
+
+            // 生成变换预览渐变条
+            QLabel *bar = new QLabel;
+            bar->setPixmap(makeCxBarPixmap(i, 128, 14));
+            bar->setFixedSize(128, 14);
+            il->addWidget(bar);
+
+            QLabel *name = new QLabel(cxNames[i-1]);
+            name->setFixedWidth(100);
+            il->addWidget(name);
+
+            wa->setDefaultWidget(itemWidget);
+            cxMenu->addAction(wa);
+        }
+
+        // 菜单关闭时恢复为已确认的索引
+        connect(cxMenu, &QMenu::aboutToHide, this, [this, savedCxIndex]() mutable {
+            m_colorTransformIndex = savedCxIndex;
+            if (m_currentTab) refreshImage();
+        });
+        // 每次打开菜单前同步 savedCxIndex
+        connect(cxMenu, &QMenu::aboutToShow, this, [this, &savedCxIndex]() {
+            savedCxIndex = m_colorTransformIndex;
+        });
 
         colorXformBtn->setMenu(cxMenu);
         zoomBtns->addWidget(colorXformBtn);
