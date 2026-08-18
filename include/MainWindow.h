@@ -292,6 +292,8 @@ private:
     QLabel *coordinateLabel;
     QTreeWidget *gainTree;
     QTreeWidgetItem *m_gainSampleEndItem = nullptr;  // 增益面板"采样点数/结束"(随 nsamp 更新)
+    QWidget *m_headerTreePanel = nullptr;            // 文件头信息面板(内嵌,非弹窗)
+    QLayout *m_headerTreeLayout = nullptr;           // 文件头面板布局
     QDialog *m_leftPanel;
     QStackedWidget *m_leftStack;
     QWidget *m_gainPage;

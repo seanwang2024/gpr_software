@@ -1324,8 +1324,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_docTabWidget->setDocumentMode(true);
     m_docTabWidget->setStyleSheet(
         "QTabWidget::pane { border: none; }"
-        "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
-        "QTabBar::tab:selected { background: #ffffff; font-weight: bold; }"
+        "QTabBar::tab { background: #eef4ff; padding: 6px 16px; border: 1px solid #d5dae8; min-width: 80px; color: #444855; }"
+        "QTabBar::tab:selected { background: #ffffff; font-weight: bold; color: #004aae; }"
     );
     m_docTabWidget->tabBar()->installEventFilter(this);
 
@@ -1690,7 +1690,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 文档区尺寸/可见性变化时重定位三角按钮
     if (m_docSplitter) m_docSplitter->installEventFilter(this);
 
-    setWindowTitle("劳雷AI数据处理");
+    setWindowTitle("劳雷");
     setAcceptDrops(true);
 
     // 自定义标题栏 + 无边框窗口
@@ -1735,7 +1735,7 @@ CustomTitleBar::CustomTitleBar(QWidget *parent)
     layout->addWidget(m_logoLabel);
 
     // 标题（居中、自适应）
-    m_titleLabel = new QLabel("劳雷AI数据处理");
+    m_titleLabel = new QLabel("劳雷");
     m_titleLabel->setAlignment(Qt::AlignCenter);
     m_titleLabel->setStyleSheet("color: #444444; font-size: 13px; font-weight: 500;");
     layout->addWidget(m_titleLabel, 1);
@@ -2520,7 +2520,7 @@ void MainWindow::showAbout()
 
     QVBoxLayout *txt = new QVBoxLayout();
     txt->setSpacing(4);
-    QLabel *name = new QLabel(QString::fromUtf8("劳雷AI数据处理"));
+    QLabel *name = new QLabel(QString::fromUtf8("劳雷"));
     QFont nf = name->font(); nf.setPointSize(15); nf.setBold(true); name->setFont(nf);
     QLabel *ver = new QLabel(QString::fromUtf8("版本 ") + APP_VERSION);
     QLabel *cpy = new QLabel(QString::fromUtf8("版权 © 2026 劳雷"));
@@ -3025,14 +3025,24 @@ void MainWindow::showFileHeader()
         }
     }
 
-    // --- Build dialog ---
-    QDialog dlg(this);
-    dlg.setWindowTitle("文件头信息 - " + QFileInfo(m_currentTab->filePath).fileName());
-    dlg.setMinimumSize(420, 560);
-    dlg.resize(420, 560);
+    // --- 显示在左侧面板(非弹窗,复用 m_leftStack 机制) ---
+    // 如果已有文件头页,先删除旧内容
+    if (!m_headerTreePanel) {
+        m_headerTreePanel = new QWidget();
+        QVBoxLayout *hl = new QVBoxLayout(m_headerTreePanel);
+        hl->setContentsMargins(2, 2, 2, 2);
+        m_headerTreeLayout = hl;
+        m_leftStack->addWidget(m_headerTreePanel);
+    }
+    // 清空旧布局
+    QLayoutItem *old;
+    while ((old = m_headerTreeLayout->takeAt(0)) != nullptr) {
+        if (old->widget()) old->widget()->deleteLater();
+        delete old;
+    }
 
-    QVBoxLayout *layout = new QVBoxLayout(&dlg);
-
+    QVBoxLayout *layout = qobject_cast<QVBoxLayout*>(m_headerTreeLayout);
+    if (!layout) return;  // 布局异常
     QTreeWidget *tree = new QTreeWidget();
     tree->setHeaderHidden(true);
     tree->setColumnCount(2);
@@ -3107,15 +3117,9 @@ void MainWindow::showFileHeader()
     tree->expandAll();
     layout->addWidget(tree);
 
-    QPushButton *btnOK = new QPushButton("确定");
-    btnOK->setFixedWidth(80);
-    connect(btnOK, &QPushButton::clicked, &dlg, &QDialog::accept);
-    QHBoxLayout *btnLayout = new QHBoxLayout;
-    btnLayout->addStretch();
-    btnLayout->addWidget(btnOK);
-    layout->addLayout(btnLayout);
-
-    dlg.exec();
+    // 切换到文件头页并显示左侧面板
+    if (m_leftStack) m_leftStack->setCurrentWidget(m_headerTreePanel);
+    if (m_leftPanel) m_leftPanel->show();
 }
 
 // --- File operations ---
@@ -4014,7 +4018,7 @@ QString MainWindow::m_colorTransformName(int idx)
 }
 
 // 颜色变换 LUT:20种灰度映射,从 specs/颜色变换表.png 精确提取(全灰度,1字节/级)
-// ��ɫ�任 LUT:20�ֻҶ�ӳ��,�� specs/��ɫ�任��.png ��ȷ��ȡ(ȫ�Ҷ�,1�ֽ�/��)
+// ��ɫ�任 LUT:20�ֻҶ�ӳ��,�� specs/��ɫ�任��.png ��ȷ��ȡ(ȫ�Ҷ�,1�ֽ�/��)
 static const unsigned char s_cxLUTData[20][256] = {
     { // 1
         0,  0,  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  3,  3,  3,  4,
@@ -4895,7 +4899,7 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
 
 void MainWindow::updateWindowTitle()
 {
-    QString text = QString::fromUtf8("劳雷AI数据处理");
+    QString text = QString::fromUtf8("劳雷");
     if (m_currentTab && !m_currentTab->filePath.isEmpty()) {
         QString fname = QFileInfo(m_currentTab->filePath).completeBaseName();
         text = QString::fromUtf8("劳雷AI数据处理-%1").arg(fname);
@@ -4951,9 +4955,9 @@ void MainWindow::createMenuBar()
     ribbonTab->setDocumentMode(true);
     ribbonTab->setFixedHeight(132);
     ribbonTab->setStyleSheet(
-        "QTabWidget::pane { border: 1px solid #c0c0c0; background: #f0f0f0; }"
-        "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; }"
-        "QTabBar::tab:selected { background: #ffffff; border-bottom: 2px solid #0078d7; }"
+        "QTabWidget::pane { border: none; background: #ffffff; border-top: 1px solid #c2c5d5; }"
+        "QTabBar::tab { background: #f8f9ff; padding: 8px 20px; border: none; color: #444855; font-size: 12px; }"
+        "QTabBar::tab:selected { background: #ffffff; color: #004aae; font-weight: bold; border-bottom: 3px solid #004aae; }"
     );
 
     // --- Tab: 开始 ---
@@ -5533,23 +5537,6 @@ void MainWindow::createMenuBar()
 
     dataLayout->addStretch();
     ribbonTab->addTab(dataPage, "数据处理");
-
-    // --- Tab: AI处理 ---
-    QWidget *aiPage = new QWidget();
-    QHBoxLayout *aiLayout = new QHBoxLayout(aiPage);
-    aiLayout->setContentsMargins(4, 2, 4, 2);
-    aiLayout->setSpacing(8);
-
-    // Group: AI处理
-    QVBoxLayout *aiGroup = addGroup(aiLayout, "AI处理");
-    QHBoxLayout *aiRow1 = qobject_cast<QHBoxLayout*>(aiGroup->itemAt(0)->layout());
-    QToolButton *btnAIRecognize = makeTextBtn("AI识别");
-    connect(btnAIRecognize, &QToolButton::clicked, this, &MainWindow::showAIRecognition);
-    aiRow1->addWidget(btnAIRecognize);
-    aiRow1->addWidget(makeTextBtn("AI报告"));
-
-    aiLayout->addStretch();
-    ribbonTab->addTab(aiPage, "AI处理");
 
     qobject_cast<QVBoxLayout*>(centralWidget()->layout())->insertWidget(0, ribbonTab);
 }
