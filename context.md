@@ -1,0 +1,94 @@
+# 项目上下文 (2026-08-19)
+
+## 项目概述
+劳雷GPR(探地雷达)数据处理软件,Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, 当前版本 v1.0.86
+
+## 当前工作: UI重构
+按 `specs/软件需求20260817/UI/主页-文件头.png` 重构主页界面
+
+### 已完成(v1.0.85-1.0.86):
+- 标题改为"劳雷"(原"劳雷AI数据处理")
+- 5个菜单标签: 主页/编辑/数据处理/数据解译/AI分析(后3个占位)
+- 主页4组: 文件操作(打开/关闭/保存) | 图像显示(线扫描/线扫描+波形/波列图) | 色彩渲染(彩虹色/线性变换表) | 数据信息(文件头)
+- 波列图=堆积图(wiggle)切换
+- 文件头从弹窗改为左侧内嵌面板
+- 配色: 浅蓝主题(#f8f9ff背景/#eef4ff面板/#004aae选中)
+- 已提取37+56个UI参考PNG到 resources/ui_ref/
+
+## DZX PROCESS 逆向(已完成)
+完整typeId映射已验证(27组文件交叉对照):
+
+| typeId | 含义 | 格式 |
+|---|---|---|
+| 99 | DC去除(振幅偏移去除) | 无参数(空记录) |
+| 77 | 时间零点 | f@0x0A=偏移量ns |
+| 59 | 增益 | npts@9, dB@0x0B |
+| 4 | IIR垂直 | coeff@2/@8→MHz=fs/(2π×c) + 阶数@1/@7 |
+| 63-66 | FIR垂直(方块/三角×LP/HP) | coeff@1→MHz=1.17×fs/c |
+| 13/14 | IIR水平(叠加/背景去除) | f@0x0A |
+| 67-70 | FIR水平(方块/三角×平滑/背景去除) | f@0x09(DZX)/f@1(DZT) |
+| 95 | 专用背景去除 | 5B: type(全部通过/扫描范围/自适应/无) |
+
+**typeId规律**: 垂直=63+形×2+(HP?1:0), 水平=67+形×2+(背景去除?1:0)
+形状: 方块=0, 三角=1
+
+### DZT proc history 机制
+- 处理历史存DZT头 offset 128+ (rh_nproc@50)
+- **追加式**(非覆写), 每次操作追加记录
+- DZX 处理后干净(0 BinaryData)
+- 时间零点主机参数存DZT头 0x82
+
+### DZX BinaryData 偏移表
+| 偏移 | 含义 |
+|---|---|
+| 0x00-0x01 | 记录长度 |
+| 0x02-0x07 | 固定头 |
+| 0x08 | typeId |
+| 0x09 | 点数/阶数 |
+| 参数区 | 0x09或0x0A起 |
+
+## 时间零点处理(已实现 v1.0.67+)
+- 读 rhf_position(offset 22)
+- skip = nsamp×|sigPos|/rhf_range
+- 数据上移, 底部补零, 显示 drawRows=nsamp-skip
+- B-SCAN只显示有效行(486), 无底部零条
+- 波形Y轴保持 0-511 不变
+- 处理后DZT: proc history追加 0x4d sub=0 + float(rhf_position原值)
+- 输出DZT头: rhf_position归零, 编辑时间更新
+
+## 颜色变换表(v1.0.82-1.0.84)
+- 20种灰度映射LUT, 从PNG精确提取
+- 内嵌到代码 s_cxLUTData[20][256], 不需要外部bin
+- LUT数据来源: specs/颜色变换表.png, bar位置(2, 21+i*16)-(257, 32+i*16)
+
+## 升级重启(已修复 v1.0.69)
+- 用 ShellExecuteW 启动批处理(不共享AllocConsole控制台)
+- 批处理: 等PID退出→taskkill兜底→copy覆盖→start新版本
+
+## 采样点数(已修复 v1.0.62-1.0.63)
+- pixelsPerRow = m_nsamp(从文件头读, 非写死512)
+- 256/512等自适应
+
+## 增益(已修复 v1.0.63)
+- 增益表gN=m_pixelsPerRow(4处: applyGain/saveProcessedFile/一键×2)
+- 手柄Y跨度0..nsamp-1 (CustomChartView::setSampleCount)
+- 结束点=nsamp-1(m_gainSampleEndItem)
+
+## 关键文件
+- `specs/UI重构-主页-文件头.md` — UI规格
+- `specs/RADAN_DZT_DZX生成规律.md` — RADAN文件生成机制
+- `test_input_raw_files/DZX格式反推测试/参数.md` — DZX完整解码方案
+- `test_input_raw_files/DZX格式反推测试/*.py` — 解码工具
+- `resources/ui_ref/*.png` — UI参考图标(56个)
+- `specs/color_transform_luts.json` — 颜色变换LUT数据
+
+## 发布流程
+1. 改 version.h APP_VERSION
+2. cmake --build . --target MyQtApp
+3. cp MyQtApp.exe /d/gpr_test/
+4. git add -A && git commit && git push
+5. curl FTP上传 exe + version.json 到 seanwang.gotoftp5.com/wwwroot/
+6. FTP密码: sean2020
+
+## 安装包
+installer/MyQtApp.iss → ISCC.exe → D:\gpr_release\MyQtApp_Setup_<ver>.exe
