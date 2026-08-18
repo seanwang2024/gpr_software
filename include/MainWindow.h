@@ -349,6 +349,9 @@ private:
     QRgb m_lut[256];
     int m_paletteIndex = 12;
     void loadLUT(int index = 1);
+    int m_colorTransformIndex = 0;   // 颜色变换表索引(0=无,1-20=20种映射)
+    void applyColorTransform(QImage &img);  // 应用颜色变换
+    QString m_colorTransformName(int idx);  // 获取变换名称
     int m_traceCount;
     float m_hZoom = 1.0f;        // 当前 tab 的水平缩放
     bool m_wiggleMode = false;   // 当前 tab 的堆积图(wiggle)显示模式

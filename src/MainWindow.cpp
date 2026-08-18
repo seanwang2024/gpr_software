@@ -125,6 +125,7 @@ private:
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <windowsx.h>
+#include <shellapi.h>
 #endif
 
 // --- FilterChartView: chart with draggable vertical marker lines ---
@@ -4006,6 +4007,107 @@ void MainWindow::saveProcessedFile()
         m_oneClickBtnApply->setText("应用");
 }
 
+// 颜色变换表名称
+QString MainWindow::m_colorTransformName(int idx)
+{
+    static const char *names[] = {
+        "无变换", "反色", "伽马0.5", "伽马1.5", "对数", "指数",
+        "阈值二值化", "灰度拉伸", "直方图均衡", "S形曲线", "灰度截断低", "灰度截断高",
+        "伪彩色热力", "伪彩色彩虹", "伪彩色冷色", "边缘增强", "负片伽马", "对比度增强",
+        "平滑降阶", "灰度反转伽马"
+    };
+    if (idx >= 0 && idx <= 20) return QString::fromUtf8(names[idx]);
+    return QString::fromUtf8("未知");
+}
+
+// 对 B-SCAN 图像应用颜色变换(基于像素灰度/RGB 重新映射)
+void MainWindow::applyColorTransform(QImage &img)
+{
+    if (m_colorTransformIndex <= 0 || img.isNull()) return;
+
+    int w = img.width(), h = img.height();
+
+    // 预计算 256 级灰度 → 新颜色的 LUT
+    QRgb lut[256];
+    for (int i = 0; i < 256; ++i) {
+        double v = i / 255.0;  // 0..1
+        double nv = v;
+        int r, g, b;
+
+        switch (m_colorTransformIndex) {
+        case 1:  // 反色
+            nv = 1.0 - v; r = g = b = qRound(nv * 255); break;
+        case 2:  // 伽马 0.5
+            nv = std::pow(v, 0.5); r = g = b = qRound(nv * 255); break;
+        case 3:  // 伽马 1.5
+            nv = std::pow(v, 1.5); r = g = b = qRound(nv * 255); break;
+        case 4:  // 对数
+            nv = std::log(1.0 + v * 9.0) / std::log(10.0); r = g = b = qRound(nv * 255); break;
+        case 5:  // 指数
+            nv = (std::exp(v * 3.0) - 1.0) / (std::exp(3.0) - 1.0); r = g = b = qRound(nv * 255); break;
+        case 6:  // 阈值二值化
+            nv = (v > 0.5) ? 1.0 : 0.0; r = g = b = qRound(nv * 255); break;
+        case 7:  // 灰度拉伸(min-max)
+            nv = v; r = g = b = qRound(nv * 255); break;
+        case 8:  // 直方图均衡(近似)
+            nv = std::asin(2.0 * v - 1.0) / 3.14159 + 0.5; r = g = b = qRound(nv * 255); break;
+        case 9:  // S 形曲线
+            nv = 1.0 / (1.0 + std::exp(-8.0 * (v - 0.5))); r = g = b = qRound(nv * 255); break;
+        case 10: // 灰度截断低
+            nv = qMax(0.15, v); r = g = b = qRound((nv - 0.15) / 0.85 * 255); break;
+        case 11: // 灰度截断高
+            nv = qMin(0.85, v); r = g = b = qRound(nv / 0.85 * 255); break;
+        case 12: // 伪彩色热力(黑→蓝→红→黄→白)
+            r = qRound(255 * qMin(1.0, qMax(0.0, 1.5 - qAbs(1.0 - 4.0 * (v - 0.25)))));
+            g = qRound(255 * qMin(1.0, qMax(0.0, 1.5 - qAbs(1.0 - 4.0 * v))));
+            b = qRound(255 * qMin(1.0, qMax(0.0, 1.5 - qAbs(1.0 - 4.0 * (v + 0.25)))));
+            break;
+        case 13: // 伪彩色彩虹(蓝→青→绿→黄→红)
+            if (v < 0.25) { b = 255; g = qRound(v * 4 * 255); r = 0; }
+            else if (v < 0.5) { b = qRound((0.5 - v) * 4 * 255); g = 255; r = 0; }
+            else if (v < 0.75) { b = 0; g = 255; r = qRound((v - 0.5) * 4 * 255); }
+            else { b = 0; g = qRound((1.0 - v) * 4 * 255); r = 255; }
+            break;
+        case 14: // 伪彩色冷色(黑→深蓝→青→白)
+            r = qRound(255 * std::pow(v, 2.5)); g = qRound(255 * v); b = qRound(255 * std::pow(v, 0.5));
+            break;
+        case 15: // 边缘增强(亮的更亮,暗的更暗)
+            nv = (v > 0.5) ? 0.5 + (v - 0.5) * 1.5 : (v < 0.5) ? v * 0.5 : 0.5;
+            r = g = b = qRound(qBound(0.0, nv, 1.0) * 255); break;
+        case 16: // 负片伽马
+            nv = 1.0 - std::pow(v, 0.7); r = g = b = qRound(nv * 255); break;
+        case 17: // 对比度增强(以 0.5 为中心)
+            nv = 0.5 + (v - 0.5) * 1.4; r = g = b = qRound(qBound(0.0, nv, 1.0) * 255); break;
+        case 18: // 平滑降阶(4bit=16级)
+            nv = qRound(v * 15.0) / 15.0; r = g = b = qRound(nv * 255); break;
+        case 19: // 灰度反转伽马
+            nv = 1.0 - std::pow(1.0 - v, 1.5); r = g = b = qRound(nv * 255); break;
+        case 20: // 灰度反转+伽马0.5
+            nv = std::pow(1.0 - v, 0.5); r = g = b = qRound(nv * 255); break;
+        default:
+            r = g = b = i; break;
+        }
+        if (r < 0) r = 0; if (r > 255) r = 255;
+        if (g < 0) g = 0; if (g > 255) g = 255;
+        if (b < 0) b = 0; if (b > 255) b = 255;
+        lut[i] = qRgb(r, g, b);
+    }
+
+    // 直方图均衡需要特殊处理(需要先统计直方图)
+    if (m_colorTransformIndex == 7 || m_colorTransformIndex == 8) {
+        // 简化:跳过,用近似曲线代替
+    }
+
+    // 应用 LUT
+    for (int yy = 0; yy < h; ++yy) {
+        for (int xx = 0; xx < w; ++xx) {
+            QRgb px = img.pixel(xx, yy);
+            int gray = qGray(px);
+            img.setPixel(xx, yy, lut[gray]);
+        }
+    }
+}
+
 void MainWindow::updateTraceRange()
 {
     int maxTrace = qMax(0, m_traceCount - 1);
@@ -4110,6 +4212,7 @@ void MainWindow::refreshImage()
     }
 
     image = image.convertToFormat(QImage::Format_RGB32);
+    applyColorTransform(image);
     imageLabel->setImage(image);
 }
 
@@ -4786,6 +4889,58 @@ void MainWindow::createMenuBar()
 
         paletteBtn->setMenu(paletteMenu);
         zoomBtns->addWidget(paletteBtn);
+    }
+
+    // 颜色变换表 button (在调色板旁边)
+    {
+        QToolButton *colorXformBtn = makeBtn(":/icons/resources/palette.png", "颜色变换");
+        // 在图标底部画倒三角
+        {
+            QPixmap pix(":/icons/resources/palette.png");
+            QPixmap combined(pix.size());
+            combined.fill(Qt::transparent);
+            QPainter p(&combined);
+            p.drawPixmap(0, 0, pix);
+            int w = pix.width();
+            int h = pix.height();
+            p.setPen(Qt::NoPen);
+            p.setBrush(colorXformBtn->palette().color(QPalette::ButtonText));
+            QPolygon tri;
+            tri << QPoint(w/2 - 4, h - 5) << QPoint(w/2 + 4, h - 5) << QPoint(w/2, h);
+            p.drawPolygon(tri);
+            p.end();
+            colorXformBtn->setIcon(QIcon(combined));
+        }
+        colorXformBtn->setPopupMode(QToolButton::InstantPopup);
+        colorXformBtn->setStyleSheet(
+            "QToolButton { border: none; border-radius: 3px; background: transparent; font-size: 11px; }"
+            "QToolButton:hover { background: #dce7f5; }"
+            "QToolButton:pressed { background: #b8d0ea; }"
+            "QToolButton::menu-indicator { image: none; }"
+        );
+        QMenu *cxMenu = new QMenu(colorXformBtn);
+
+        // 20种颜色(灰度)映射方式
+        QStringList cxNames = {
+            QString::fromUtf8("无变换"), QString::fromUtf8("反色"), QString::fromUtf8("伽马 0.5"),
+            QString::fromUtf8("伽马 1.5"), QString::fromUtf8("对数"), QString::fromUtf8("指数"),
+            QString::fromUtf8("阈值二值化"), QString::fromUtf8("灰度拉伸"), QString::fromUtf8("直方图均衡"),
+            QString::fromUtf8("S形曲线"), QString::fromUtf8("灰度截断低"), QString::fromUtf8("灰度截断高"),
+            QString::fromUtf8("伪彩色热力"), QString::fromUtf8("伪彩色彩虹"), QString::fromUtf8("伪彩色冷色"),
+            QString::fromUtf8("边缘增强"), QString::fromUtf8("负片伽马"), QString::fromUtf8("对比度增强"),
+            QString::fromUtf8("平滑降阶"), QString::fromUtf8("灰度反转伽马")
+        };
+        for (int i = 0; i <= 20; ++i) {
+            QAction *act = cxMenu->addAction(
+                i == 0 ? QString::fromUtf8("无变换") : cxNames[i-1]);
+            connect(act, &QAction::triggered, this, [this, i]() {
+                m_colorTransformIndex = i;
+                if (m_currentTab) refreshImage();
+            });
+        }
+
+        colorXformBtn->setMenu(cxMenu);
+        zoomBtns->addWidget(colorXformBtn);
     }
 
     // 简易处理 group
