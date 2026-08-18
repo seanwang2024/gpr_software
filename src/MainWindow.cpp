@@ -5000,65 +5000,59 @@ void MainWindow::createMenuBar()
         return btn;
     };
 
-    // 文件设置 group
-    QVBoxLayout *fileGroup = addGroup(startLayout, "文件设置");
+    // 文件操作 group (打开/关闭/保存)
+    QVBoxLayout *fileGroup = addGroup(startLayout, QString::fromUtf8("文件操作"));
     QHBoxLayout *fileBtns = qobject_cast<QHBoxLayout*>(fileGroup->itemAt(0)->layout());
-    QToolButton *btnOpen = makeBtn(":/icons/resources/icon_open_64.png", "打开");
-    QToolButton *btnSave = makeBtn(":/icons/resources/icon_save_64.png", "保存");
-    QToolButton *btnClose = makeBtn(":/icons/resources/icon_close_64.png", "关闭");
-    QToolButton *btnHeader = makeBtn(":/icons/resources/icon_fileheader_64.png", "文件头");
+    QToolButton *btnOpen = makeBtn(":/icons/resources/icon_open_64.png", QString::fromUtf8("打开"));
+    QToolButton *btnClose = makeBtn(":/icons/resources/icon_close_64.png", QString::fromUtf8("关闭"));
+    QToolButton *btnSave = makeBtn(":/icons/resources/icon_save_64.png", QString::fromUtf8("保存"));
     fileBtns->addWidget(btnOpen);
-    fileBtns->addWidget(btnSave);
     fileBtns->addWidget(btnClose);
-    fileBtns->addWidget(btnHeader);
+    fileBtns->addWidget(btnSave);
 
     connect(btnOpen, &QToolButton::clicked, this, &MainWindow::onOpenFile);
-    connect(btnHeader, &QToolButton::clicked, this, &MainWindow::showFileHeader);
     connect(btnClose, &QToolButton::clicked, this, [this]() {
         if (!m_tabs.isEmpty()) {
             int idx = m_docTabWidget->currentIndex();
             if (idx >= 0) closeTab(idx);
         }
     });
+    connect(btnSave, &QToolButton::clicked, this, [this]() {
+        if (!m_currentTab) return;
+        saveProcessedFile();
+    });
 
-    // 图像缩放 group
-    QVBoxLayout *zoomGroup = addGroup(startLayout, "图像缩放");
+    // 图像显示 group (线扫描/线扫描+波形/波列图)
+    QVBoxLayout *zoomGroup = addGroup(startLayout, QString::fromUtf8("图像显示"));
     QHBoxLayout *zoomBtns = qobject_cast<QHBoxLayout*>(zoomGroup->itemAt(0)->layout());
-    QToolButton *btnHZoomIn = makeBtn(":/icons/resources/hzoomin.png", "水平放大");
-    QToolButton *btnHZoomOut = makeBtn(":/icons/resources/hzoomout.png", "水平缩小");
-    QToolButton *btnHRestore = makeBtn(":/icons/resources/restore.png", "图像还原");
+    QToolButton *btnHZoomIn = makeBtn(":/icons/resources/hzoomin.png", QString::fromUtf8("线扫描"));
+    QToolButton *btnHZoomOut = makeBtn(":/icons/resources/hzoomout.png", QString::fromUtf8("线扫描+波形"));
+    QToolButton *btnHRestore = makeBtn(":/icons/resources/restore.png", QString::fromUtf8("波列图"));
     zoomBtns->addWidget(btnHZoomIn);
     zoomBtns->addWidget(btnHZoomOut);
     zoomBtns->addWidget(btnHRestore);
+    // 线扫描:隐藏左侧面板,只显示 B-SCAN
     connect(btnHZoomIn, &QToolButton::clicked, this, [this]() {
         if (!requireOpenFile()) return;
-        m_hZoom *= 1.25f;
-        if (m_currentTab) m_currentTab->hZoom = m_hZoom;
-        resizeImageLabel();
+        if (m_leftPanel) m_leftPanel->hide();
+        if (m_currentTab && m_currentTab->chartView) m_currentTab->chartView->setGainVisible(false);
     });
+    // 线扫描+波形:显示左侧面板(增益/波形)
     connect(btnHZoomOut, &QToolButton::clicked, this, [this]() {
         if (!requireOpenFile()) return;
-        m_hZoom *= 0.8f;
-        if (m_hZoom < 0.05f) m_hZoom = 0.05f;
-        if (m_currentTab) m_currentTab->hZoom = m_hZoom;
-        resizeImageLabel();
+        if (m_leftPanel) m_leftPanel->show();
+        if (m_leftStack) m_leftStack->setCurrentWidget(m_gainPage);
+        if (m_currentTab && m_currentTab->chartView) m_currentTab->chartView->setGainVisible(true);
     });
-    connect(btnHRestore, &QToolButton::clicked, this, [this]() {
-        if (!requireOpenFile()) return;
-        m_hZoom = 1.0f;
-        if (m_currentTab) m_currentTab->hZoom = m_hZoom;
-        resizeImageLabel();
-    });
-    QToolButton *btnStack = makeBtn(":/icons/resources/stack.png", "堆积图");
-    m_btnStack = btnStack;
-    zoomBtns->addWidget(btnStack);
-    btnStack->setCheckable(true);
-    connect(btnStack, &QToolButton::clicked, this, [this, btnStack]() {
+    // 波列图 = 堆积图(wiggle)切换
+    btnHRestore->setCheckable(true);
+    m_btnStack = btnHRestore;
+    connect(btnHRestore, &QToolButton::clicked, this, [this, btnHRestore]() {
         if (!requireOpenFile()) {
-            btnStack->setChecked(false);
+            btnHRestore->setChecked(false);
             return;
         }
-        m_wiggleMode = btnStack->isChecked();
+        m_wiggleMode = btnHRestore->isChecked();
         if (m_currentTab) {
             m_currentTab->wiggleMode = m_wiggleMode;
             m_currentTab->imageLabel->setCrosshairDark(m_wiggleMode);  // 堆积图白底→黑十字
@@ -5067,9 +5061,9 @@ void MainWindow::createMenuBar()
         resizeImageLabel();
     });
 
-    // 调色板 button with dropdown menu
+    // 色彩渲染 group (彩虹色/线性变换表) — 在图像显示组按钮后面追加
     {
-        QToolButton *paletteBtn = makeBtn(":/icons/resources/palette.png", "调色板");
+        QToolButton *paletteBtn = makeBtn(":/icons/resources/palette.png", QString::fromUtf8("彩虹色"));
         // 在图标底部画一个小三角，表示可下拉
         {
             QPixmap pix(":/icons/resources/palette.png");
@@ -5197,7 +5191,7 @@ void MainWindow::createMenuBar()
 
     // 颜色变换表 button (在调色板旁边)
     {
-        QToolButton *colorXformBtn = makeBtn(":/icons/resources/palette.png", "颜色变换");
+        QToolButton *colorXformBtn = makeBtn(":/icons/resources/palette.png", QString::fromUtf8("线性变换表"));
         // 在图标底部画倒三角
         {
             QPixmap pix(":/icons/resources/palette.png");
@@ -5309,6 +5303,13 @@ void MainWindow::createMenuBar()
         zoomBtns->addWidget(colorXformBtn);
     }
 
+    // 数据信息 group (文件头)
+    QVBoxLayout *infoGroup = addGroup(startLayout, QString::fromUtf8("数据信息"));
+    QHBoxLayout *infoBtns = qobject_cast<QHBoxLayout*>(infoGroup->itemAt(0)->layout());
+    QToolButton *btnHeader = makeBtn(":/icons/resources/icon_fileheader_64.png", QString::fromUtf8("文件头"));
+    infoBtns->addWidget(btnHeader);
+    connect(btnHeader, &QToolButton::clicked, this, &MainWindow::showFileHeader);
+
     // 简易处理 group
     QVBoxLayout *processGroup = addGroup(startLayout, "简易处理");
     QHBoxLayout *processBtns = qobject_cast<QHBoxLayout*>(processGroup->itemAt(0)->layout());
@@ -5374,7 +5375,13 @@ void MainWindow::createMenuBar()
     connect(btnUpgrade, &QToolButton::clicked, this, &MainWindow::showUpgrade);
 
     startLayout->addStretch();
-    ribbonTab->addTab(startPage, "开始");
+    ribbonTab->addTab(startPage, QString::fromUtf8("主页"));
+
+    // --- Tab: 编辑(占位) ---
+    {
+        QWidget *editPage = new QWidget();
+        ribbonTab->addTab(editPage, QString::fromUtf8("编辑"));
+    }
 
     // --- Tab: 数据处理 ---
     QWidget *dataPage = new QWidget();
@@ -5536,7 +5543,19 @@ void MainWindow::createMenuBar()
     dataLayout->addWidget(rangeFrame);
 
     dataLayout->addStretch();
-    ribbonTab->addTab(dataPage, "数据处理");
+    ribbonTab->addTab(dataPage, QString::fromUtf8("数据处理"));
+
+    // --- Tab: 数据解译(占位) ---
+    {
+        QWidget *interpPage = new QWidget();
+        ribbonTab->addTab(interpPage, QString::fromUtf8("数据解译"));
+    }
+
+    // --- Tab: AI分析(占位) ---
+    {
+        QWidget *aiPage = new QWidget();
+        ribbonTab->addTab(aiPage, QString::fromUtf8("AI分析"));
+    }
 
     qobject_cast<QVBoxLayout*>(centralWidget()->layout())->insertWidget(0, ribbonTab);
 }
