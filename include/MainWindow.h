@@ -346,6 +346,9 @@ private:
     static QVector<int> readDzxMarkers(const QString &dztPath);      // 读 DZX <MarkGroup>
     bool writeDzxMarkers(const QString &dztPath, const QVector<int> &markers);  // 写回(文本级手术)
     static bool syncDzxMtimeToDzt(const QString &dztPath, const QString &dzxPath);
+    void refreshSelectionInfo();            // 选区几何4字段刷新(道号/时间/尺寸)
+    void clearEditRect();                   // 删除/重置选区矩形
+    void performCropSelection();            // 保留/确认裁剪: 整幅数据裁剪为选区(数据手术)
 
     struct DztHeaderInfo {                     // 右栏8字段所需的DZT头子集
         QString fileName, createDate, antName;

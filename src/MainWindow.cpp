@@ -2234,6 +2234,17 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
         if (m_currentTab == tab && m_markerThumb) updateMarkerThumb();
     });
 
+    // v1.0.98: 数据块矩形框交互(拖动/调整结束刷新几何字段; 框上删除按钮)
+    connect(tab->imageLabel, &ImageLabel::editRectChanged, this, [this, tab](const QRectF &r) {
+        if (m_currentTab == tab) {
+            tab->editRectT = r;
+            refreshSelectionInfo();
+        }
+    });
+    connect(tab->imageLabel, &ImageLabel::editDeleteRequested, this, [this, tab]() {
+        if (m_currentTab == tab) clearEditRect();
+    });
+
     // Page layout: imageGrid + chartView
     pageLayout->addLayout(tab->imageGrid, 1);
     pageLayout->addWidget(tab->chartView);
@@ -3175,6 +3186,14 @@ void MainWindow::syncEditUiState()
         syncRightRail();
     }
 
+    // 矩形框(S5): 数据块模式 ∧ 已有选区 ∧ 非波列图
+    if (m_currentTab && m_currentTab->imageLabel) {
+        const bool rectOn = m_btnEditBlock && m_btnEditBlock->isChecked()
+                            && !m_currentTab->editRectT.isNull() && !m_wiggleMode;
+        m_currentTab->imageLabel->setEditRectVisible(rectOn);
+        refreshSelectionInfo();
+    }
+
     // 标记面板与主图覆盖层(S3)
     const bool markerOn = m_btnEditMarker && m_btnEditMarker->isChecked() && m_currentTab;
     if (m_markerPanel) m_markerPanel->setVisible(markerOn);
@@ -3193,6 +3212,39 @@ void MainWindow::syncEditUiState()
     }
 
     m_syncingEditUi = false;
+}
+
+// 选区几何信息4字段刷新
+void MainWindow::refreshSelectionInfo()
+{
+    auto set = [](QLabel *l, const QString &s) { if (l) l->setText(s); };
+    if (!m_currentTab || m_currentTab->editRectT.isNull()
+        || !m_currentTab->imageLabel || !m_currentTab->imageLabel->editRectVisible()) {
+        set(m_selStartLbl, QStringLiteral("-"));
+        set(m_selEndLbl, QStringLiteral("-"));
+        set(m_selTimeLbl, QStringLiteral("-"));
+        set(m_selSizeLbl, QStringLiteral("-"));
+        return;
+    }
+    const QRectF r = m_currentTab->editRectT.normalized();
+    const int t0 = qRound(r.left()), t1 = qRound(r.right());
+    const int s0 = qRound(r.top()), s1 = qRound(r.bottom());
+    const double dt = (m_currentTab->nsamp > 0)
+                          ? m_currentTab->headerRange / m_currentTab->nsamp : 0.0;
+    set(m_selStartLbl, QString::number(t0));
+    set(m_selEndLbl, QString::number(t1));
+    set(m_selTimeLbl, QString::number(s0 * dt, 'f', 1) + " - "
+                          + QString::number(s1 * dt, 'f', 1) + " ns");
+    set(m_selSizeLbl, QString("%1 x %2 px").arg(t1 - t0 + 1).arg(s1 - s0 + 1));
+}
+
+// 删除/重置选区矩形(不动数据)
+void MainWindow::clearEditRect()
+{
+    if (!m_currentTab) return;
+    m_currentTab->editRectT = QRectF();
+    if (m_currentTab->imageLabel) m_currentTab->imageLabel->setEditRectVisible(false);
+    refreshSelectionInfo();
 }
 
 // v1.0.98 右侧 256px 编辑属性面板: 页0=编辑数据块(新建矩形框/选区几何/重置/确认裁剪) 页1=横向缩放
@@ -3300,6 +3352,35 @@ void MainWindow::createEditPanel()
             " padding: 8px; font-size: 14px; font-weight: bold; }"
             "QPushButton:hover { background: #1e60d5; }");
         pl->addWidget(m_btnCrop);
+
+        // v1.0.98: 数据块按钮接线(S5)
+        connect(m_btnNewRect, &QPushButton::clicked, this, [this]() {
+            if (!requireOpenFile()) return;
+            if (m_wiggleMode) {
+                QMessageBox::information(this, QString::fromUtf8("新建矩形框"),
+                    QString::fromUtf8("波列图模式下无法使用矩形框, 请先切换到线扫描或线扫描+波形。"));
+                return;
+            }
+            TabData *tab = m_currentTab;
+            const int maxT = qMax(0, tab->traceCount - 1);
+            const int drawRows = m_pixelsPerRow - (tab->zeroApplied ? tab->zeroSkipRows : 0);
+            const int maxS = qMax(0, drawRows - 1);
+            // 默认框: 当前视口中心 20% 道 × 50% 采样(按设计稿)
+            const int spanT = qMax(1, tab->traceCount / 5);
+            const int vw = tab->scrollArea->viewport()->width();
+            const int centerT = qBound(0, qRound((tab->extHScrollBar->value() + vw / 2.0)
+                                                 / (double)m_hZoom), maxT);
+            int t0 = qBound(0, centerT - spanT / 2, qMax(0, maxT - spanT));
+            const int t1 = qMin(maxT, t0 + spanT);
+            const int spanS = qMax(1, (maxS + 1) / 2);
+            const int s0 = qMax(0, (maxS + 1 - spanS) / 2);
+            const int s1 = qMin(maxS, s0 + spanS);
+            tab->editRectT = QRectF(t0, s0, t1 - t0, s1 - s0);
+            tab->imageLabel->setEditRect(tab->editRectT);
+            tab->imageLabel->setEditRectVisible(true);
+            refreshSelectionInfo();
+        });
+        connect(m_btnResetRect, &QPushButton::clicked, this, [this]() { clearEditRect(); });
 
         m_editStack->addWidget(page);
     }
