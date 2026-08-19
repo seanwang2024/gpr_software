@@ -20,6 +20,7 @@
 #include <QLineSeries>
 #include <QValueAxis>
 #include <QTreeWidget>
+#include <QTableWidget>
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QTabWidget>
@@ -205,6 +206,31 @@ private:
 
 // (v1.0.87 旧 CustomTitleBar 已删除, 由 TopBar.h 的 TopBar 替代 — 严格按 主页-文件头.png)
 
+// v1.0.98 雷达缩略图(编辑标记面板): 底图 + 红标记线 + 蓝视口指示框, 点击跳转
+class MarkerThumbWidget : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit MarkerThumbWidget(QWidget *parent = nullptr);
+    void setSource(const QImage &img);
+    void setMarkers(const QVector<int> &traces);
+    void setTraceCount(int n);
+    void setViewportRange(double x0Frac, double x1Frac);   // 0..1
+
+signals:
+    void viewportJumpRequested(double traceFrac);          // 点击位置(0..1)
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+
+private:
+    QImage m_thumb;
+    QVector<int> m_markers;
+    int m_traceCount = 0;
+    double m_vpX0 = 0.0, m_vpX1 = 1.0;
+};
+
 // Per-file data and widgets for each open tab
 struct TabData {
     QString filePath;
@@ -308,6 +334,15 @@ private:
     void setHZoom(float zoom);                // 横向缩放(保持视口中心道)
     void syncRightRail();                     // 编辑面板与文件头右栏互斥
     void syncEditUiState();                   // 编辑模块状态总闸(面板显隐/页切换/控件回填)
+    void createMarkerPanel();                 // 底部标记面板(标记表+缩略图, 编辑标记开关)
+    void refreshMarkerPanel();                // 标记表/主图覆盖层/缩略图 刷新
+    void updateMarkerThumb();                 // 缩略图重建(带缓存) + 视口框
+    QImage buildBscanThumbnail(int w, int h); // 从 rawData 抽样过调色板(与主图同色系)
+    void insertMarkerRow();                   // 插入标记(两行间取均值)
+    void deleteMarkerRow();                   // 删除选中标记
+    void commitMarkers();                     // 标记提交: 排序+刷新+持久化(S4接DZX)
+    double markerSpacingM();                  // 米/道(spm 优先, DZX unitsPerScan 兜底)
+    static double readDzxUnitsPerScan(const QString &dztPath);
 
     struct DztHeaderInfo {                     // 右栏8字段所需的DZT头子集
         QString fileName, createDate, antName;
@@ -372,6 +407,12 @@ private:
     QSlider *m_hZoomSlider = nullptr;         // 横向缩放滑条(1-10x)
     QSpinBox *m_hZoomSpin = nullptr;          // 横向缩放数字框
     bool m_syncingEditUi = false;             // syncEditUiState 防重入
+    QWidget *m_markerPanel = nullptr;         // 底部标记面板(编辑标记开关)
+    QTableWidget *m_markerTable = nullptr;    // 标记表(序号/道号/距离)
+    MarkerThumbWidget *m_markerThumb = nullptr;
+    bool m_fillingMarkers = false;            // 表格填充防 itemChanged 环
+    QImage m_thumbCache;                      // 缩略图缓存
+    QString m_thumbKey;                       // 缓存键(tab/rev/尺寸/调色板/变换)
 
     // Tab group management (splitter)
     QSplitter *m_docSplitter = nullptr;

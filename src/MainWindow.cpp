@@ -9,6 +9,7 @@ extern void diagPrint(const QString &msg);
 #include <QButtonGroup>
 #include <QTimer>
 #include <QFileDialog>
+#include <QXmlStreamReader>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QMimeData>
@@ -1900,6 +1901,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     mainLayout->addLayout(contentLayout);
 
+    // v1.0.98: 底部标记面板(编辑标记开关, 标记表+缩略图, 默认隐藏)
+    createMarkerPanel();
+    mainLayout->addWidget(m_markerPanel);
+
     // --- 状态栏 (v1.0.87 28px,按设计稿: 左 ●就绪 | 右 道号/深度 等宽 + 进度条) ---
     m_progressBar = new QProgressBar(this);
     m_net = new QNetworkAccessManager(this);
@@ -2223,6 +2228,11 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
 
     // Monitor viewport resize to auto-adjust imageLabel height
     tab->scrollArea->viewport()->installEventFilter(this);
+
+    // v1.0.98: 滚动联动缩略图视口框(仅当前 tab)
+    connect(tab->extHScrollBar, &QScrollBar::valueChanged, this, [this, tab](int) {
+        if (m_currentTab == tab && m_markerThumb) updateMarkerThumb();
+    });
 
     // Page layout: imageGrid + chartView
     pageLayout->addLayout(tab->imageGrid, 1);
@@ -3164,6 +3174,16 @@ void MainWindow::syncEditUiState()
         syncRightRail();
     }
 
+    // 标记面板与主图覆盖层(S3)
+    const bool markerOn = m_btnEditMarker && m_btnEditMarker->isChecked() && m_currentTab;
+    if (m_markerPanel) m_markerPanel->setVisible(markerOn);
+    if (m_currentTab && m_currentTab->imageLabel)
+        m_currentTab->imageLabel->setMarkerOverlay(markerOn, m_currentTab->markers);
+    if (markerOn) {
+        refreshMarkerPanel();
+        updateMarkerThumb();
+    }
+
     // 缩放控件回填当前 tab
     if (m_currentTab && m_hZoomSlider) {
         QSignalBlocker b1(m_hZoomSlider), b2(m_hZoomSpin);
@@ -3352,6 +3372,309 @@ void MainWindow::createEditPanel()
     }
 
     outer->addWidget(m_editStack, 1);
+}
+
+// ---- v1.0.98 MarkerThumbWidget: 底图 + 红标记线 + 蓝视口框 ----
+
+MarkerThumbWidget::MarkerThumbWidget(QWidget *parent) : QWidget(parent)
+{
+    setMinimumHeight(40);
+}
+
+void MarkerThumbWidget::setSource(const QImage &img) { m_thumb = img; update(); }
+void MarkerThumbWidget::setMarkers(const QVector<int> &traces) { m_markers = traces; update(); }
+void MarkerThumbWidget::setTraceCount(int n) { m_traceCount = n; update(); }
+void MarkerThumbWidget::setViewportRange(double x0Frac, double x1Frac)
+{
+    m_vpX0 = qBound(0.0, x0Frac, 1.0);
+    m_vpX1 = qBound(m_vpX0, x1Frac, 1.0);
+    update();
+}
+
+void MarkerThumbWidget::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+    p.fillRect(rect(), QColor(0xd9, 0xe3, 0xf6));
+    const QRect inner = rect().adjusted(1, 1, -1, -1);
+    if (inner.width() < 4 || inner.height() < 4) return;
+    if (!m_thumb.isNull())
+        p.drawImage(inner, m_thumb);
+
+    // 视口指示框(蓝)
+    const int x0 = 1 + qRound(m_vpX0 * inner.width());
+    const int x1 = 1 + qRound(m_vpX1 * inner.width());
+    p.setPen(QPen(QColor(0, 0x48, 0xaf), 2));
+    p.setBrush(QColor(0, 0x48, 0xaf, 26));
+    p.drawRect(QRect(QPoint(x0, 1), QPoint(qMax(x0 + 2, x1), height() - 1)));
+
+    // 标记线(红)
+    p.setPen(QPen(QColor(0xb3, 0x27, 0x2d), 2));
+    for (int t : m_markers) {
+        if (m_traceCount <= 1) break;
+        const int x = 1 + qRound((double)t / (m_traceCount - 1) * inner.width());
+        p.drawLine(x, 1, x, height() - 1);
+    }
+}
+
+void MarkerThumbWidget::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton && width() > 0)
+        emit viewportJumpRequested(qBound(0.0, (double)event->pos().x() / width(), 1.0));
+    QWidget::mousePressEvent(event);
+}
+
+// 从同名 DZX 读 <unitsPerScan>(米/道) — 标记距离列兜底(DZT spm 实测可能为 0)
+double MainWindow::readDzxUnitsPerScan(const QString &dztPath)
+{
+    QFileInfo fi(dztPath);
+    QFile f(fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX");
+    if (!f.open(QIODevice::ReadOnly)) return 0.0;
+    QXmlStreamReader r(&f);
+    bool inUnits = false;
+    while (!r.atEnd()) {
+        const QXmlStreamReader::TokenType tok = r.readNext();
+        if (tok == QXmlStreamReader::StartElement) {
+            if (r.name() == QStringLiteral("unitsPerScan")) inUnits = true;
+        } else if (tok == QXmlStreamReader::Characters && inUnits) {
+            bool ok = false;
+            const double v = r.text().toDouble(&ok);
+            if (ok && v > 0) return v;
+        } else if (tok == QXmlStreamReader::EndElement) {
+            inUnits = false;
+        }
+    }
+    return 0.0;
+}
+
+// 米/道: DZT spm>0 → 1/spm; 否则 DZX unitsPerScan; 都无 → 0
+double MainWindow::markerSpacingM()
+{
+    if (!m_currentTab) return 0.0;
+    DztHeaderInfo info;
+    if (readDztHeaderInfo(info) && info.spm > 0) return 1.0 / info.spm;
+    return readDzxUnitsPerScan(m_currentTab->filePath);
+}
+
+// 底部标记面板: 左40%标记表(3列+插删按钮) + 右60%雷达缩略图
+void MainWindow::createMarkerPanel()
+{
+    m_markerPanel = new QWidget(this);
+    m_markerPanel->setObjectName("gprMarkerPanel");
+    m_markerPanel->setStyleSheet("#gprMarkerPanel { background: #f8f9ff; border-top: 4px solid #d9e3f6; }");
+    m_markerPanel->setFixedHeight(220);   // 初始, resizeEvent 按 35% 调整
+
+    QHBoxLayout *lay = new QHBoxLayout(m_markerPanel);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(0);
+
+    // ---- 左 40%: 标记表 ----
+    QWidget *left = new QWidget(m_markerPanel);
+    left->setStyleSheet("background: #ffffff;");
+    QVBoxLayout *ll = new QVBoxLayout(left);
+    ll->setContentsMargins(0, 0, 0, 0);
+    ll->setSpacing(0);
+
+    QWidget *lhead = new QWidget(left);
+    lhead->setFixedHeight(32);
+    lhead->setStyleSheet("background: #eff4ff; border-bottom: 1px solid #c3c6d6;");
+    QHBoxLayout *lh = new QHBoxLayout(lhead);
+    lh->setContentsMargins(12, 0, 8, 0);
+    lh->setSpacing(4);
+    QLabel *capL = new QLabel(QString::fromUtf8("标记表"), lhead);
+    capL->setStyleSheet("font-size: 14px; font-weight: bold; color: #121c2a; border: none; background: transparent;");
+    lh->addWidget(capL);
+    lh->addStretch(1);
+
+    auto smallBtn = [this](const QString &glyph, const QString &text, const QString &fg) -> QPushButton * {
+        QPushButton *b = new QPushButton(QString::fromUtf8(" ") + text);
+        if (MatIcon::ready())
+            b->setIcon(MatIcon::icon(glyph, QColor(fg)));
+        b->setCursor(Qt::PointingHandCursor);
+        b->setStyleSheet(QString(
+            "QPushButton { background: #ffffff; border: 1px solid #c3c6d6; border-radius: 3px;"
+            " padding: 2px 10px; font-size: 12px; color: %1; }"
+            "QPushButton:hover { background: #dee9fc; }").arg(fg));
+        return b;
+    };
+    QPushButton *btnIns = smallBtn(QStringLiteral("add"), QString::fromUtf8("插入标记"), "#121c2a");
+    QPushButton *btnDel = smallBtn(QStringLiteral("remove"), QString::fromUtf8("删除标记"), "#ba1a1a");
+    lh->addWidget(btnIns);
+    lh->addWidget(btnDel);
+    ll->addWidget(lhead);
+
+    m_markerTable = new QTableWidget(left);
+    m_markerTable->setColumnCount(3);
+    m_markerTable->setHorizontalHeaderLabels(QStringList()
+        << QString::fromUtf8("序号") << QString::fromUtf8("道号") << QString::fromUtf8("距离 (m)"));
+    m_markerTable->verticalHeader()->hide();
+    m_markerTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_markerTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    m_markerTable->setStyleSheet(
+        "QTableWidget { border: none; background: #ffffff; gridline-color: #e6eeff; font-size: 12px; }"
+        "QTableWidget::item { padding: 2px 6px; }"
+        "QTableWidget::item:selected { background: #dee9fc; color: #121c2a; }"
+        "QHeaderView::section { background: #eff4ff; color: #424654; border: none;"
+        " border-bottom: 1px solid #c3c6d6; padding: 4px 6px; font-size: 11px; font-weight: bold; }");
+    m_markerTable->horizontalHeader()->setStretchLastSection(true);
+    m_markerTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_markerTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    ll->addWidget(m_markerTable, 1);
+
+    // ---- 右 60%: 雷达缩略图 ----
+    QWidget *right = new QWidget(m_markerPanel);
+    right->setStyleSheet("background: #eff4ff;");
+    QVBoxLayout *rl = new QVBoxLayout(right);
+    rl->setContentsMargins(0, 0, 0, 0);
+    rl->setSpacing(0);
+
+    QWidget *rhead = new QWidget(right);
+    rhead->setFixedHeight(32);
+    rhead->setStyleSheet("background: #eff4ff; border-bottom: 1px solid #c3c6d6;");
+    QHBoxLayout *rh = new QHBoxLayout(rhead);
+    rh->setContentsMargins(12, 0, 8, 0);
+    QLabel *capR = new QLabel(QString::fromUtf8("雷达缩略图"), rhead);
+    capR->setStyleSheet("font-size: 14px; font-weight: bold; color: #121c2a; border: none; background: transparent;");
+    rh->addWidget(capR);
+    rl->addWidget(rhead);
+
+    QWidget *rbody = new QWidget(right);
+    QVBoxLayout *rbl = new QVBoxLayout(rbody);
+    rbl->setContentsMargins(8, 8, 8, 8);
+    m_markerThumb = new MarkerThumbWidget(rbody);
+    rbl->addWidget(m_markerThumb);
+    rl->addWidget(rbody, 1);
+
+    lay->addWidget(left, 40);
+    lay->addWidget(right, 60);
+
+    // 缩略图点击 → 主图滚动到该处
+    connect(m_markerThumb, &MarkerThumbWidget::viewportJumpRequested, this, [this](double frac) {
+        if (!m_currentTab) return;
+        const int total = m_currentTab->imageLabel->width();
+        const int vw = m_currentTab->scrollArea->viewport()->width();
+        m_currentTab->extHScrollBar->setValue(qMax(0, qRound(frac * total - vw / 2.0)));
+    });
+    // 插入/删除
+    connect(btnIns, &QPushButton::clicked, this, [this]() { insertMarkerRow(); });
+    connect(btnDel, &QPushButton::clicked, this, [this]() { deleteMarkerRow(); });
+    // 道号列编辑(双击)
+    connect(m_markerTable, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *it) {
+        if (m_fillingMarkers || !it || it->column() != 1 || !m_currentTab) return;
+        bool ok = false;
+        const int trace = it->text().toInt(&ok);
+        if (!ok) { refreshMarkerPanel(); return; }
+        const int clamped = qBound(0, trace, qMax(0, m_currentTab->traceCount - 1));
+        const int row = it->row();
+        if (row >= 0 && row < m_currentTab->markers.size())
+            m_currentTab->markers[row] = clamped;
+        commitMarkers();
+    });
+
+    m_markerPanel->hide();
+}
+
+// 标记表 + 主图覆盖层 + 缩略图标记线 全刷新
+void MainWindow::refreshMarkerPanel()
+{
+    if (!m_markerTable) return;
+    const QVector<int> mk = m_currentTab ? m_currentTab->markers : QVector<int>();
+    const double mPerScan = markerSpacingM();
+
+    m_fillingMarkers = true;
+    m_markerTable->setRowCount(mk.size());
+    for (int i = 0; i < mk.size(); ++i) {
+        auto ro = []() {
+            QTableWidgetItem *c = new QTableWidgetItem;
+            c->setFlags(c->flags() & ~Qt::ItemIsEditable);
+            return c;
+        };
+        QTableWidgetItem *c0 = ro(); c0->setText(QString::number(i + 1));
+        QTableWidgetItem *c1 = new QTableWidgetItem(QString::number(mk[i]));   // 可编辑
+        QTableWidgetItem *c2 = ro();
+        c2->setText(mPerScan > 0 ? QString::number(mk[i] * mPerScan, 'f', 2) : QStringLiteral("-"));
+        for (auto *c : { c0, c1, c2 }) {
+            if (MatIcon::ready()) c->setFont(MatIcon::monoFont(12));
+            c->setTextAlignment(Qt::AlignCenter);
+        }
+        m_markerTable->setItem(i, 0, c0);
+        m_markerTable->setItem(i, 1, c1);
+        m_markerTable->setItem(i, 2, c2);
+    }
+    m_fillingMarkers = false;
+
+    if (m_currentTab && m_currentTab->imageLabel)
+        m_currentTab->imageLabel->setMarkerOverlay(
+            m_btnEditMarker && m_btnEditMarker->isChecked(), mk);
+    if (m_markerThumb) {
+        m_markerThumb->setMarkers(mk);
+        m_markerThumb->setTraceCount(m_currentTab ? m_currentTab->traceCount : 0);
+    }
+}
+
+// 缩略图重建(带缓存) + 视口指示框
+void MainWindow::updateMarkerThumb()
+{
+    if (!m_markerThumb || !m_currentTab) return;
+    const int w = qMax(4, m_markerThumb->width());
+    const int h = qMax(4, m_markerThumb->height());
+    const QString key = QString::number(quintptr(m_currentTab)) + "_" +
+        QString::number(m_currentTab->dataRev) + "_" + QString::number(w) + "x" +
+        QString::number(h) + "_" + QString::number(m_paletteIndex) + "_" +
+        QString::number(m_colorTransformIndex);
+    if (key != m_thumbKey || m_thumbCache.isNull()) {
+        m_thumbCache = buildBscanThumbnail(w, h);
+        m_thumbKey = key;
+    }
+    m_markerThumb->setSource(m_thumbCache);
+
+    QScrollBar *hb = m_currentTab->extHScrollBar;
+    const int vw = m_currentTab->scrollArea->viewport()->width();
+    const int total = qMax(1, hb->maximum() + vw);
+    m_markerThumb->setViewportRange((double)hb->value() / total,
+                                    (double)(hb->value() + vw) / total);
+}
+
+// 插入标记: 选中行上方插入(两行之间取前后道号均值), 未选中追加表尾
+void MainWindow::insertMarkerRow()
+{
+    if (!requireOpenFile()) return;
+    TabData *tab = m_currentTab;
+    const int maxT = qMax(0, tab->traceCount - 1);
+    const int row = m_markerTable ? m_markerTable->currentRow() : -1;
+    int newTrace;
+    if (tab->markers.isEmpty()) {
+        newTrace = tab->traceCount / 2;                       // 空表 → 中间
+    } else if (row >= 0 && row < tab->markers.size()) {
+        if (row == 0)
+            newTrace = qMax(0, tab->markers.first() - 1);     // 首行上方 → 首-1
+        else
+            newTrace = qBound(0, (tab->markers[row - 1] + tab->markers[row] + 1) / 2, maxT);  // 均值
+    } else {
+        newTrace = qMin(maxT, tab->markers.last() + 1);       // 表尾 → last+1
+    }
+    tab->markers.insert(qBound(0, (row >= 0 ? row : tab->markers.size()), tab->markers.size()),
+                        newTrace);
+    commitMarkers();
+}
+
+// 删除标记: 删除选中行(无选中删最后一行)
+void MainWindow::deleteMarkerRow()
+{
+    if (!requireOpenFile() || m_currentTab->markers.isEmpty()) return;
+    const int row = m_markerTable ? m_markerTable->currentRow() : -1;
+    const int idx = (row >= 0 && row < m_currentTab->markers.size())
+                        ? row : m_currentTab->markers.size() - 1;
+    m_currentTab->markers.remove(idx);
+    commitMarkers();
+}
+
+// 标记提交: 排序 + 面板/覆盖层/缩略图刷新 + 持久化(S4 接 DZX MarkGroup)
+void MainWindow::commitMarkers()
+{
+    if (!m_currentTab) return;
+    std::sort(m_currentTab->markers.begin(), m_currentTab->markers.end());
+    refreshMarkerPanel();
+    updateMarkerThumb();
 }
 
 // 天线型号(DZT 头 offset 0x62/98)→ 中心频率(MHz)对照表(GSSI)。仅内部使用,不显示。
@@ -4821,6 +5144,34 @@ static const unsigned char s_cxLUTData[20][256] = {
       247,247,248,248,249,249,250,250,251,251,252,252,253,253,254,254,
     },
 };
+// 从 m_rawData 抽样过调色板(与主图同色系, 含变换表叠加) — 置于 s_cxLUTData 定义之后
+QImage MainWindow::buildBscanThumbnail(int w, int h)
+{
+    if (!m_currentTab || m_rawData.isEmpty() || m_pixelsPerRow <= 0 || m_traceCount <= 0)
+        return QImage();
+    const unsigned char *cxMap = (m_colorTransformIndex >= 1 && m_colorTransformIndex <= 20)
+                                     ? s_cxLUTData[m_colorTransformIndex - 1] : nullptr;
+    const int dataSize = m_rawData.size();
+    QImage img(w, h, QImage::Format_RGB32);
+    for (int x = 0; x < w; ++x) {
+        const int trace = qMin(m_traceCount - 1, x * m_traceCount / qMax(1, w - 1));
+        for (int y = 0; y < h; ++y) {
+            const int samp = qMin(m_pixelsPerRow - 1, y * m_pixelsPerRow / qMax(1, h - 1));
+            const int dataIdx = (trace * m_pixelsPerRow + samp) * 4;
+            if (dataIdx + 4 > dataSize) { img.setPixel(x, y, qRgb(0, 0, 0)); continue; }
+            const qint32 pv = static_cast<qint32>(
+                (static_cast<quint8>(m_rawData[dataIdx + 3]) << 24) |
+                (static_cast<quint8>(m_rawData[dataIdx + 2]) << 16) |
+                (static_cast<quint8>(m_rawData[dataIdx + 1]) << 8) |
+                static_cast<quint8>(m_rawData[dataIdx]));
+            int lutIdx = pv / (256 * 256) + 128;
+            lutIdx = qBound(0, lutIdx, 255);
+            img.setPixel(x, y, m_lut[cxMap ? cxMap[lutIdx] : lutIdx]);
+        }
+    }
+    return img;
+}
+
 // 线性变换表下拉缩略图重绘: 颜色 = 当前调色板 ∘ 变换表 (RADAN 叠加规律, 随调色板联动)
 void MainWindow::refreshCxBarThumbnails()
 {
@@ -5296,6 +5647,9 @@ void MainWindow::resizeEvent(QResizeEvent *event)
     QMainWindow::resizeEvent(event);
     resizeImageLabel();
     repositionSwitchButton();   // 窗体尺寸变化:三角按钮跟随文档区右上角
+    // v1.0.98: 底部标记面板高度 = 窗体 35%(min 200), 变化触发视口 resize → resizeImageLabel
+    if (m_markerPanel && m_markerPanel->isVisible())
+        m_markerPanel->setFixedHeight(qMax(200, height() * 35 / 100));
     // 延后到布局重算完成后再缩放(此时 welcomeLabel 尺寸才正确),否则启动时用旧尺寸、要拖动才生效
     QTimer::singleShot(0, this, [this]() { updateWelcomePixmap(); });
 }
