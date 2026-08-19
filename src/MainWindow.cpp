@@ -1380,11 +1380,13 @@ MainWindow::MainWindow(QWidget *parent)
         }
         if (chartView) chartView->setGainVisible(false);
         m_leftPanel->hide();
+        syncAscanVisibility();   // 关闭编辑面板后按显示模式恢复波形列
     });
 
     // X 按钮关闭也隐藏增益handle
     connect(m_leftPanel, &QDialog::rejected, this, [this]() {
         if (chartView) chartView->setGainVisible(false);
+        syncAscanVisibility();   // X 关闭面板后按显示模式恢复波形列
     });
 
     m_leftStack->addWidget(m_gainPage);
@@ -1862,6 +1864,7 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     tab->chartView->chart()->setAxisX(axisX, tab->chartSeries);
     tab->chartView->chart()->setAxisY(axisY, tab->chartSeries);
     tab->chartView->chart()->setAnimationOptions(QChart::NoAnimation);
+    tab->chartView->setVisible(m_showAscan);   // 新tab按当前显示模式(线扫描=仅B-SCAN)
 
     // Drag handle → update spinbox (auto mode: sync all handles)
     connect(tab->chartView, &CustomChartView::gainChanged, this, [this, tab](int idx, float val) {
@@ -2164,6 +2167,7 @@ void MainWindow::switchToTab(int index)
     bool gainActive = m_leftPanel && m_leftPanel->isVisible()
                       && m_leftStack->currentWidget() == m_gainPage;
     chartView->setGainVisible(gainActive);
+    syncAscanVisibility();   // 切tab同步 A-SCAN 波形列显隐(显示模式||编辑中)
 
     // Sync button state
     m_btnApply->setText(tab->gainApplied ? "撤销" : "应用");
@@ -2831,6 +2835,16 @@ void MainWindow::closeEvent(QCloseEvent *event)
 #endif
     }
     QMainWindow::closeEvent(event);
+}
+
+// 图像显示模式联动: A-SCAN 波形列显隐 = 线扫描+波形模式 || 零点/增益编辑中(编辑需要波形)
+void MainWindow::syncAscanVisibility()
+{
+    if (!chartView) return;
+    const bool editing = m_leftPanel && m_leftPanel->isVisible() && m_leftStack
+                         && (m_leftStack->currentWidget() == m_gainPage
+                             || m_leftStack->currentWidget() == m_zeroPage);
+    chartView->setVisible(m_showAscan || editing);
 }
 
 // 天线型号(DZT 头 offset 0x62/98)→ 中心频率(MHz)对照表(GSSI)。仅内部使用,不显示。
@@ -5009,18 +5023,30 @@ void MainWindow::createMenuBar()
     displayGroup->addButton(btnLineScan);
     displayGroup->addButton(btnLineWave);
     btnLineScan->setChecked(true);
-    // 线扫描:隐藏左侧面板,只显示 B-SCAN (纯视图切换; 互斥组内再点击保持选中)
+    // 线扫描: 只显示 B-SCAN — 隐藏 A-SCAN 波形列(零点/增益编辑面板打开时保留,编辑需要波形)
     connect(btnLineScan, &QToolButton::clicked, this, [this, btnLineScan]() {
         btnLineScan->setChecked(true);
-        if (m_leftPanel) m_leftPanel->hide();
-        if (m_currentTab && m_currentTab->chartView) m_currentTab->chartView->setGainVisible(false);
+        m_showAscan = false;
+        syncAscanVisibility();
     });
-    // 线扫描+波形:显示左侧面板(增益/波形)
+    // 线扫描+波形: B-SCAN + A-SCAN(波形)并列显示 — 恢复纯波形标尺(无增益手柄)
     connect(btnLineWave, &QToolButton::clicked, this, [this, btnLineWave]() {
         btnLineWave->setChecked(true);
-        if (m_leftPanel) m_leftPanel->show();
-        if (m_leftStack) m_leftStack->setCurrentWidget(m_gainPage);
-        if (m_currentTab && m_currentTab->chartView) m_currentTab->chartView->setGainVisible(true);
+        m_showAscan = true;
+        syncAscanVisibility();
+        const bool editing = m_leftPanel && m_leftPanel->isVisible();
+        if (chartView && !m_rawData.isEmpty()) {
+            if (!editing) {
+                chartView->setGainVisible(false);
+                chartView->setYScale(1.0f);
+                QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
+                if (axisY) {
+                    axisY->setRange(0, m_pixelsPerRow - 1);
+                    axisY->setLabelFormat("%d");
+                }
+            }
+            updateChart(m_lastChartX);
+        }
     });
     // 波列图 = 堆积图(wiggle)切换 (与显示模式正交,不进互斥组; m_btnStack 供 switchToTab 同步)
     m_btnStack = btnWiggle;
@@ -5317,6 +5343,7 @@ void MainWindow::createMenuBar()
         if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_zeroPage);
         m_leftPanel->show();
+        syncAscanVisibility();   // 零点编辑需要 A-SCAN 波形可见
         if (chartView) {
             chartView->setGainVisible(false);
             chartView->setYScale(20.0f / 511.0f);
@@ -5342,6 +5369,7 @@ void MainWindow::createMenuBar()
         }
         m_leftPanel->setWindowIcon(QIcon(":/icons/resources/adjustgain.png"));
         m_leftPanel->setVisible(!m_leftPanel->isVisible());
+        syncAscanVisibility();   // 增益编辑需要 A-SCAN 波形可见
         if (m_leftPanel->isVisible() && chartView) {
             resetGainPanel();   // 打开时重置增益为默认,清除上次残留值
             chartView->setGainVisible(true);

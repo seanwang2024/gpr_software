@@ -262,6 +262,7 @@ private:
     void createHeaderPanel();                  // v1.0.87 右侧350px文件头属性栏
     void setHeaderPanelVisible(bool visible); // 开关右栏+同步主页按钮+重定位悬浮切换按钮
     void refreshHeaderPanel();                // 解析当前DZT头填充8字段
+    void syncAscanVisibility();               // A-SCAN波形列显隐同步(线扫描+波形模式 || 零点/增益编辑中)
 
     struct DztHeaderInfo {                     // 右栏8字段所需的DZT头子集
         QString fileName, createDate, antName;
@@ -305,6 +306,7 @@ private:
     QTabWidget *m_docTabWidget;
     TopBar *m_topBar = nullptr;              // v1.0.87 顶栏(劳雷▾+5模块标签+齿轮/帮助/账号+窗口控制)
     QToolButton *m_btnHeaderToggle = nullptr; // 主页"文件头"按钮(与右侧文件头栏开合联动)
+    bool m_showAscan = false;                 // 线扫描+波形模式(默认false=线扫描,仅B-SCAN)
 
     // Tab group management (splitter)
     QSplitter *m_docSplitter = nullptr;
