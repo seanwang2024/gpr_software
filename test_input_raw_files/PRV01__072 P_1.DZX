@@ -237,11 +237,16 @@
     <Xtable>0</Xtable>
     <displayGain>0.0000000</displayGain>
   </DataCollection>
-    <MarkGroup>
+        <MarkGroup>
     <display>1</display>
     <Mark>
       <scan>100</scan>
     </Mark>
+    <Mark>
+      <scan>120</scan>
+    </Mark>
   </MarkGroup>
+
+
 
 </DZX>

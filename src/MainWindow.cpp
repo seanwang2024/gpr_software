@@ -709,6 +709,7 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
             m_dragMode = dm;
             m_dragAnchor = event->pos();
             m_dragRectStart = m_editRectT;
+            grabMouse();   // 按下即拖动: 抓取鼠标保证拖出控件边界仍连续跟踪
             return;   // 编辑拖拽中不走十字线
         }
     }
@@ -800,6 +801,7 @@ void ImageLabel::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
         if (m_dragMode != DragNone) {
+            releaseMouse();   // 结束鼠标抓取
             m_dragMode = DragNone;
             m_editRectT = m_editRectT.normalized();
             emit editRectChanged(m_editRectT);
@@ -2002,9 +2004,16 @@ MainWindow::MainWindow(QWidget *parent)
     // 顶栏 5 模块标签 ↔ ribbon 页双向联动(程序化 setChecked 不发 idClicked, 无环)
     connect(m_topBar, &TopBar::moduleChanged, ribbonTab, &QTabWidget::setCurrentIndex);
     connect(ribbonTab, &QTabWidget::currentChanged, m_topBar, &TopBar::setModuleIndex);
-    // v1.0.98: 切走编辑页自动收起编辑工具面板(编辑工具只在编辑页出现)
+    // v1.0.100: 进入编辑页默认激活"编辑标记"; 切走自动收起编辑工具面板
     connect(ribbonTab, &QTabWidget::currentChanged, this, [this](int idx) {
-        if (idx == 1) return;   // 1 = 编辑页
+        if (idx == 1) {   // 1 = 编辑页
+            if (!m_tabs.isEmpty()
+                && (!m_btnEditMarker || !m_btnEditMarker->isChecked())
+                && (!m_btnEditBlock || !m_btnEditBlock->isChecked()))
+                m_btnEditMarker->setChecked(true);
+            syncEditUiState();
+            return;
+        }
         bool any = false;
         for (auto *b : { m_btnEditMarker, m_btnEditBlock, m_btnHZoom })
             if (b && b->isChecked()) { b->setChecked(false); any = true; }
@@ -3193,16 +3202,17 @@ void MainWindow::syncEditUiState()
     if (m_syncingEditUi) return;
     m_syncingEditUi = true;
 
-    const bool wantEdit = (m_btnEditBlock && m_btnEditBlock->isChecked())
-                       || (m_btnHZoom && m_btnHZoom->isChecked());
+    // v1.0.100: 数据块页优先; 缩放页仅在标记模式+缩放选中时出现(缩放是标记模式的子开关)
+    const bool blockOn = m_btnEditBlock && m_btnEditBlock->isChecked() && m_currentTab;
+    const bool zoomOn = m_btnEditMarker && m_btnEditMarker->isChecked()
+                        && m_btnHZoom && m_btnHZoom->isChecked() && m_currentTab;
     if (m_editPanel) {
-        m_editPanel->setVisible(wantEdit && m_currentTab != nullptr);
-        if (wantEdit && m_editStack) {
-            const int page = (m_btnEditBlock && m_btnEditBlock->isChecked()) ? 0 : 1;
-            m_editStack->setCurrentIndex(page);
+        m_editPanel->setVisible(blockOn || zoomOn);
+        if ((blockOn || zoomOn) && m_editStack) {
+            m_editStack->setCurrentIndex(blockOn ? 0 : 1);
             if (m_editTitleLbl)
-                m_editTitleLbl->setText(page == 0 ? QString::fromUtf8("编辑数据块")
-                                                  : QString::fromUtf8("横向缩放"));
+                m_editTitleLbl->setText(blockOn ? QString::fromUtf8("编辑数据块")
+                                                : QString::fromUtf8("横向缩放"));
         }
         syncRightRail();
     }
@@ -3639,6 +3649,11 @@ void MarkerThumbWidget::paintEvent(QPaintEvent *)
         const int x = 1 + qRound((double)t / (m_traceCount - 1) * inner.width());
         p.drawLine(x, 1, x, height() - 1);
     }
+
+    // 外框(留白后的小窗边界)
+    p.setPen(QPen(QColor(0xc3, 0xc6, 0xd6), 1));
+    p.setBrush(Qt::NoBrush);
+    p.drawRect(rect().adjusted(0, 0, -1, -1));
 }
 
 void MarkerThumbWidget::mousePressEvent(QMouseEvent *event)
@@ -3865,7 +3880,7 @@ void MainWindow::createMarkerPanel()
 
     QWidget *rbody = new QWidget(right);
     QVBoxLayout *rbl = new QVBoxLayout(rbody);
-    rbl->setContentsMargins(8, 8, 8, 8);
+    rbl->setContentsMargins(12, 12, 12, 12);   // 缩略图四周留白(不铺满小窗)
     m_markerThumb = new MarkerThumbWidget(rbody);
     rbl->addWidget(m_markerThumb);
     rl->addWidget(rbody, 1);
@@ -6524,20 +6539,31 @@ void MainWindow::createMenuBar()
 
         editLayout->addStretch(1);   // 关键: 剩余宽度给尾部空白(此前两组被撑开,按钮间距过大)
 
-        // 三按钮: 无文件回退; 有文件走状态总闸
-        auto editBtnGuard = [this](QToolButton *btn) {
-            connect(btn, &QToolButton::clicked, this, [this, btn](bool on) {
-                if (on && !requireOpenFile()) {
-                    btn->setChecked(false);
-                    return;
-                }
-                Q_UNUSED(on);
-                syncEditUiState();
-            });
-        };
-        editBtnGuard(m_btnEditMarker);
-        editBtnGuard(m_btnEditBlock);
-        editBtnGuard(m_btnHZoom);
+        // 三按钮联动(v1.0.100 规则): 标记/数据块互斥; 缩放是标记模式的子开关
+        connect(m_btnEditMarker, &QToolButton::clicked, this, [this](bool on) {
+            if (on && !requireOpenFile()) { m_btnEditMarker->setChecked(false); return; }
+            if (on && m_btnEditBlock && m_btnEditBlock->isChecked())
+                m_btnEditBlock->setChecked(false);              // 与数据块互斥
+            if (!on && m_btnHZoom && m_btnHZoom->isChecked())
+                m_btnHZoom->setChecked(false);                  // 缩放随标记模式关闭
+            syncEditUiState();
+        });
+        connect(m_btnEditBlock, &QToolButton::clicked, this, [this](bool on) {
+            if (on && !requireOpenFile()) { m_btnEditBlock->setChecked(false); return; }
+            if (on) {
+                if (m_btnEditMarker && m_btnEditMarker->isChecked())
+                    m_btnEditMarker->setChecked(false);         // 与标记互斥
+                if (m_btnHZoom && m_btnHZoom->isChecked())
+                    m_btnHZoom->setChecked(false);              // 缩放属于标记模式
+            }
+            syncEditUiState();
+        });
+        connect(m_btnHZoom, &QToolButton::clicked, this, [this](bool on) {
+            if (on && !requireOpenFile()) { m_btnHZoom->setChecked(false); return; }
+            if (on && m_btnEditMarker && !m_btnEditMarker->isChecked())
+                m_btnEditMarker->setChecked(true);              // 缩放属于标记模式: 自动进入
+            syncEditUiState();
+        });
 
         ribbonTab->addTab(editPage, QString::fromUtf8("编辑"));
     }
