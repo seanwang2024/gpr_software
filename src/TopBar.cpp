@@ -96,9 +96,14 @@ TopBar::TopBar(QWidget *parent)
     setAttribute(Qt::WA_StyledBackground, true);
     setStyleSheet("background-color: #f8f9ff; border-bottom: 1px solid #c3c6d6;");
 
+    // 间距常量(参考PNG实测: 文字间距设计值≈34px, 按窗口1440/设计1280放大1.125→取整)
+    const int kBrandTabGap = 28;   // 品牌▾ ↔ 首标签 (实测34px设计×1.125≈38, 含标签内边距10)
+    const int kTabSpacing  = 20;   // 标签 ↔ 标签 (34×1.125≈38 = 10+20+10... 取值使文字间距≈40)
+    const int kTabPadH     = 10;   // 标签水平内边距
+
     QHBoxLayout *lay = new QHBoxLayout(this);
     lay->setContentsMargins(8, 0, 0, 0);
-    lay->setSpacing(32);   // 品牌↔模块标签间距(观感调优, 比HTML基准略放宽)
+    lay->setSpacing(kBrandTabGap);
 
     // ---- 左: 品牌按钮 "劳雷" + ▾ (space-x-1=4px, 独立容器) ----
     QWidget *brandBox = new QWidget(this);
@@ -158,7 +163,7 @@ TopBar::TopBar(QWidget *parent)
 
     // ---- 中: 5 个模块标签(互斥, 顶栏即模块切换) ----
     QHBoxLayout *tabs = new QHBoxLayout;
-    tabs->setSpacing(28);   // 标签间距(观感调优: 用户反馈 主页↔编辑 过密)
+    tabs->setSpacing(kTabSpacing);
     lay->addLayout(tabs, 1);
 
     m_moduleGroup = new QButtonGroup(this);
@@ -171,10 +176,14 @@ TopBar::TopBar(QWidget *parent)
         b->setCheckable(true);
         b->setCursor(Qt::PointingHandCursor);
         b->setFixedHeight(40);
+        // 关键: 钉死自然宽度。QPushButton 默认 Minimum 策略可增长, tabs 布局的 stretch
+        // 会把剩余宽度均分给按钮(每个被撑到~200px, 文字间距150-180px, 完全偏离设计稿)
+        b->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         b->setStyleSheet(
             "QPushButton { border: none; border-bottom: 2px solid transparent;"
             " border-top-left-radius: 2px; border-top-right-radius: 2px;"
-            " padding: 10px 14px 4px 14px; background: transparent; color: #424654; font-size: 14px; }"
+            " padding: 10px " + QString::number(kTabPadH) + "px 4px " + QString::number(kTabPadH) + "px;"
+            " background: transparent; color: #424654; font-size: 14px; }"
             "QPushButton:hover { background: #dee9fc; }"
             "QPushButton:checked { color: #0048af; font-weight: bold;"
             " border-bottom: 2px solid #0048af; }");
