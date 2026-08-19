@@ -1994,6 +1994,14 @@ MainWindow::MainWindow(QWidget *parent)
     // 顶栏 5 模块标签 ↔ ribbon 页双向联动(程序化 setChecked 不发 idClicked, 无环)
     connect(m_topBar, &TopBar::moduleChanged, ribbonTab, &QTabWidget::setCurrentIndex);
     connect(ribbonTab, &QTabWidget::currentChanged, m_topBar, &TopBar::setModuleIndex);
+    // v1.0.98: 切走编辑页自动收起编辑工具面板(编辑工具只在编辑页出现)
+    connect(ribbonTab, &QTabWidget::currentChanged, this, [this](int idx) {
+        if (idx == 1) return;   // 1 = 编辑页
+        bool any = false;
+        for (auto *b : { m_btnEditMarker, m_btnEditBlock, m_btnHZoom })
+            if (b && b->isChecked()) { b->setChecked(false); any = true; }
+        if (any) syncEditUiState();
+    });
     // 品牌下拉菜单
     connect(m_topBar, &TopBar::openFileRequested, this, &MainWindow::onOpenFile);
     connect(m_topBar, &TopBar::closeFileRequested, this, [this]() {
@@ -2014,11 +2022,13 @@ MainWindow::MainWindow(QWidget *parent)
             "基本操作指引:\n"
             "1. 打开数据: 左上角\"劳雷▾\"菜单或主页\"打开\"按钮, 选择 DZT/DZX 文件\n"
             "2. 图像显示: 主页-图像显示组 切换 线扫描 / 线扫描+波形 / 波列图\n"
-            "3. 色彩渲染: 主页-色彩渲染组 选择 彩虹色调色板(30种) 与 线性变换表(20种)\n"
+            "3. 色彩渲染: 主页-色彩渲染组, 彩虹色调色板与线性变换表叠加生效(RADAN规律)\n"
             "4. 文件头: 主页\"文件头\"按钮 在右侧栏查看当前文件元数据\n"
-            "5. 数据处理: \"数据处理\"标签提供 零点调节/滤波/增益/一键处理/批处理\n"
-            "6. 多文件: 可同时打开多个文件, 文档区标签页切换, 右上角三角按钮快速切换\n"
-            "7. 关于与升级: 顶栏右上角齿轮菜单"));
+            "5. 编辑: \"编辑\"标签 — 编辑标记(底部标记表+缩略图, 标记存入DZX文件, 重开仍在);\n"
+            "          编辑数据块(矩形框拖动/调整大小, 保留=裁剪为选区); 横向缩放(右侧缩放条1-10x)\n"
+            "6. 数据处理: \"数据处理\"标签提供 零点调节/滤波/增益/一键处理/批处理\n"
+            "7. 多文件: 可同时打开多个文件, 文档区标签页切换, 右上角三角按钮快速切换\n"
+            "8. 关于与升级: 顶栏右上角齿轮菜单"));
     });
     // 账号: 账号信息
     connect(m_topBar, &TopBar::accountRequested, this, [this]() {

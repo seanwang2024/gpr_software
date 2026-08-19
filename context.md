@@ -1,10 +1,26 @@
 # 项目上下文 (2026-08-19)
 
 ## 项目概述
-劳雷GPR(探地雷达)数据处理软件,Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, 当前版本 v1.0.87
+劳雷GPR(探地雷达)数据处理软件,Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, 当前版本 v1.0.98
 
-## 当前工作: UI重构
-按 `specs/软件需求20260817/软件需求20260817/UI/主页-文件头.png`(同源HTML=精确规格)彻底重构
+## 当前工作: 编辑模块(已完成 v1.0.98, 待用户验收)
+按 specs/编辑菜单.md + 编辑-编辑标记/编辑数据块.html 实现:
+- **编辑Ribbon**: 组"标记与数据块"(编辑标记bookmark/编辑数据块grid_view) + 组"视口缩放"(横向缩放zoom_in_map)
+- **编辑标记**(独立开关底部面板, 35%高): 标记表(序号/道号可编辑/距离m=s道号×1/spm或DZX unitsPerScan) +
+  插删(两行间取均值)/缩略图MarkerThumbWidget(底图+红线+蓝视口框+点击跳转)/主图红虚线+道号标签
+- **MarkGroup持久化**: 标记写入同名DZX顶层 `<MarkGroup><Mark><scan>N</scan></Mark></MarkGroup>`
+  - readDzxMarkers/writeDzxMarkers 文本级手术保留RADAN原字节; 挂点createTab尾
+  - syncDzxMtimeToDzt(Win32 SetFileTime, 仅DZX无BinaryData时) — 防触发自动处理链
+  - ⚠ 待用户用RADAN实测含MarkGroup的DZX兼容性
+- **编辑数据块**(右侧256px面板): +新建矩形框(视口中心20%道×50%采样)/8手柄拖拽调整/
+  选区几何4字段/框上[保留][删除]/重置选区/确认裁剪
+- **裁剪** performCropSelection: 内存数据手术(逐道拷贝+originalRawData同步)+头字段
+  (nsamp@4/ntraces@20/range@26比例)+全字段同步+markers平移写DZX+chart/增益手柄同步+
+  patchDztHeaderForTab补saveProcessedFile/saveProcessedWithDzx(防旧头新数据)
+- **横向缩放**: setHZoom(1-10x, 保持视口中心道), slider+spinbox, 复用hZoom机制
+- ImageLabel扩展: trace/sample域状态(抗缩放)+映射setGeometryForMapping(resizeImageLabel注入)
+  +交互优先级: 框按钮>8手柄>框内>十字线; wiggle模式禁矩形框
+- 切走编辑ribbon页自动收起三工具; syncEditUiState状态总闸
 
 ### 已完成(v1.0.87 头部彻底重构):
 - **图标系统**: 内嵌 Material Symbols Outlined 矢量字体(设计稿同款) + JetBrains Mono
