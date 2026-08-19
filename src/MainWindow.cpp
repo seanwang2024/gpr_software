@@ -1893,6 +1893,11 @@ MainWindow::MainWindow(QWidget *parent)
     createHeaderPanel();
     contentLayout->addWidget(m_headerPanel);
 
+    // v1.0.98: 右侧 256px 编辑属性面板(数据块/横向缩放两页, 与文件头栏互斥, 默认隐藏)
+    createEditPanel();
+    contentLayout->addWidget(m_editPanel);
+    m_editPanel->hide();
+
     mainLayout->addLayout(contentLayout);
 
     // --- 状态栏 (v1.0.87 28px,按设计稿: 左 ●就绪 | 右 道号/深度 等宽 + 进度条) ---
@@ -2364,6 +2369,7 @@ void MainWindow::switchToTab(int index)
         updateTraceRange();
         updateWindowTitle();
         setHeaderPanelVisible(false);   // v1.0.87 无文件自动收起右栏
+        syncEditUiState();              // v1.0.98 无文件收起编辑面板
         return;
     }
 
@@ -2407,6 +2413,7 @@ void MainWindow::switchToTab(int index)
     updateTraceRange();
     if (m_headerPanel && m_headerPanel->isVisible())
         refreshHeaderPanel();   // v1.0.87 切文件刷新右栏字段
+    syncEditUiState();          // v1.0.98 切文件同步编辑面板(缩放控件回填/无文件收起)
 
     scrollArea = tab->scrollArea;
     imageLabel = tab->imageLabel;
@@ -3095,6 +3102,256 @@ void MainWindow::syncAscanVisibility()
                          && (m_leftStack->currentWidget() == m_gainPage
                              || m_leftStack->currentWidget() == m_zeroPage);
     chartView->setVisible(m_showAscan || editing);
+}
+
+// v1.0.98 横向缩放: 保持视口中心道不跳变
+void MainWindow::setHZoom(float zoom)
+{
+    if (!m_currentTab) return;
+    zoom = qBound(1.0f, zoom, 10.0f);
+
+    // 缩放前视口中心道号(普通: x/hZoom; wiggle: (x/hZoom/32)*2 对齐偶数道)
+    QScrollBar *hb = m_currentTab->extHScrollBar;
+    const int vw = m_currentTab->scrollArea->viewport()->width();
+    const int centerT = m_wiggleMode
+        ? qRound((hb->value() + vw / 2) / (double)m_hZoom / 32.0) * 2
+        : qRound((hb->value() + vw / 2) / (double)m_hZoom);
+
+    m_hZoom = zoom;
+    m_currentTab->hZoom = zoom;
+    resizeImageLabel();
+
+    const int newX = m_wiggleMode
+        ? qRound(((centerT / 2) * 32 + 16) * (double)zoom)
+        : qRound(centerT * (double)zoom);
+    hb->setValue(qMax(0, newX - vw / 2));
+
+    if (m_hZoomSlider) { QSignalBlocker b1(m_hZoomSlider); m_hZoomSlider->setValue(qRound(zoom)); }
+    if (m_hZoomSpin)   { QSignalBlocker b2(m_hZoomSpin);   m_hZoomSpin->setValue(qRound(zoom)); }
+}
+
+// 编辑面板与 350px 文件头右栏互斥: 编辑面板可见→收起文件头; 收起→按文件头按钮恢复
+void MainWindow::syncRightRail()
+{
+    if (!m_editPanel) return;
+    if (m_editPanel->isVisible()) {
+        if (m_headerPanel && m_headerPanel->isVisible())
+            setHeaderPanelVisible(false);
+    } else {
+        if (m_btnHeaderToggle && m_btnHeaderToggle->isChecked() && m_headerPanel
+            && !m_headerPanel->isVisible())
+            m_headerPanel->setVisible(true);
+    }
+}
+
+// v1.0.98 编辑模块状态总闸: 面板显隐/页切换/控件回填(S3 标记面板、S5 矩形框逐步并入)
+void MainWindow::syncEditUiState()
+{
+    if (m_syncingEditUi) return;
+    m_syncingEditUi = true;
+
+    const bool wantEdit = (m_btnEditBlock && m_btnEditBlock->isChecked())
+                       || (m_btnHZoom && m_btnHZoom->isChecked());
+    if (m_editPanel) {
+        m_editPanel->setVisible(wantEdit && m_currentTab != nullptr);
+        if (wantEdit && m_editStack) {
+            const int page = (m_btnEditBlock && m_btnEditBlock->isChecked()) ? 0 : 1;
+            m_editStack->setCurrentIndex(page);
+            if (m_editTitleLbl)
+                m_editTitleLbl->setText(page == 0 ? QString::fromUtf8("编辑数据块")
+                                                  : QString::fromUtf8("横向缩放"));
+        }
+        syncRightRail();
+    }
+
+    // 缩放控件回填当前 tab
+    if (m_currentTab && m_hZoomSlider) {
+        QSignalBlocker b1(m_hZoomSlider), b2(m_hZoomSpin);
+        m_hZoomSlider->setValue(qRound(m_currentTab->hZoom));
+        if (m_hZoomSpin) m_hZoomSpin->setValue(qRound(m_currentTab->hZoom));
+    }
+
+    m_syncingEditUi = false;
+}
+
+// v1.0.98 右侧 256px 编辑属性面板: 页0=编辑数据块(新建矩形框/选区几何/重置/确认裁剪) 页1=横向缩放
+void MainWindow::createEditPanel()
+{
+    m_editPanel = new QWidget(this);
+    m_editPanel->setObjectName("gprEditPanel");
+    m_editPanel->setFixedWidth(256);
+    // 注意用 #id 选择器限定(裸声明会传播子控件 — 顶栏灰线教训)
+    m_editPanel->setStyleSheet("#gprEditPanel { background: #f8f9ff; border-left: 1px solid #c3c6d6; }");
+
+    QVBoxLayout *outer = new QVBoxLayout(m_editPanel);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(0);
+
+    // --- 标题栏 40px: 标题(随页切换) + ✕ ---
+    QWidget *head = new QWidget(m_editPanel);
+    head->setFixedHeight(40);
+    head->setStyleSheet("background: #eff4ff; border-bottom: 1px solid #c3c6d6;");
+    QHBoxLayout *hl = new QHBoxLayout(head);
+    hl->setContentsMargins(12, 0, 4, 0);
+    hl->setSpacing(8);
+    m_editTitleLbl = new QLabel(QString::fromUtf8("编辑数据块"), head);
+    m_editTitleLbl->setStyleSheet("font-size: 11px; font-weight: bold; color: #121c2a;"
+                                  " letter-spacing: 1px; border: none; background: transparent;");
+    hl->addWidget(m_editTitleLbl);
+    hl->addStretch(1);
+    QToolButton *closeBtn = new QToolButton(head);
+    if (MatIcon::ready())
+        closeBtn->setIcon(MatIcon::icon(QStringLiteral("close"), QColor(0x73, 0x77, 0x85), QColor(),
+                                        QColor(0x12, 0x1c, 0x2a), 16));
+    closeBtn->setIconSize(QSize(16, 16));
+    closeBtn->setFixedSize(24, 24);
+    closeBtn->setCursor(Qt::PointingHandCursor);
+    closeBtn->setStyleSheet(
+        "QToolButton { border: none; border-radius: 2px; background: transparent; }"
+        "QToolButton:hover { background: #dee9fc; }");
+    connect(closeBtn, &QToolButton::clicked, this, [this]() {
+        if (m_btnEditBlock) m_btnEditBlock->setChecked(false);
+        if (m_btnHZoom) m_btnHZoom->setChecked(false);
+        syncEditUiState();
+    });
+    hl->addWidget(closeBtn);
+    outer->addWidget(head);
+
+    m_editStack = new QStackedWidget(m_editPanel);
+
+    // ---- 页0: 编辑数据块 ----
+    {
+        QWidget *page = new QWidget;
+        QVBoxLayout *pl = new QVBoxLayout(page);
+        pl->setContentsMargins(16, 16, 16, 16);
+        pl->setSpacing(12);
+
+        m_btnNewRect = new QPushButton(QString::fromUtf8("  新建矩形框"), page);
+        if (MatIcon::ready())
+            m_btnNewRect->setIcon(MatIcon::icon(QStringLiteral("add_box"), Qt::white));
+        m_btnNewRect->setCursor(Qt::PointingHandCursor);
+        m_btnNewRect->setStyleSheet(
+            "QPushButton { background: #0048af; color: #ffffff; border: none; border-radius: 4px;"
+            " padding: 8px; font-size: 14px; font-weight: bold; text-align: center; }"
+            "QPushButton:hover { background: #1e60d5; }");
+        pl->addWidget(m_btnNewRect);
+
+        QLabel *geoCap = new QLabel(QString::fromUtf8("选区几何信息"), page);
+        geoCap->setStyleSheet("color: #424654; font-size: 11px; font-weight: bold;"
+                              " letter-spacing: 1px; border: none; background: transparent;");
+        pl->addWidget(geoCap);
+
+        QGridLayout *grid = new QGridLayout;
+        grid->setSpacing(6);
+        auto geoRow = [this, &grid](int row, const QString &key, QLabel **valLbl) {
+            QLabel *k = new QLabel(key);
+            k->setStyleSheet("color: #424654; font-size: 12px; border: none; background: transparent;");
+            *valLbl = new QLabel("-");
+            (*valLbl)->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            (*valLbl)->setStyleSheet("color: #121c2a; font-size: 12px; border: none; background: transparent;");
+            if (MatIcon::ready()) (*valLbl)->setFont(MatIcon::monoFont(12));
+            grid->addWidget(k, row, 0);
+            grid->addWidget(*valLbl, row, 1);
+        };
+        geoRow(0, QString::fromUtf8("起始道号:"), &m_selStartLbl);
+        geoRow(1, QString::fromUtf8("终止道号:"), &m_selEndLbl);
+        geoRow(2, QString::fromUtf8("时间范围:"), &m_selTimeLbl);
+        geoRow(3, QString::fromUtf8("切片尺寸:"), &m_selSizeLbl);
+        grid->setColumnStretch(1, 1);
+        pl->addLayout(grid);
+
+        pl->addStretch(1);
+
+        m_btnResetRect = new QPushButton(QString::fromUtf8("  重置选区"), page);
+        if (MatIcon::ready())
+            m_btnResetRect->setIcon(MatIcon::icon(QStringLiteral("restart_alt"), QColor(0x12, 0x1c, 0x2a)));
+        m_btnResetRect->setCursor(Qt::PointingHandCursor);
+        m_btnResetRect->setStyleSheet(
+            "QPushButton { background: #ffffff; color: #121c2a; border: 1px solid #c3c6d6;"
+            " border-radius: 4px; padding: 7px; font-size: 13px; }"
+            "QPushButton:hover { background: #dee9fc; }");
+        pl->addWidget(m_btnResetRect);
+
+        m_btnCrop = new QPushButton(QString::fromUtf8("确认裁剪"), page);
+        m_btnCrop->setCursor(Qt::PointingHandCursor);
+        m_btnCrop->setStyleSheet(
+            "QPushButton { background: #0048af; color: #ffffff; border: none; border-radius: 4px;"
+            " padding: 8px; font-size: 14px; font-weight: bold; }"
+            "QPushButton:hover { background: #1e60d5; }");
+        pl->addWidget(m_btnCrop);
+
+        m_editStack->addWidget(page);
+    }
+
+    // ---- 页1: 横向缩放 ----
+    {
+        QWidget *page = new QWidget;
+        QVBoxLayout *pl = new QVBoxLayout(page);
+        pl->setContentsMargins(16, 16, 16, 16);
+        pl->setSpacing(12);
+
+        QLabel *cap = new QLabel(QString::fromUtf8("横向缩放控制"), page);
+        cap->setStyleSheet("color: #424654; font-size: 11px; font-weight: bold;"
+                           " letter-spacing: 1px; border: none; background: transparent;");
+        pl->addWidget(cap);
+
+        QHBoxLayout *row = new QHBoxLayout;
+        row->setSpacing(8);
+        QLabel *lo = new QLabel("1x");
+        QLabel *hi = new QLabel("10x");
+        for (QLabel *l : { lo, hi }) {
+            l->setStyleSheet("color: #424654; font-size: 12px; border: none; background: transparent;");
+            if (MatIcon::ready()) l->setFont(MatIcon::monoFont(12));
+        }
+        m_hZoomSlider = new QSlider(Qt::Horizontal, page);
+        m_hZoomSlider->setRange(1, 10);
+        m_hZoomSlider->setValue(1);
+        m_hZoomSlider->setStyleSheet(
+            "QSlider::groove:horizontal { height: 4px; background: #c3c6d6; border-radius: 2px; }"
+            "QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0;"
+            " border-radius: 7px; background: #0048af; }"
+            "QSlider::sub-page:horizontal { background: #7ea6e8; border-radius: 2px; }");
+        m_hZoomSpin = new QSpinBox(page);
+        m_hZoomSpin->setRange(1, 10);
+        m_hZoomSpin->setValue(1);
+        m_hZoomSpin->setSuffix("x");
+        m_hZoomSpin->setFixedWidth(56);
+        if (MatIcon::ready()) m_hZoomSpin->setFont(MatIcon::monoFont(12));
+        row->addWidget(lo);
+        row->addWidget(m_hZoomSlider, 1);
+        row->addWidget(m_hZoomSpin);
+        row->addWidget(hi);
+        pl->addLayout(row);
+
+        QPushButton *btnResetZoom = new QPushButton(QString::fromUtf8("  重置缩放"), page);
+        if (MatIcon::ready())
+            btnResetZoom->setIcon(MatIcon::icon(QStringLiteral("restart_alt"), QColor(0x12, 0x1c, 0x2a)));
+        btnResetZoom->setCursor(Qt::PointingHandCursor);
+        btnResetZoom->setStyleSheet(
+            "QPushButton { background: #dee9fc; color: #121c2a; border: 1px solid #c3c6d6;"
+            " border-radius: 4px; padding: 6px; font-size: 13px; }"
+            "QPushButton:hover { background: #d9e3f6; }");
+        pl->addWidget(btnResetZoom);
+
+        pl->addStretch(1);
+        m_editStack->addWidget(page);
+
+        connect(m_hZoomSlider, &QSlider::valueChanged, this, [this](int v) {
+            if (!m_currentTab) return;
+            QSignalBlocker b(m_hZoomSpin);
+            m_hZoomSpin->setValue(v);
+            setHZoom(float(v));
+        });
+        connect(m_hZoomSpin, &QSpinBox::valueChanged, this, [this](int v) {
+            if (!m_currentTab) return;
+            QSignalBlocker b(m_hZoomSlider);
+            m_hZoomSlider->setValue(v);
+            setHZoom(float(v));
+        });
+        connect(btnResetZoom, &QPushButton::clicked, this, [this]() { setHZoom(1.0f); });
+    }
+
+    outer->addWidget(m_editStack, 1);
 }
 
 // 天线型号(DZT 头 offset 0x62/98)→ 中心频率(MHz)对照表(GSSI)。仅内部使用,不显示。
@@ -5553,9 +5810,40 @@ void MainWindow::createMenuBar()
     startLayout->addStretch();
     ribbonTab->addTab(startPage, QString::fromUtf8("主页"));
 
-    // --- Tab: 编辑(占位) ---
+    // --- Tab: 编辑 (v1.0.98 标记与数据块 + 视口缩放, 按 编辑-编辑标记/编辑数据块.html) ---
     {
         QWidget *editPage = new QWidget();
+        QHBoxLayout *editLayout = new QHBoxLayout(editPage);
+        editLayout->setContentsMargins(8, 8, 8, 4);
+        editLayout->setSpacing(0);
+
+        // 组1: 标记与数据块
+        QHBoxLayout *editRow = addRibbonGroup(editLayout, QString::fromUtf8("标记与数据块"));
+        m_btnEditMarker = displayBtn(QStringLiteral("bookmark"), QString::fromUtf8("编辑标记"), 76);
+        m_btnEditBlock = displayBtn(QStringLiteral("grid_view"), QString::fromUtf8("编辑数据块"), 88);
+        editRow->addWidget(m_btnEditMarker);
+        editRow->addWidget(m_btnEditBlock);
+
+        // 组2: 视口缩放(末组无分隔线)
+        QHBoxLayout *zoomRow = addRibbonGroup(editLayout, QString::fromUtf8("视口缩放"), true);
+        m_btnHZoom = displayBtn(QStringLiteral("zoom_in_map"), QString::fromUtf8("横向缩放"), 88);
+        zoomRow->addWidget(m_btnHZoom);
+
+        // 三按钮: 无文件回退; 有文件走状态总闸
+        auto editBtnGuard = [this](QToolButton *btn) {
+            connect(btn, &QToolButton::clicked, this, [this, btn](bool on) {
+                if (on && !requireOpenFile()) {
+                    btn->setChecked(false);
+                    return;
+                }
+                Q_UNUSED(on);
+                syncEditUiState();
+            });
+        };
+        editBtnGuard(m_btnEditMarker);
+        editBtnGuard(m_btnEditBlock);
+        editBtnGuard(m_btnHZoom);
+
         ribbonTab->addTab(editPage, QString::fromUtf8("编辑"));
     }
 

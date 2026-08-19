@@ -304,6 +304,10 @@ private:
     void setHeaderPanelVisible(bool visible); // 开关右栏+同步主页按钮+重定位悬浮切换按钮
     void refreshHeaderPanel();                // 解析当前DZT头填充8字段
     void syncAscanVisibility();               // A-SCAN波形列显隐同步(线扫描+波形模式 || 零点/增益编辑中)
+    void createEditPanel();                   // v1.0.98 右侧256px编辑属性面板(数据块/缩放两页)
+    void setHZoom(float zoom);                // 横向缩放(保持视口中心道)
+    void syncRightRail();                     // 编辑面板与文件头右栏互斥
+    void syncEditUiState();                   // 编辑模块状态总闸(面板显隐/页切换/控件回填)
 
     struct DztHeaderInfo {                     // 右栏8字段所需的DZT头子集
         QString fileName, createDate, antName;
@@ -350,6 +354,24 @@ private:
     bool m_showAscan = false;                 // 线扫描+波形模式(默认false=线扫描,仅B-SCAN)
     QButtonGroup *m_displayGroup = nullptr;   // 图像显示三按钮互斥组(0线扫描/1线扫描+波形/2波列图)
     QVector<QLabel*> m_cxBarLabels;           // 线性变换表下拉的20条缩略图(当前调色板合成)
+
+    // ---- v1.0.98 编辑模块 ----
+    QToolButton *m_btnEditMarker = nullptr;   // ribbon: 编辑标记
+    QToolButton *m_btnEditBlock = nullptr;    // ribbon: 编辑数据块
+    QToolButton *m_btnHZoom = nullptr;        // ribbon: 横向缩放
+    QWidget *m_editPanel = nullptr;           // 右侧256px编辑属性面板
+    QStackedWidget *m_editStack = nullptr;    // 页0=数据块 页1=横向缩放
+    QLabel *m_editTitleLbl = nullptr;         // 面板标题(随页切换)
+    QLabel *m_selStartLbl = nullptr;          // 选区几何: 起始道号
+    QLabel *m_selEndLbl = nullptr;            // 选区几何: 终止道号
+    QLabel *m_selTimeLbl = nullptr;           // 选区几何: 时间范围
+    QLabel *m_selSizeLbl = nullptr;           // 选区几何: 切片尺寸
+    QPushButton *m_btnNewRect = nullptr;      // 新建矩形框
+    QPushButton *m_btnResetRect = nullptr;    // 重置选区
+    QPushButton *m_btnCrop = nullptr;         // 确认裁剪
+    QSlider *m_hZoomSlider = nullptr;         // 横向缩放滑条(1-10x)
+    QSpinBox *m_hZoomSpin = nullptr;          // 横向缩放数字框
+    bool m_syncingEditUi = false;             // syncEditUiState 防重入
 
     // Tab group management (splitter)
     QSplitter *m_docSplitter = nullptr;
