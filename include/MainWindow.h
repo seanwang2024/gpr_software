@@ -122,6 +122,12 @@ private:
     qreal mapChartToWidgetY(float y);
 };
 
+// v1.0.107 数据块(多块模型): state 0=未标记 1=保留 2=删除
+struct EditBlk {
+    QRectF rectT;      // (t0,s0,t1,s1) trace/sample 域
+    int state = 0;
+};
+
 class ImageLabel : public QLabel
 {
     Q_OBJECT
@@ -136,10 +142,11 @@ public:
 
     // v1.0.98 编辑模块覆盖层: 标记红虚线 + 数据块矩形框 (状态存 trace/sample 域, 抗缩放/刷新)
     void setMarkerOverlay(bool on, const QVector<int> &traces);
-    void setEditRectVisible(bool on);
-    void setEditRect(const QRectF &rectTS);       // (t0,s0,t1,s1) trace/sample 域
-    QRectF editRect() const { return m_editRectT; }
-    bool editRectVisible() const { return m_rectVisible; }
+    // v1.0.107 多数据块: blocks + 活动块(显示手柄/按钮); 活动块由内部交互维护, 可查询
+    void setEditBlocks(const QVector<EditBlk> &blocks, int activeIdx);
+    void setEditBlocksVisible(bool on);
+    bool editBlocksVisible() const { return m_blocksVisible; }
+    int editActiveBlock() const { return m_activeBlock; }
     void setGeometryForMapping(int traceCount, int drawRows, float pxPerTrace, int wiggleStep);
 
 protected:
@@ -154,9 +161,9 @@ signals:
     void gainSelected(float gain);
     void imageChanged();
     void transformSelected(int mode);
-    void editRectChanged(const QRectF &rectTS);   // 矩形框拖动/调整结束
-    void editKeepRequested();                     // 框上[保留]按钮
-    void editDeleteRequested();                   // 框上[删除]按钮
+    void editRectChanged(int idx, const QRectF &rectTS);   // 块拖动/调整结束
+    void editMarkKeepRequested(int idx);                    // 块上[保留]标记
+    void editMarkDeleteRequested(int idx);                  // 块上[删除]标记
 
 private:
     QImage m_image;
@@ -177,11 +184,12 @@ private:
     double m_hypTraceSpacing = 0.01;   // meters
     double m_hypTimePerSample = 0.039; // ns
 
-    // ---- v1.0.98 编辑模块覆盖层 ----
+    // ---- v1.0.98/107 编辑模块覆盖层 ----
     bool m_showMarkerOverlay = false;
     QVector<int> m_markerTraces;
-    bool m_rectVisible = false;
-    QRectF m_editRectT;                // (t0,s0,t1,s1) trace/sample 域
+    bool m_blocksVisible = false;
+    QVector<EditBlk> m_blocks;         // 多数据块
+    int m_activeBlock = -1;            // 活动块(手柄+按钮只画在它上面)
     // 映射参数(外部注入, 不自己算)
     int m_mapTraceCount = 0;
     int m_mapDrawRows = 0;
@@ -190,6 +198,7 @@ private:
     enum DragMode { DragNone, DragMove, DragTL, DragT, DragTR,
                     DragR, DragBR, DragB, DragBL, DragL };
     DragMode m_dragMode = DragNone;
+    int m_dragIdx = -1;                // 正在拖动的块索引
     QPointF m_dragAnchor;
     QRectF m_dragRectStart;
 
@@ -197,10 +206,12 @@ private:
     int widgetXToTrace(int x) const;
     int sampleToWidgetY(int s) const;
     int widgetYToSample(int y) const;
-    QRect rectFromRectT() const;       // editRectT → widget 像素
-    QRect keepButtonRect() const;
-    QRect deleteButtonRect() const;
-    DragMode hitTest(const QPoint &pos, bool *onKeepBtn, bool *onDeleteBtn) const;
+    QRect rectFromRectT(const QRectF &rT) const;   // trace/sample 域 → widget 像素
+    QRect keepButtonRect(const QRect &r) const;
+    QRect deleteButtonRect(const QRect &r) const;
+    int hitBlock(const QPoint &pos) const;                      // 命中块索引(活动块优先)
+    DragMode hitTest(const QPoint &pos, int idx, bool *onKeep, bool *onDel) const;
+    QRectF clampNoOverlap(const QRectF &r, int selfIdx) const;  // 防重叠实时夹取
     void drawEditOverlay();
 };
 
@@ -215,6 +226,8 @@ public:
     void setSource(const QImage &img);
     void setMarkers(const QVector<int> &traces);
     void setTraceCount(int n);
+    void setSampleCount(int n);                            // 数据块 y 向映射
+    void setBlocks(const QVector<QRectF> &blocksTS);       // 数据块(trace/sample域)蓝色框
     void setViewportRange(double x0Frac, double x1Frac);   // 0..1
 
 signals:
@@ -231,6 +244,8 @@ private:
     QImage m_thumb;
     QVector<int> m_markers;
     int m_traceCount = 0;
+    int m_sampleCount = 0;
+    QVector<QRectF> m_blocks;      // 数据块(trace/sample域)
     double m_vpX0 = 0.0, m_vpX1 = 1.0;
     bool m_vpDrag = false;
     double m_vpGrabOffset = 0.0;   // 按下点相对视口中心的偏移(0..1)
@@ -260,7 +275,8 @@ struct TabData {
     float epsr = 1.0f;            // 介电常数 (offset 54)
     QVector<int> markers;         // 编辑标记(升序道号), 持久化到同名 DZX <MarkGroup>
     int dataRev = 0;              // 数据内容版本号(裁剪等改变 rawData 时++)
-    QRectF editRectT;             // 数据块选区(trace/sample域), 会话内不持久化
+    QVector<EditBlk> editBlocks;  // 数据块(多块, 会话内不持久化)
+    int activeEditBlock = -1;     // 活动数据块索引
 
     QWidget *page = nullptr;
     QScrollArea *scrollArea = nullptr;
@@ -352,8 +368,12 @@ private:
     bool writeDzxMarkers(const QString &dztPath, const QVector<int> &markers);  // 写回(文本级手术)
     static bool syncDzxMtimeToDzt(const QString &dztPath, const QString &dzxPath);
     void refreshSelectionInfo();            // 选区几何4字段刷新(道号/时间/尺寸)
-    void clearEditRect();                   // 删除/重置选区矩形
-    void performCropSelection();            // 保留/确认裁剪: 整幅数据裁剪为选区(数据手术)
+    void clearEditBlocks();                 // 删除/重置: 清空全部数据块
+    void createNewEditBlock();              // 新建数据块(自动找不重叠位置; 进块模式默认建一个)
+    void markEditBlockKeep(int idx);        // 标记保留(唯一, 重复标记弹提示)
+    void markEditBlockDelete(int idx);      // 标记删除
+    void syncEditBlocksToView();            // tab->editBlocks → 主图覆盖层+缩略图
+    void performCropSelection();            // 确认裁剪: 整幅数据裁剪为"保留"块(数据手术)
     void patchDztHeaderForTab(QByteArray &header);  // 保存路径头补丁(nsamp/ntraces/range按tab实际值)
 
     struct DztHeaderInfo {                     // 右栏8字段所需的DZT头子集

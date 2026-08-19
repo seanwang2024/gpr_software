@@ -595,16 +595,18 @@ void ImageLabel::setMarkerOverlay(bool on, const QVector<int> &traces)
     update();
 }
 
-void ImageLabel::setEditRectVisible(bool on)
+void ImageLabel::setEditBlocks(const QVector<EditBlk> &blocks, int activeIdx)
 {
-    m_rectVisible = on;
-    if (!on) m_dragMode = DragNone;
+    m_blocks = blocks;
+    m_activeBlock = (activeIdx >= 0 && activeIdx < blocks.size()) ? activeIdx : -1;
+    if (m_dragIdx >= m_blocks.size()) { m_dragIdx = -1; m_dragMode = DragNone; }
     update();
 }
 
-void ImageLabel::setEditRect(const QRectF &rectTS)
+void ImageLabel::setEditBlocksVisible(bool on)
 {
-    m_editRectT = rectTS.normalized();
+    m_blocksVisible = on;
+    if (!on) { m_dragMode = DragNone; m_dragIdx = -1; }
     update();
 }
 
@@ -644,41 +646,53 @@ int ImageLabel::widgetYToSample(int y) const
     return qRound(static_cast<double>(y) * (m_mapDrawRows - 1) / qMax(1, height() - 1));
 }
 
-QRect ImageLabel::rectFromRectT() const
+QRect ImageLabel::rectFromRectT(const QRectF &rT) const
 {
-    const int x1 = traceToWidgetX(qRound(m_editRectT.left()));
-    const int x2 = traceToWidgetX(qRound(m_editRectT.right()));
-    const int y1 = sampleToWidgetY(qRound(m_editRectT.top()));
-    const int y2 = sampleToWidgetY(qRound(m_editRectT.bottom()));
+    const int x1 = traceToWidgetX(qRound(rT.left()));
+    const int x2 = traceToWidgetX(qRound(rT.right()));
+    const int y1 = sampleToWidgetY(qRound(rT.top()));
+    const int y2 = sampleToWidgetY(qRound(rT.bottom()));
     return QRect(QPoint(qMin(x1, x2), qMin(y1, y2)), QPoint(qMax(x1, x2), qMax(y1, y2)));
 }
 
 // 框上方右侧 [保留][删除] pill (画在 paintEvent, mousePress 命中区测试)
-QRect ImageLabel::keepButtonRect() const
+QRect ImageLabel::keepButtonRect(const QRect &r) const
 {
-    if (!m_rectVisible) return QRect();
-    const QRect r = rectFromRectT();
     int y = r.top() - 26;
     if (y < 1) y = r.top() + 3;   // 框贴顶时画到框内
     return QRect(r.right() - 116, y, 54, 21);
 }
 
-QRect ImageLabel::deleteButtonRect() const
+QRect ImageLabel::deleteButtonRect(const QRect &r) const
 {
-    if (!m_rectVisible) return QRect();
-    const QRect r = rectFromRectT();
     int y = r.top() - 26;
     if (y < 1) y = r.top() + 3;
     return QRect(r.right() - 58, y, 54, 21);
 }
 
-ImageLabel::DragMode ImageLabel::hitTest(const QPoint &pos, bool *onKeepBtn, bool *onDeleteBtn) const
+// 命中块索引: 活动块优先, 其余按包含关系(后画的在上)
+int ImageLabel::hitBlock(const QPoint &pos) const
+{
+    if (!m_blocksVisible) return -1;
+    if (m_activeBlock >= 0 && m_activeBlock < m_blocks.size()) {
+        const QRect r = rectFromRectT(m_blocks[m_activeBlock].rectT);
+        if (r.contains(pos) || keepButtonRect(r).contains(pos) || deleteButtonRect(r).contains(pos))
+            return m_activeBlock;
+    }
+    for (int i = m_blocks.size() - 1; i >= 0; --i) {
+        if (i == m_activeBlock) continue;
+        if (rectFromRectT(m_blocks[i].rectT).contains(pos)) return i;
+    }
+    return -1;
+}
+
+ImageLabel::DragMode ImageLabel::hitTest(const QPoint &pos, int idx, bool *onKeepBtn, bool *onDeleteBtn) const
 {
     *onKeepBtn = *onDeleteBtn = false;
-    if (!m_rectVisible) return DragNone;
-    if (keepButtonRect().contains(pos)) { *onKeepBtn = true; return DragNone; }
-    if (deleteButtonRect().contains(pos)) { *onDeleteBtn = true; return DragNone; }
-    const QRect r = rectFromRectT();
+    if (!m_blocksVisible || idx < 0 || idx >= m_blocks.size()) return DragNone;
+    const QRect r = rectFromRectT(m_blocks[idx].rectT);
+    if (keepButtonRect(r).contains(pos)) { *onKeepBtn = true; return DragNone; }
+    if (deleteButtonRect(r).contains(pos)) { *onDeleteBtn = true; return DragNone; }
     static const int tol = 6;
     const QPoint cs[8] = {
         r.topLeft(), QPoint(r.center().x(), r.top()), r.topRight(),
@@ -693,6 +707,42 @@ ImageLabel::DragMode ImageLabel::hitTest(const QPoint &pos, bool *onKeepBtn, boo
     return DragNone;
 }
 
+// 防重叠实时夹取: 候选矩形与任一其他块相交时, 沿最小推出量平移; 再夹到数据域
+QRectF ImageLabel::clampNoOverlap(const QRectF &rIn, int selfIdx) const
+{
+    QRectF r = rIn.normalized();
+    for (int pass = 0; pass < 4; ++pass) {   // 多块可能需要多轮推出
+        bool moved = false;
+        for (int i = 0; i < m_blocks.size(); ++i) {
+            if (i == selfIdx) continue;
+            const QRectF o = m_blocks[i].rectT.normalized();
+            if (!r.intersects(o)) continue;
+            // 四个方向的推出量, 取绝对值最小
+            const qreal pushR = o.right() - r.left() + 0.5;    // 右移
+            const qreal pushL = r.right() - o.left() + 0.5;    // 左移
+            const qreal pushD = o.bottom() - r.top() + 0.5;    // 下移
+            const qreal pushU = r.bottom() - o.top() + 0.5;    // 上移
+            const qreal m = qMin(qMin(pushR, pushL), qMin(pushD, pushU));
+            if (m == pushR)      r.translate(pushR, 0);
+            else if (m == pushL) r.translate(-pushL, 0);
+            else if (m == pushD) r.translate(0, pushD);
+            else                 r.translate(0, -pushU);
+            moved = true;
+        }
+        if (!moved) break;
+    }
+    // 数据域夹取 + 最小尺寸
+    const double maxT = qMax(0.0, (double)m_mapTraceCount - 1);
+    const double maxS = qMax(0.0, (double)m_mapDrawRows - 1);
+    double l = qBound(0.0, r.left(), maxT), rr = qBound(0.0, r.right(), maxT);
+    double t = qBound(0.0, r.top(), maxS), b = qBound(0.0, r.bottom(), maxS);
+    if (rr - l < 1.0) { if (l > 0) l = rr - 1.0; else rr = l + 1.0; }
+    if (b - t < 1.0) { if (t > 0) t = b - 1.0; else b = t + 1.0; }
+    l = qBound(0.0, l, maxT); rr = qBound(l, rr, maxT);
+    t = qBound(0.0, t, maxS); b = qBound(t, b, maxS);
+    return QRectF(QPointF(l, t), QPointF(rr, b));
+}
+
 void ImageLabel::mousePressEvent(QMouseEvent *event)
 {
     if (m_image.isNull()) {
@@ -700,18 +750,24 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (event->button() == Qt::LeftButton && m_rectVisible) {
-        // 编辑矩形框交互优先: [保留]/[删除]按钮 > 8手柄 > 框内拖动 > 十字线
-        bool onKeep = false, onDel = false;
-        const DragMode dm = hitTest(event->pos(), &onKeep, &onDel);
-        if (onKeep) { emit editKeepRequested(); return; }
-        if (onDel)  { emit editDeleteRequested(); return; }
-        if (dm != DragNone && !m_hyperbolaTracking) {
-            m_dragMode = dm;
-            m_dragAnchor = event->pos();
-            m_dragRectStart = m_editRectT;
-            grabMouse();   // 按下即拖动: 抓取鼠标保证拖出控件边界仍连续跟踪
-            return;   // 编辑拖拽中不走十字线
+    if (event->button() == Qt::LeftButton && m_blocksVisible) {
+        // 数据块交互优先: 命中块(活动块优先) > [保留]/[删除]标记 > 8手柄 > 块内拖动 > 十字线
+        const int idx = hitBlock(event->pos());
+        if (idx >= 0) {
+            m_activeBlock = idx;   // 点击即激活该块
+            bool onKeep = false, onDel = false;
+            const DragMode dm = hitTest(event->pos(), idx, &onKeep, &onDel);
+            if (onKeep) { emit editMarkKeepRequested(idx); return; }
+            if (onDel)  { emit editMarkDeleteRequested(idx); return; }
+            if (dm != DragNone && !m_hyperbolaTracking) {
+                m_dragMode = dm;
+                m_dragIdx = idx;
+                m_dragAnchor = event->pos();
+                m_dragRectStart = m_blocks[idx].rectT;
+                grabMouse();   // 按下即拖动: 抓取鼠标保证拖出控件边界仍连续跟踪
+                update();
+                return;   // 编辑拖拽中不走十字线
+            }
         }
     }
 
@@ -731,8 +787,9 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
 
 void ImageLabel::mouseMoveEvent(QMouseEvent *event)
 {
-    // 矩形框拖动/调整: 按锚点差更新 trace/sample 域选区
-    if (m_dragMode != DragNone && (event->buttons() & Qt::LeftButton)) {
+    // 数据块拖动/调整: 按锚点差更新 trace/sample 域, clampNoOverlap 防重叠实时夹取
+    if (m_dragMode != DragNone && m_dragIdx >= 0 && m_dragIdx < m_blocks.size()
+        && (event->buttons() & Qt::LeftButton)) {
         const double dTrace = widgetXToTrace(event->pos().x()) - widgetXToTrace(qRound(m_dragAnchor.x()));
         const double dSamp  = widgetYToSample(event->pos().y()) - widgetYToSample(qRound(m_dragAnchor.y()));
         QRectF r = m_dragRectStart;
@@ -748,34 +805,31 @@ void ImageLabel::mouseMoveEvent(QMouseEvent *event)
         case DragL:  r.setLeft(r.left() + dTrace); break;
         default: break;
         }
-        // 夹取 [0,traceCount-1]×[0,drawRows-1], 保持最小 1道×1采样
-        r = r.normalized();
-        const double maxT = qMax(0.0, static_cast<double>(m_mapTraceCount) - 1);
-        const double maxS = qMax(0.0, static_cast<double>(m_mapDrawRows) - 1);
-        double l = qBound(0.0, r.left(), maxT), rr = qBound(0.0, r.right(), maxT);
-        double t = qBound(0.0, r.top(), maxS), b = qBound(0.0, r.bottom(), maxS);
-        if (rr - l < 1.0) { if (m_dragMode == DragL || m_dragMode == DragTL || m_dragMode == DragBL) l = rr - 1.0; else rr = l + 1.0; }
-        if (b - t < 1.0) { if (m_dragMode == DragT || m_dragMode == DragTL || m_dragMode == DragTR) t = b - 1.0; else b = t + 1.0; }
-        l = qBound(0.0, l, maxT); rr = qBound(l, rr, maxT);
-        t = qBound(0.0, t, maxS); b = qBound(t, b, maxS);
-        m_editRectT = QRectF(QPointF(l, t), QPointF(rr, b));
+        m_blocks[m_dragIdx].rectT = clampNoOverlap(r, m_dragIdx);
         update();
         return;
     }
 
-    // hover 光标(矩形框可见且无按键)
-    if (m_rectVisible && !(event->buttons() & Qt::LeftButton)) {
-        bool onKeep = false, onDel = false;
-        const DragMode dm = hitTest(event->pos(), &onKeep, &onDel);
+    // hover 光标(数据块可见且无按键)
+    if (m_blocksVisible && !(event->buttons() & Qt::LeftButton)) {
+        const int idx = hitBlock(event->pos());
         Qt::CursorShape cs = Qt::ArrowCursor;
-        if (onKeep || onDel) cs = Qt::PointingHandCursor;
-        else if (dm == DragMove) cs = Qt::SizeAllCursor;
-        else switch (dm) {
-        case DragTL: case DragBR: cs = Qt::SizeFDiagCursor; break;
-        case DragTR: case DragBL: cs = Qt::SizeBDiagCursor; break;
-        case DragT: case DragB:   cs = Qt::SizeVerCursor; break;
-        case DragL: case DragR:   cs = Qt::SizeHorCursor; break;
-        default: break;
+        if (idx >= 0) {
+            if (idx == m_activeBlock) {
+                bool onKeep = false, onDel = false;
+                const DragMode dm = hitTest(event->pos(), idx, &onKeep, &onDel);
+                if (onKeep || onDel) cs = Qt::PointingHandCursor;
+                else if (dm == DragMove) cs = Qt::SizeAllCursor;
+                else switch (dm) {
+                case DragTL: case DragBR: cs = Qt::SizeFDiagCursor; break;
+                case DragTR: case DragBL: cs = Qt::SizeBDiagCursor; break;
+                case DragT: case DragB:   cs = Qt::SizeVerCursor; break;
+                case DragL: case DragR:   cs = Qt::SizeHorCursor; break;
+                default: break;
+                }
+            } else {
+                cs = Qt::PointingHandCursor;   // 非活动块: 点击激活
+            }
         }
         setCursor(cs);
     }
@@ -801,11 +855,13 @@ void ImageLabel::mouseMoveEvent(QMouseEvent *event)
 void ImageLabel::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
-        if (m_dragMode != DragNone) {
+        if (m_dragMode != DragNone && m_dragIdx >= 0 && m_dragIdx < m_blocks.size()) {
             releaseMouse();   // 结束鼠标抓取
+            const int idx = m_dragIdx;
+            m_blocks[idx].rectT = m_blocks[idx].rectT.normalized();
             m_dragMode = DragNone;
-            m_editRectT = m_editRectT.normalized();
-            emit editRectChanged(m_editRectT);
+            m_dragIdx = -1;
+            emit editRectChanged(idx, m_blocks[idx].rectT);
             update();
             QLabel::mouseReleaseEvent(event);
             return;
@@ -888,8 +944,8 @@ void ImageLabel::paintEvent(QPaintEvent *event)
         painter.drawEllipse(m_hyperbolaApex, 4, 4);
     }
 
-    // v1.0.98 编辑模块覆盖层: 标记红虚线 + 数据块矩形框
-    if (!m_image.isNull() && (m_showMarkerOverlay || m_rectVisible))
+    // v1.0.98/107 编辑模块覆盖层: 标记红虚线 + 多数据块矩形框
+    if (!m_image.isNull() && (m_showMarkerOverlay || m_blocksVisible))
         drawEditOverlay();
 }
 
@@ -922,37 +978,49 @@ void ImageLabel::drawEditOverlay()
         }
     }
 
-    if (m_rectVisible) {
-        const QRect r = rectFromRectT();
-        p.setPen(QPen(QColor(0x00, 0x48, 0xaf), 2, Qt::DashLine));
-        p.setBrush(QColor(0, 0x48, 0xaf, 13));
-        p.drawRect(r);
-
-        // 8 个 8×8 白底蓝边手柄(4角+4边中点)
-        const QPoint cs[8] = {
-            r.topLeft(), QPoint(r.center().x(), r.top()), r.topRight(),
-            QPoint(r.right(), r.center().y()), r.bottomRight(),
-            QPoint(r.center().x(), r.bottom()), r.bottomLeft(),
-            QPoint(r.left(), r.center().y())};
-        p.setBrush(Qt::white);
-        p.setPen(QPen(QColor(0x00, 0x48, 0xaf), 1));
-        for (const QPoint &c : cs)
-            p.drawRect(QRect(c.x() - 4, c.y() - 4, 8, 8));
-
-        // 框上方 [保留](蓝底白字) [删除](白底蓝边) pill
-        const QRect kb = keepButtonRect(), db = deleteButtonRect();
+    if (m_blocksVisible) {
         QFont bf; bf.setPixelSize(11);
         p.setFont(bf);
-        p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0x00, 0x48, 0xaf));
-        p.drawRoundedRect(kb, 10, 10);
-        p.setBrush(Qt::white);
-        p.setPen(QPen(QColor(0x00, 0x48, 0xaf), 1));
-        p.drawRoundedRect(db, 10, 10);
-        p.setPen(Qt::white);
-        p.drawText(kb, Qt::AlignCenter, QString::fromUtf8("保留"));
-        p.setPen(QColor(0x00, 0x48, 0xaf));
-        p.drawText(db, Qt::AlignCenter, QString::fromUtf8("删除"));
+        for (int i = 0; i < m_blocks.size(); ++i) {
+            const QRect r = rectFromRectT(m_blocks[i].rectT);
+            const bool active = (i == m_activeBlock);
+            const int st = m_blocks[i].state;
+            const QColor border = (st == 2) ? QColor(0xba, 0x1a, 0x1a) : QColor(0x00, 0x48, 0xaf);
+            // 边框: 保留块=实线+淡填充, 删除块=红虚线, 未标记=蓝虚线(活动块带淡填充)
+            if (st == 1) {
+                p.setPen(QPen(border, 2));
+                p.setBrush(QColor(0, 0x48, 0xaf, 26));
+                p.drawRect(r);
+            } else {
+                p.setPen(QPen(border, 2, Qt::DashLine));
+                p.setBrush(active ? QColor(0, 0x48, 0xaf, 13) : Qt::NoBrush);
+                p.drawRect(r);
+            }
+            if (!active) continue;   // 手柄与按钮只画在活动块上
+
+            // 8 个 8×8 白底蓝边手柄(4角+4边中点)
+            const QPoint cs[8] = {
+                r.topLeft(), QPoint(r.center().x(), r.top()), r.topRight(),
+                QPoint(r.right(), r.center().y()), r.bottomRight(),
+                QPoint(r.center().x(), r.bottom()), r.bottomLeft(),
+                QPoint(r.left(), r.center().y())};
+            p.setBrush(Qt::white);
+            p.setPen(QPen(border, 1));
+            for (const QPoint &c : cs)
+                p.drawRect(QRect(c.x() - 4, c.y() - 4, 8, 8));
+
+            // 框上方 [保留][删除] pill(当前标记态高亮: 保留=蓝底白字, 删除=红底白字)
+            const QRect kb = keepButtonRect(r), db = deleteButtonRect(r);
+            p.setPen(Qt::NoPen);
+            p.setBrush(st == 1 ? QColor(0x00, 0x48, 0xaf) : QColor(0xff, 0xff, 0xff));
+            p.drawRoundedRect(kb, 10, 10);
+            p.setBrush(st == 2 ? QColor(0xba, 0x1a, 0x1a) : QColor(0xff, 0xff, 0xff));
+            p.drawRoundedRect(db, 10, 10);
+            p.setPen(st == 1 ? Qt::white : QColor(0x00, 0x48, 0xaf));
+            p.drawText(kb, Qt::AlignCenter, QString::fromUtf8("保留"));
+            p.setPen(st == 2 ? Qt::white : QColor(0xba, 0x1a, 0x1a));
+            p.drawText(db, Qt::AlignCenter, QString::fromUtf8("删除"));
+        }
     }
 }
 
@@ -2277,19 +2345,19 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
         if (m_currentTab == tab && m_markerThumb) updateMarkerThumb();
     });
 
-    // v1.0.98: 数据块矩形框交互(拖动/调整结束刷新几何字段; 框上删除按钮)
-    connect(tab->imageLabel, &ImageLabel::editRectChanged, this, [this, tab](const QRectF &r) {
-        if (m_currentTab == tab) {
-            tab->editRectT = r;
+    // v1.0.107: 数据块交互(拖动结束更新块几何; [保留]/[删除]仅标记状态, 确认裁剪才动数据)
+    connect(tab->imageLabel, &ImageLabel::editRectChanged, this,
+            [this, tab](int idx, const QRectF &r) {
+        if (m_currentTab == tab && idx >= 0 && idx < tab->editBlocks.size()) {
+            tab->editBlocks[idx].rectT = r;
+            syncEditBlocksToView();   // 缩略图同步
             refreshSelectionInfo();
         }
     });
-    connect(tab->imageLabel, &ImageLabel::editDeleteRequested, this, [this, tab]() {
-        if (m_currentTab == tab) clearEditRect();
-    });
-    connect(tab->imageLabel, &ImageLabel::editKeepRequested, this, [this, tab]() {
-        if (m_currentTab == tab) performCropSelection();
-    });
+    connect(tab->imageLabel, &ImageLabel::editMarkKeepRequested, this,
+            [this, tab](int idx) { if (m_currentTab == tab) markEditBlockKeep(idx); });
+    connect(tab->imageLabel, &ImageLabel::editMarkDeleteRequested, this,
+            [this, tab](int idx) { if (m_currentTab == tab) markEditBlockDelete(idx); });
 
     // Page layout: imageGrid + chartView
     pageLayout->addLayout(tab->imageGrid, 1);
@@ -3233,13 +3301,14 @@ void MainWindow::syncEditUiState()
         syncRightRail();
     }
 
-    // 矩形框(S5): 数据块模式 ∧ 已有选区 ∧ 非波列图
-    if (m_currentTab && m_currentTab->imageLabel) {
-        const bool rectOn = m_btnEditBlock && m_btnEditBlock->isChecked()
-                            && !m_currentTab->editRectT.isNull() && !m_wiggleMode;
-        m_currentTab->imageLabel->setEditRectVisible(rectOn);
-        refreshSelectionInfo();
+    // 数据块(S5/107): 进入数据块模式无块时自动建默认块; 覆盖层+缩略图同步
+    if (m_currentTab && m_btnEditBlock && m_btnEditBlock->isChecked() && !m_wiggleMode
+        && m_currentTab->editBlocks.isEmpty()) {
+        createNewEditBlock();   // 启动/进入即有一个默认块可拖动编辑
+    } else if (m_currentTab) {
+        syncEditBlocksToView();
     }
+    refreshSelectionInfo();
 
     // 标记面板: 编辑标记/编辑数据块两种模式都显示(数据块参考图也含标记表+缩略图)
     const bool panelOn = ((m_btnEditMarker && m_btnEditMarker->isChecked())
@@ -3262,19 +3331,26 @@ void MainWindow::syncEditUiState()
     m_syncingEditUi = false;
 }
 
-// 选区几何信息4字段刷新
+// 选区几何信息4字段刷新(显示活动块; 无活动块显示"保留"块; 都无显示"-")
 void MainWindow::refreshSelectionInfo()
 {
     auto set = [](QLabel *l, const QString &s) { if (l) l->setText(s); };
-    if (!m_currentTab || m_currentTab->editRectT.isNull()
-        || !m_currentTab->imageLabel || !m_currentTab->imageLabel->editRectVisible()) {
+    int idx = -1;
+    if (m_currentTab && m_currentTab->imageLabel) {
+        idx = m_currentTab->imageLabel->editActiveBlock();
+        if (idx < 0 || idx >= m_currentTab->editBlocks.size()) {
+            for (int i = 0; i < m_currentTab->editBlocks.size(); ++i)
+                if (m_currentTab->editBlocks[i].state == 1) { idx = i; break; }
+        }
+    }
+    if (!m_currentTab || idx < 0 || idx >= m_currentTab->editBlocks.size()) {
         set(m_selStartLbl, QStringLiteral("-"));
         set(m_selEndLbl, QStringLiteral("-"));
         set(m_selTimeLbl, QStringLiteral("-"));
         set(m_selSizeLbl, QStringLiteral("-"));
         return;
     }
-    const QRectF r = m_currentTab->editRectT.normalized();
+    const QRectF r = m_currentTab->editBlocks[idx].rectT.normalized();
     const int t0 = qRound(r.left()), t1 = qRound(r.right());
     const int s0 = qRound(r.top()), s1 = qRound(r.bottom());
     const double dt = (m_currentTab->nsamp > 0)
@@ -3286,27 +3362,130 @@ void MainWindow::refreshSelectionInfo()
     set(m_selSizeLbl, QString("%1 x %2 px").arg(t1 - t0 + 1).arg(s1 - s0 + 1));
 }
 
-// 删除/重置选区矩形(不动数据)
-void MainWindow::clearEditRect()
+// tab->editBlocks → 主图覆盖层 + 缩略图
+void MainWindow::syncEditBlocksToView()
 {
     if (!m_currentTab) return;
-    m_currentTab->editRectT = QRectF();
-    if (m_currentTab->imageLabel) m_currentTab->imageLabel->setEditRectVisible(false);
+    if (m_currentTab->imageLabel) {
+        m_currentTab->imageLabel->setEditBlocks(m_currentTab->editBlocks,
+                                                m_currentTab->activeEditBlock);
+        m_currentTab->imageLabel->setEditBlocksVisible(
+            m_btnEditBlock && m_btnEditBlock->isChecked() && !m_wiggleMode
+            && !m_currentTab->editBlocks.isEmpty());
+    }
+    if (m_markerThumb) {
+        QVector<QRectF> rs;
+        for (const EditBlk &b : m_currentTab->editBlocks) rs.append(b.rectT);
+        m_markerThumb->setBlocks(rs);
+        m_markerThumb->setSampleCount(
+            m_pixelsPerRow - (m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0));
+    }
+}
+
+// 清空全部数据块(重置选区)
+void MainWindow::clearEditBlocks()
+{
+    if (!m_currentTab) return;
+    m_currentTab->editBlocks.clear();
+    m_currentTab->activeEditBlock = -1;
+    syncEditBlocksToView();
     refreshSelectionInfo();
 }
 
-// 保留/确认裁剪: 把整幅数据裁剪为选区(内存手术; 落盘走"保存"→_P_NN.DZT, 头由 patchDztHeaderForTab 保证一致)
-void MainWindow::performCropSelection()
+// 新建数据块: 默认视口中心 20%道×50%采样, 与现有块重叠时向右找空位; 进块模式无块时也用它建默认块
+void MainWindow::createNewEditBlock()
 {
-    if (!m_currentTab) return;
-    if (m_currentTab->editRectT.isNull()
-        || !m_currentTab->imageLabel || !m_currentTab->imageLabel->editRectVisible()) {
-        QMessageBox::information(this, QString::fromUtf8("确认裁剪"),
-            QString::fromUtf8("请先点击\"新建矩形框\"并调整好选区。"));
+    if (!requireOpenFile()) return;
+    if (m_wiggleMode) {
+        QMessageBox::information(this, QString::fromUtf8("新建矩形框"),
+            QString::fromUtf8("波列图模式下无法使用矩形框, 请先切换到线扫描或线扫描+波形。"));
         return;
     }
     TabData *tab = m_currentTab;
-    const QRectF rf = tab->editRectT.normalized();
+    const int maxT = qMax(0, tab->traceCount - 1);
+    const int drawRows = m_pixelsPerRow - (tab->zeroApplied ? tab->zeroSkipRows : 0);
+    const int maxS = qMax(0, drawRows - 1);
+    const int spanT = qMax(1, tab->traceCount / 5);
+    const int spanS = qMax(1, (maxS + 1) / 2);
+    const int s0 = qMax(0, (maxS + 1 - spanS) / 2);
+    const int s1 = qMin(maxS, s0 + spanS);
+
+    auto overlapsAny = [&](int t0) {
+        const QRectF cand(t0, s0, qMin(spanT, maxT - t0), s1 - s0);
+        for (const EditBlk &b : tab->editBlocks)
+            if (cand.intersects(b.rectT.normalized())) return true;
+        return false;
+    };
+    // 候选位置: 视口中心起, 向右再向左步进找第一个不重叠位置
+    const int vw = tab->scrollArea->viewport()->width();
+    const int centerT = qBound(0, qRound((tab->extHScrollBar->value() + vw / 2.0)
+                                         / (double)m_hZoom), maxT);
+    int t0 = -1;
+    const int step = qMax(1, spanT / 2);
+    for (int d = 0; d <= maxT; d += step) {
+        const int r = centerT + d - spanT / 2;
+        if (r >= 0 && r + spanT <= maxT && !overlapsAny(r)) { t0 = r; break; }
+        const int l = centerT - d - spanT / 2;
+        if (d > 0 && l >= 0 && l + spanT <= maxT && !overlapsAny(l)) { t0 = l; break; }
+    }
+    if (t0 < 0) {
+        QMessageBox::information(this, QString::fromUtf8("新建矩形框"),
+            QString::fromUtf8("没有可与现有数据块错开的空间, 请先调整/删除现有块。"));
+        return;
+    }
+    EditBlk blk;
+    blk.rectT = QRectF(t0, s0, qMin(spanT, maxT - t0), s1 - s0);
+    blk.state = 0;
+    tab->editBlocks.append(blk);
+    tab->activeEditBlock = tab->editBlocks.size() - 1;
+    syncEditBlocksToView();
+    refreshSelectionInfo();
+}
+
+// 标记保留(唯一): 已有其他保留块时弹提示且不改变
+void MainWindow::markEditBlockKeep(int idx)
+{
+    if (!m_currentTab || idx < 0 || idx >= m_currentTab->editBlocks.size()) return;
+    for (int i = 0; i < m_currentTab->editBlocks.size(); ++i) {
+        if (i != idx && m_currentTab->editBlocks[i].state == 1) {
+            QMessageBox::warning(this, QString::fromUtf8("数据块"),
+                QString::fromUtf8("当前有多个数据块需要保留 只能保留一个"));
+            return;
+        }
+    }
+    m_currentTab->editBlocks[idx].state =
+        (m_currentTab->editBlocks[idx].state == 1) ? 0 : 1;   // 再点一次取消标记
+    m_currentTab->activeEditBlock = idx;
+    syncEditBlocksToView();
+    refreshSelectionInfo();
+}
+
+// 标记删除(可多块, 再点一次取消)
+void MainWindow::markEditBlockDelete(int idx)
+{
+    if (!m_currentTab || idx < 0 || idx >= m_currentTab->editBlocks.size()) return;
+    m_currentTab->editBlocks[idx].state =
+        (m_currentTab->editBlocks[idx].state == 2) ? 0 : 2;
+    m_currentTab->activeEditBlock = idx;
+    syncEditBlocksToView();
+    refreshSelectionInfo();
+}
+
+// 保留/确认裁剪: 把整幅数据裁剪为标记"保留"的块(内存手术; 落盘走"保存"→_P_NN.DZT)
+void MainWindow::performCropSelection()
+{
+    if (!m_currentTab) return;
+    int keepIdx = -1;
+    for (int i = 0; i < m_currentTab->editBlocks.size(); ++i)
+        if (m_currentTab->editBlocks[i].state == 1) { keepIdx = i; break; }
+    if (keepIdx < 0 || !m_currentTab->imageLabel
+        || !m_currentTab->imageLabel->editBlocksVisible()) {
+        QMessageBox::information(this, QString::fromUtf8("确认裁剪"),
+            QString::fromUtf8("请先在数据块上点[保留]标记要保留的区域, 再确认裁剪。"));
+        return;
+    }
+    TabData *tab = m_currentTab;
+    const QRectF rf = tab->editBlocks[keepIdx].rectT.normalized();
     const int oldSamp = m_pixelsPerRow;
     const int skip = tab->zeroApplied ? tab->zeroSkipRows : 0;
     const int t0 = qBound(0, qRound(rf.left()), qMax(0, tab->traceCount - 1));
@@ -3388,14 +3567,15 @@ void MainWindow::performCropSelection()
     if (m_transformMode == 3) m_transformMode = 0;   // FFT 分支写死512采样, 归零防越界
 
     // 6. 视图全面刷新
-    tab->editRectT = QRectF();
-    tab->imageLabel->setEditRectVisible(false);
+    tab->editBlocks.clear();
+    tab->activeEditBlock = -1;
     m_thumbKey.clear();   // 缩略图缓存失效
     refreshImage();
     updateRulers();
     resizeImageLabel();
     updateTraceRange();
     if (m_headerPanel && m_headerPanel->isVisible()) refreshHeaderPanel();
+    syncEditBlocksToView();
     refreshSelectionInfo();
     refreshMarkerPanel();
     updateChart(m_lastChartX);
@@ -3530,34 +3710,9 @@ void MainWindow::createEditPanel()
             "QPushButton:hover { background: #1e60d5; }");
         pl->addWidget(m_btnCrop);
 
-        // v1.0.98: 数据块按钮接线(S5)
-        connect(m_btnNewRect, &QPushButton::clicked, this, [this]() {
-            if (!requireOpenFile()) return;
-            if (m_wiggleMode) {
-                QMessageBox::information(this, QString::fromUtf8("新建矩形框"),
-                    QString::fromUtf8("波列图模式下无法使用矩形框, 请先切换到线扫描或线扫描+波形。"));
-                return;
-            }
-            TabData *tab = m_currentTab;
-            const int maxT = qMax(0, tab->traceCount - 1);
-            const int drawRows = m_pixelsPerRow - (tab->zeroApplied ? tab->zeroSkipRows : 0);
-            const int maxS = qMax(0, drawRows - 1);
-            // 默认框: 当前视口中心 20% 道 × 50% 采样(按设计稿)
-            const int spanT = qMax(1, tab->traceCount / 5);
-            const int vw = tab->scrollArea->viewport()->width();
-            const int centerT = qBound(0, qRound((tab->extHScrollBar->value() + vw / 2.0)
-                                                 / (double)m_hZoom), maxT);
-            int t0 = qBound(0, centerT - spanT / 2, qMax(0, maxT - spanT));
-            const int t1 = qMin(maxT, t0 + spanT);
-            const int spanS = qMax(1, (maxS + 1) / 2);
-            const int s0 = qMax(0, (maxS + 1 - spanS) / 2);
-            const int s1 = qMin(maxS, s0 + spanS);
-            tab->editRectT = QRectF(t0, s0, t1 - t0, s1 - s0);
-            tab->imageLabel->setEditRect(tab->editRectT);
-            tab->imageLabel->setEditRectVisible(true);
-            refreshSelectionInfo();
-        });
-        connect(m_btnResetRect, &QPushButton::clicked, this, [this]() { clearEditRect(); });
+        // v1.0.107: 数据块按钮接线(新建=新块自动错位; 重置=清空; 确认裁剪=裁到保留块)
+        connect(m_btnNewRect, &QPushButton::clicked, this, [this]() { createNewEditBlock(); });
+        connect(m_btnResetRect, &QPushButton::clicked, this, [this]() { clearEditBlocks(); });
         connect(m_btnCrop, &QPushButton::clicked, this, [this]() { performCropSelection(); });
 
         m_editStack->addWidget(page);
@@ -3646,6 +3801,12 @@ MarkerThumbWidget::MarkerThumbWidget(QWidget *parent) : QWidget(parent)
 void MarkerThumbWidget::setSource(const QImage &img) { m_thumb = img; update(); }
 void MarkerThumbWidget::setMarkers(const QVector<int> &traces) { m_markers = traces; update(); }
 void MarkerThumbWidget::setTraceCount(int n) { m_traceCount = n; update(); }
+void MarkerThumbWidget::setSampleCount(int n) { m_sampleCount = n; update(); }
+void MarkerThumbWidget::setBlocks(const QVector<QRectF> &blocksTS)
+{
+    m_blocks = blocksTS;
+    update();
+}
 void MarkerThumbWidget::setViewportRange(double x0Frac, double x1Frac)
 {
     m_vpX0 = qBound(0.0, x0Frac, 1.0);
@@ -3675,6 +3836,21 @@ void MarkerThumbWidget::paintEvent(QPaintEvent *)
         if (m_traceCount <= 1) break;
         const int x = 1 + qRound((double)t / (m_traceCount - 1) * inner.width());
         p.drawLine(x, 1, x, height() - 1);
+    }
+
+    // 数据块(蓝): trace→x, sample→y 等比映射
+    if (m_traceCount > 1 && m_sampleCount > 1) {
+        p.setPen(QPen(QColor(0x00, 0x48, 0xaf), 1));
+        p.setBrush(Qt::NoBrush);
+        for (const QRectF &b : m_blocks) {
+            const QRectF bn = b.normalized();
+            const int x1 = 1 + qRound(bn.left() / (m_traceCount - 1) * inner.width());
+            const int x2 = 1 + qRound(bn.right() / (m_traceCount - 1) * inner.width());
+            const int y1 = 1 + qRound(bn.top() / (m_sampleCount - 1) * inner.height());
+            const int y2 = 1 + qRound(bn.bottom() / (m_sampleCount - 1) * inner.height());
+            p.drawRect(QRect(QPoint(qMin(x1, x2), qMin(y1, y2)),
+                             QPoint(qMax(x1, x2), qMax(y1, y2))));
+        }
     }
 
     // 外框(留白后的小窗边界)
