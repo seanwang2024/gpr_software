@@ -8,11 +8,15 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QTimer>
 #include <QToolButton>
 #include <QWindow>
 #include <QWidgetAction>
 
 #include <functional>
+
+// 诊断输出(main.cpp 定义, 写 dzx_diag.log)
+extern void diagPrint(const QString &msg);
 
 namespace {
 
@@ -113,6 +117,7 @@ TopBar::TopBar(QWidget *parent)
 
     QPushButton *brand = new QPushButton(QStringLiteral("劳雷"), brandBox);
     brand->setCursor(Qt::PointingHandCursor);
+    brand->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);   // 防拉伸: 品牌按钮钉死自然宽度
     brand->setStyleSheet(
         "QPushButton { border: none; background: transparent; color: #0048af;"
         " font-size: 18px; font-weight: bold; padding: 0 4px 0 6px; }"
@@ -129,6 +134,7 @@ TopBar::TopBar(QWidget *parent)
         "QToolButton { border: none; background: transparent; }"
         "QToolButton:hover { background: #dee9fc; border-radius: 2px; }");
     brandLay->addWidget(arrow);
+    brandBox->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);   // 防拉伸: 品牌容器不可增长
     lay->addWidget(brandBox);
 
     // 品牌下拉菜单(200px): 打开/关闭/保存 + 数据组装/工作路径/格式转换(占位)
@@ -288,6 +294,18 @@ TopBar::TopBar(QWidget *parent)
     });
     connect(btnClose, &QPushButton::clicked, this, [this]() {
         if (auto *w = window()) w->close();
+    });
+
+    // 几何自检: 布局稳定后把顶栏各元素实际宽度写入 dzx_diag.log(排查拉伸类问题)
+    QTimer::singleShot(0, this, [this, brand, brandBox]() {
+        QStringList ws;
+        ws << QString("brand=%1").arg(brand->width())
+           << QString("brandBox=%1").arg(brandBox->width());
+        for (int i = 0; i < 5; ++i) {
+            if (auto *b = m_moduleGroup->button(i))
+                ws << QString("tab%1=%2").arg(i).arg(b->width());
+        }
+        diagPrint(QString("[TopBar几何] %1").arg(ws.join(" ")));
     });
 }
 
