@@ -36,6 +36,7 @@ class QProgressBar;
 class QScrollBar;
 class QGridLayout;
 class QTabBar;
+class QButtonGroup;
 QT_END_NAMESPACE
 
 class HRulerWidget : public QWidget
@@ -307,6 +308,7 @@ private:
     TopBar *m_topBar = nullptr;              // v1.0.87 顶栏(劳雷▾+5模块标签+齿轮/帮助/账号+窗口控制)
     QToolButton *m_btnHeaderToggle = nullptr; // 主页"文件头"按钮(与右侧文件头栏开合联动)
     bool m_showAscan = false;                 // 线扫描+波形模式(默认false=线扫描,仅B-SCAN)
+    QButtonGroup *m_displayGroup = nullptr;   // 图像显示三按钮互斥组(0线扫描/1线扫描+波形/2波列图)
 
     // Tab group management (splitter)
     QSplitter *m_docSplitter = nullptr;

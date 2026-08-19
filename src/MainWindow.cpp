@@ -2151,6 +2151,11 @@ void MainWindow::switchToTab(int index)
         QSignalBlocker b(m_btnStack);   // 同步 checked 不触发 clicked
         m_btnStack->setChecked(m_wiggleMode);
     }
+    if (!m_wiggleMode && m_displayGroup) {
+        // 非波列图tab: 按当前显示模式恢复对应按钮选中(程序化 setChecked 不发 clicked)
+        if (auto *b = m_displayGroup->button(m_showAscan ? 1 : 0))
+            b->setChecked(true);
+    }
     tab->imageLabel->setCrosshairDark(m_wiggleMode);   // 切tab同步十字颜色
     m_timeRange = tab->timeRange;
     m_depthRange = tab->depthRange;
@@ -5010,7 +5015,7 @@ void MainWindow::createMenuBar()
         saveProcessedFile();
     });
 
-    // ===== 组2: 图像显示 (线扫描/线扫描+波形 互斥; 波列图=堆积图独立开关) =====
+    // ===== 组2: 图像显示 (三种视图模式, 三选一互斥) =====
     QHBoxLayout *dispRow = addRibbonGroup(startLayout, QString::fromUtf8("图像显示"));
     QToolButton *btnLineScan = displayBtn(QStringLiteral("view_agenda"), QString::fromUtf8("线扫描"));
     QToolButton *btnLineWave = displayBtn(QStringLiteral("ssid_chart"), QString::fromUtf8("线扫描+波形"), 84);
@@ -5018,21 +5023,36 @@ void MainWindow::createMenuBar()
     dispRow->addWidget(btnLineScan);
     dispRow->addWidget(btnLineWave);
     dispRow->addWidget(btnWiggle);
-    QButtonGroup *displayGroup = new QButtonGroup(startPage);   // 仅前两个互斥
-    displayGroup->setExclusive(true);
-    displayGroup->addButton(btnLineScan);
-    displayGroup->addButton(btnLineWave);
+    m_displayGroup = new QButtonGroup(startPage);   // id: 0=线扫描 1=线扫描+波形 2=波列图 (三选一)
+    m_displayGroup->setExclusive(true);
+    m_displayGroup->addButton(btnLineScan, 0);
+    m_displayGroup->addButton(btnLineWave, 1);
+    m_displayGroup->addButton(btnWiggle, 2);
     btnLineScan->setChecked(true);
-    // 线扫描: 只显示 B-SCAN — 隐藏 A-SCAN 波形列(零点/增益编辑面板打开时保留,编辑需要波形)
-    connect(btnLineScan, &QToolButton::clicked, this, [this, btnLineScan]() {
+
+    // 波列图(wiggle)渲染开关
+    auto setWiggle = [this](bool on) {
+        m_wiggleMode = on;
+        if (m_currentTab) {
+            m_currentTab->wiggleMode = on;
+            m_currentTab->imageLabel->setCrosshairDark(on);  // 堆积图白底→黑十字
+        }
+        refreshImage();
+        resizeImageLabel();
+    };
+
+    // 线扫描: 只显示 B-SCAN — 隐藏 A-SCAN 波形列, 关闭 wiggle 渲染
+    connect(btnLineScan, &QToolButton::clicked, this, [this, btnLineScan, &setWiggle]() {
         btnLineScan->setChecked(true);
         m_showAscan = false;
+        if (m_wiggleMode) setWiggle(false);
         syncAscanVisibility();
     });
-    // 线扫描+波形: B-SCAN + A-SCAN(波形)并列显示 — 恢复纯波形标尺(无增益手柄)
-    connect(btnLineWave, &QToolButton::clicked, this, [this, btnLineWave]() {
+    // 线扫描+波形: B-SCAN + A-SCAN(波形)并列显示 — 关闭 wiggle, 恢复纯波形标尺(无增益手柄)
+    connect(btnLineWave, &QToolButton::clicked, this, [this, btnLineWave, &setWiggle]() {
         btnLineWave->setChecked(true);
         m_showAscan = true;
+        if (m_wiggleMode) setWiggle(false);
         syncAscanVisibility();
         const bool editing = m_leftPanel && m_leftPanel->isVisible();
         if (chartView && !m_rawData.isEmpty()) {
@@ -5048,20 +5068,17 @@ void MainWindow::createMenuBar()
             updateChart(m_lastChartX);
         }
     });
-    // 波列图 = 堆积图(wiggle)切换 (与显示模式正交,不进互斥组; m_btnStack 供 switchToTab 同步)
+    // 波列图: 纯 wiggle 视图 — 隐藏 A-SCAN 波形列 (退出波列图请点线扫描/线扫描+波形)
     m_btnStack = btnWiggle;
-    connect(btnWiggle, &QToolButton::clicked, this, [this, btnWiggle]() {
+    connect(btnWiggle, &QToolButton::clicked, this, [this, btnWiggle, btnLineScan, &setWiggle]() {
         if (!requireOpenFile()) {
-            btnWiggle->setChecked(false);
+            btnLineScan->setChecked(true);   // 无文件回退线扫描(互斥组内, 程序化setChecked不发clicked)
             return;
         }
-        m_wiggleMode = btnWiggle->isChecked();
-        if (m_currentTab) {
-            m_currentTab->wiggleMode = m_wiggleMode;
-            m_currentTab->imageLabel->setCrosshairDark(m_wiggleMode);  // 堆积图白底→黑十字
-        }
-        refreshImage();
-        resizeImageLabel();
+        btnWiggle->setChecked(true);   // 点击已选中的波列图保持选中
+        m_showAscan = false;
+        setWiggle(true);
+        syncAscanVisibility();
     });
 
     // ===== 组3: 色彩渲染 (两行下拉框样式, 按设计稿) =====
