@@ -3847,9 +3847,10 @@ void MainWindow::createMarkerPanel()
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(0);
 
-    // ---- 左 40%: 标记表 ----
+    // ---- 左 40%: 标记表 (右缘 1px 分隔线, HTML border-r border-outline-variant) ----
     QWidget *left = new QWidget(m_markerPanel);
-    left->setStyleSheet("background: #ffffff;");
+    left->setObjectName("gprMarkerLeft");
+    left->setStyleSheet("#gprMarkerLeft { background: #ffffff; border-right: 1px solid #c3c6d6; }");
     QVBoxLayout *ll = new QVBoxLayout(left);
     ll->setContentsMargins(0, 0, 0, 0);
     ll->setSpacing(0);
