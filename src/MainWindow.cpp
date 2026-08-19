@@ -1921,6 +1921,7 @@ MainWindow::MainWindow(QWidget *parent)
     QWidget *statusBar = new QWidget(this);
     statusBar->setObjectName("gprStatusBar");
     statusBar->setFixedHeight(28);
+    statusBar->setAttribute(Qt::WA_StyledBackground, true);   // QSS border-top 才绘制
     statusBar->setStyleSheet("#gprStatusBar { background: #d9e3f6; border-top: 1px solid #c3c6d6; }");
     QHBoxLayout *buttonLayout = new QHBoxLayout(statusBar);
     buttonLayout->setContentsMargins(12, 0, 12, 0);
@@ -3416,7 +3417,8 @@ void MainWindow::createEditPanel()
     m_editPanel = new QWidget(this);
     m_editPanel->setObjectName("gprEditPanel");
     m_editPanel->setFixedWidth(256);
-    // 注意用 #id 选择器限定(裸声明会传播子控件 — 顶栏灰线教训)
+    // 注意用 #id 选择器限定(裸声明会传播子控件 — 顶栏灰线教训); WA_StyledBackground 保证 border 绘制
+    m_editPanel->setAttribute(Qt::WA_StyledBackground, true);
     m_editPanel->setStyleSheet("#gprEditPanel { background: #f8f9ff; border-left: 1px solid #c3c6d6; }");
 
     QVBoxLayout *outer = new QVBoxLayout(m_editPanel);
@@ -3840,6 +3842,7 @@ void MainWindow::createMarkerPanel()
 {
     m_markerPanel = new QWidget(this);
     m_markerPanel->setObjectName("gprMarkerPanel");
+    m_markerPanel->setAttribute(Qt::WA_StyledBackground, true);   // QSS border-top 才绘制
     m_markerPanel->setStyleSheet("#gprMarkerPanel { background: #f8f9ff; border-top: 4px solid #d9e3f6; }");
     m_markerPanel->setFixedHeight(220);   // 初始, resizeEvent 按 35% 调整
 
@@ -3850,6 +3853,7 @@ void MainWindow::createMarkerPanel()
     // ---- 左 40%: 标记表 (右缘 1px 分隔线, HTML border-r border-outline-variant) ----
     QWidget *left = new QWidget(m_markerPanel);
     left->setObjectName("gprMarkerLeft");
+    left->setAttribute(Qt::WA_StyledBackground, true);   // 关键: 普通QWidget必须加此属性QSS border才绘制
     left->setStyleSheet("#gprMarkerLeft { background: #ffffff; border-right: 1px solid #c3c6d6; }");
     QVBoxLayout *ll = new QVBoxLayout(left);
     ll->setContentsMargins(0, 0, 0, 0);
