@@ -1726,6 +1726,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     createMenuBar();
 
+    // 渲染自检: 布局稳定后保存顶栏/整窗离屏渲染图(QWidget::grab, 不受DPI/截屏干扰, 排查布局样式问题)
+    QTimer::singleShot(800, this, [this]() {
+        const QString dir = QCoreApplication::applicationDirPath();
+        if (m_topBar) m_topBar->grab().save(dir + "/topbar_render.png");
+        grab().save(dir + "/window_render.png");
+    });
+
     // 顶栏 5 模块标签 ↔ ribbon 页双向联动(程序化 setChecked 不发 idClicked, 无环)
     connect(m_topBar, &TopBar::moduleChanged, ribbonTab, &QTabWidget::setCurrentIndex);
     connect(ribbonTab, &QTabWidget::currentChanged, m_topBar, &TopBar::setModuleIndex);

@@ -117,6 +117,7 @@ TopBar::TopBar(QWidget *parent)
 
     QPushButton *brand = new QPushButton(QStringLiteral("劳雷"), brandBox);
     brand->setCursor(Qt::PointingHandCursor);
+    brand->setFocusPolicy(Qt::NoFocus);   // 去除点击后的虚线焦点框(灰色一条线)
     brand->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);   // 防拉伸: 品牌按钮钉死自然宽度
     brand->setStyleSheet(
         "QPushButton { border: none; background: transparent; color: #0048af;"
@@ -170,7 +171,7 @@ TopBar::TopBar(QWidget *parent)
     // ---- 中: 5 个模块标签(互斥, 顶栏即模块切换) ----
     QHBoxLayout *tabs = new QHBoxLayout;
     tabs->setSpacing(kTabSpacing);
-    lay->addLayout(tabs, 1);
+    lay->addLayout(tabs);   // 不用布局级stretch: 按钮Fixed后布局最大宽被钉死, 剩余空间会撒进右侧元素间
 
     m_moduleGroup = new QButtonGroup(this);
     m_moduleGroup->setExclusive(true);
@@ -181,6 +182,7 @@ TopBar::TopBar(QWidget *parent)
         QPushButton *b = new QPushButton(moduleNames[i], this);
         b->setCheckable(true);
         b->setCursor(Qt::PointingHandCursor);
+        b->setFocusPolicy(Qt::NoFocus);   // 去除点击后的虚线焦点框
         b->setFixedHeight(40);
         // 关键: 钉死自然宽度。QPushButton 默认 Minimum 策略可增长, tabs 布局的 stretch
         // 会把剩余宽度均分给按钮(每个被撑到~200px, 文字间距150-180px, 完全偏离设计稿)
@@ -200,6 +202,9 @@ TopBar::TopBar(QWidget *parent)
     connect(m_moduleGroup, &QButtonGroup::idClicked, this,
             [this](int id) { emit moduleChanged(id); });
 
+    // 尾部弹性空白: 吸收全部剩余宽度, 把右侧图标组+窗口按钮推到最右(QSpacerItem无上限)
+    tabs->addStretch(1);
+
     // ---- 右: ⚙设置 / ?帮助 / ◯账号 ----
     auto iconBtn = [this](const QString &glyph) -> QToolButton * {
         QToolButton *b = new QToolButton(this);
@@ -208,6 +213,7 @@ TopBar::TopBar(QWidget *parent)
                                      QColor(0x12, 0x1c, 0x2a), 22));
         b->setIconSize(QSize(22, 22));
         b->setFixedSize(30, 30);
+        b->setFocusPolicy(Qt::NoFocus);   // 去除虚线焦点框
         b->setStyleSheet(
             "QToolButton { border: none; border-radius: 4px; background: transparent; }"
             "QToolButton:hover { background: #dee9fc; }");
@@ -296,8 +302,9 @@ TopBar::TopBar(QWidget *parent)
         if (auto *w = window()) w->close();
     });
 
-    // 几何自检: 布局稳定后把顶栏各元素实际宽度写入 dzx_diag.log(排查拉伸类问题)
-    QTimer::singleShot(0, this, [this, brand, brandBox]() {
+    // 几何自检: 布局稳定后把顶栏各元素实际宽度/横向位置写入 dzx_diag.log(排查拉伸/对齐问题)
+    QTimer::singleShot(0, this, [this, brand, brandBox, accountBtn, winBox]() {
+        auto posX = [this](QWidget *w) { return w->mapTo(this, QPoint(0, 0)).x(); };
         QStringList ws;
         ws << QString("brand=%1").arg(brand->width())
            << QString("brandBox=%1").arg(brandBox->width());
@@ -305,6 +312,9 @@ TopBar::TopBar(QWidget *parent)
             if (auto *b = m_moduleGroup->button(i))
                 ws << QString("tab%1=%2").arg(i).arg(b->width());
         }
+        ws << QString("⚙@%1").arg(posX(m_settingsBtn))
+           << QString("◯@%1").arg(posX(accountBtn))
+           << QString("winBox@%1..%2(宽%3)").arg(posX(winBox)).arg(posX(winBox) + winBox->width()).arg(winBox->width());
         diagPrint(QString("[TopBar几何] %1").arg(ws.join(" ")));
     });
 }
