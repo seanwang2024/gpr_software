@@ -1,9 +1,13 @@
 #include "MainWindow.h"
 #include "version.h"
+#include "TopBar.h"
+#include "MatIcon.h"
 
 // 诊断终端输出(定义在 main.cpp,直接写 UTF-8 到控制台 stderr)
 extern void diagPrint(const QString &msg);
 
+#include <QButtonGroup>
+#include <QTimer>
 #include <QFileDialog>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -1638,28 +1642,48 @@ MainWindow::MainWindow(QWidget *parent)
     m_docSplitter->hide();
     welcomeLabel->show();
 
+    // v1.0.87: 右侧 350px 文件头属性栏(默认隐藏,主页"文件头"按钮开关)
+    createHeaderPanel();
+    contentLayout->addWidget(m_headerPanel);
+
     mainLayout->addLayout(contentLayout);
 
-    // --- Bottom bar ---
-    coordinateLabel = new QLabel("", this);
-    coordinateLabel->setStyleSheet("background-color: #f0f0f0; border: 1px solid #ccc; padding: 4px 14px; font-family: monospace; color: #222;");
-    coordinateLabel->setVisible(false);   // 无内容时隐藏(避免空框);updateCoordinateLabel 填入文字后显示
-
+    // --- 状态栏 (v1.0.87 28px,按设计稿: 左 ●就绪 | 右 道号/深度 等宽 + 进度条) ---
     m_progressBar = new QProgressBar(this);
     m_net = new QNetworkAccessManager(this);
     m_progressBar->setRange(0, 100);
     m_progressBar->setValue(0);
     m_progressBar->setTextVisible(true);
-    m_progressBar->setFixedHeight(22);
+    m_progressBar->setFixedHeight(18);
+    m_progressBar->setFixedWidth(220);
     m_progressBar->hide();
 
-    QHBoxLayout *buttonLayout = new QHBoxLayout();
-    buttonLayout->addWidget(m_progressBar);
-    buttonLayout->addStretch(1);
-    buttonLayout->addWidget(coordinateLabel);   // 居中:鼠标当前 道号/采样点/双程走时/深度/振幅
-    buttonLayout->addStretch(1);
+    QWidget *statusBar = new QWidget(this);
+    statusBar->setFixedHeight(28);
+    statusBar->setStyleSheet("background: #d9e3f6; border-top: 1px solid #c3c6d6;");
+    QHBoxLayout *buttonLayout = new QHBoxLayout(statusBar);
+    buttonLayout->setContentsMargins(12, 0, 12, 0);
+    buttonLayout->setSpacing(12);
 
-    mainLayout->addLayout(buttonLayout);
+    QFrame *statusDot = new QFrame(statusBar);
+    statusDot->setFixedSize(8, 8);
+    statusDot->setStyleSheet("background: #0048af; border-radius: 4px; border: none;");
+    buttonLayout->addWidget(statusDot);
+    QLabel *statusLabel = new QLabel(QString::fromUtf8("就绪"), statusBar);
+    statusLabel->setStyleSheet("color: #121c2a; font-size: 12px; border: none; background: transparent;");
+    if (MatIcon::ready()) statusLabel->setFont(MatIcon::monoFont(12));
+    buttonLayout->addWidget(statusLabel);
+
+    buttonLayout->addStretch(1);
+    buttonLayout->addWidget(m_progressBar);   // 升级/AI 推理进度
+
+    coordinateLabel = new QLabel(QString::fromUtf8("道号: -  深度: -"), statusBar);
+    coordinateLabel->setStyleSheet("color: #121c2a; font-size: 12px; border: none;"
+                                   " border-left: 1px solid #c3c6d6; padding-left: 12px; background: transparent;");
+    if (MatIcon::ready()) coordinateLabel->setFont(MatIcon::monoFont(12));
+    buttonLayout->addWidget(coordinateLabel);
+
+    mainLayout->addWidget(statusBar);
 
     setCentralWidget(centralWidget);
 
@@ -1693,14 +1717,32 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowTitle("劳雷");
     setAcceptDrops(true);
 
-    // 自定义标题栏 + 无边框窗口
+    // 自定义标题栏 + 无边框窗口 (v1.0.87: TopBar 40px 品牌栏, 严格按 主页-文件头.png)
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
-    m_titleBar = new CustomTitleBar(this);
-    setMenuWidget(m_titleBar);
+    m_topBar = new TopBar(this);
+    setMenuWidget(m_topBar);
 
     resize(1440, 840);
 
     createMenuBar();
+
+    // 顶栏 5 模块标签 ↔ ribbon 页双向联动(程序化 setChecked 不发 idClicked, 无环)
+    connect(m_topBar, &TopBar::moduleChanged, ribbonTab, &QTabWidget::setCurrentIndex);
+    connect(ribbonTab, &QTabWidget::currentChanged, m_topBar, &TopBar::setModuleIndex);
+    // 品牌下拉菜单
+    connect(m_topBar, &TopBar::openFileRequested, this, &MainWindow::onOpenFile);
+    connect(m_topBar, &TopBar::closeFileRequested, this, [this]() {
+        if (!m_tabs.isEmpty()) {
+            int idx = m_docTabWidget->currentIndex();
+            if (idx >= 0) closeTab(idx);
+        }
+    });
+    connect(m_topBar, &TopBar::saveFileRequested, this, [this]() {
+        if (m_currentTab) saveProcessedFile();
+    });
+    // 齿轮菜单: 关于 / 检查升级
+    connect(m_topBar, &TopBar::aboutRequested, this, &MainWindow::showAbout);
+    connect(m_topBar, &TopBar::upgradeRequested, this, &MainWindow::showUpgrade);
     loadLUT(12);
     connect(m_docTabWidget, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
     connect(m_docTabWidget, &QTabWidget::currentChanged, this, &MainWindow::switchToTab);
@@ -1711,97 +1753,7 @@ MainWindow::~MainWindow()
     qDeleteAll(m_tabs);
 }
 
-// --- CustomTitleBar: 自绘无边框窗口标题栏 ---
-CustomTitleBar::CustomTitleBar(QWidget *parent)
-    : QWidget(parent)
-{
-    setFixedHeight(32);
-    setMouseTracking(true);
-    setStyleSheet("background-color: #ffffff; border-bottom: 1px solid #e0e0e0;");
-
-    QHBoxLayout *layout = new QHBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
-
-    // LOGO (左) — 放大到 28px 高，宽度对齐 ribbon "开始" tab
-    m_logoLabel = new QLabel;
-    m_logoLabel->setAlignment(Qt::AlignCenter);
-    QPixmap logo(":/icons/resources/laurel_logo.png");
-    if (!logo.isNull()) {
-        m_logoLabel->setPixmap(logo.scaledToHeight(28, Qt::SmoothTransformation));
-    }
-    m_logoLabel->setContentsMargins(14, 2, 14, 2);
-    m_logoLabel->setFixedWidth(60);
-    layout->addWidget(m_logoLabel);
-
-    // 标题（居中、自适应）
-    m_titleLabel = new QLabel("劳雷");
-    m_titleLabel->setAlignment(Qt::AlignCenter);
-    m_titleLabel->setStyleSheet("color: #444444; font-size: 13px; font-weight: 500;");
-    layout->addWidget(m_titleLabel, 1);
-
-    // 系统按钮（右）— 统一白底，hover 用同色浅灰
-    auto makeBtn = [](const QString &text) {
-        QPushButton *btn = new QPushButton(text);
-        btn->setFixedSize(46, 32);
-        btn->setFocusPolicy(Qt::NoFocus);
-        btn->setStyleSheet(QString(
-            "QPushButton { background: #ffffff; border: none; color: #444444; font-size: 14px; }"
-            "QPushButton:hover { background: #e5e5e5; color: #444444; }"
-            "QPushButton:pressed { background: #d0d0d0; }"
-        ));
-        return btn;
-    };
-
-    m_btnMin = makeBtn(QString::fromUtf8("\xE2\x80\x94"));    // —
-    m_btnMax = makeBtn(QString::fromUtf8("\xE2\x96\xA1"));    // □
-    m_btnClose = makeBtn(QString::fromUtf8("\xC3\x97"));      // ×
-
-    layout->addWidget(m_btnMin);
-    layout->addWidget(m_btnMax);
-    layout->addWidget(m_btnClose);
-
-    connect(m_btnMin, &QPushButton::clicked, this, [this]() {
-        if (auto *w = window()) w->showMinimized();
-    });
-    connect(m_btnMax, &QPushButton::clicked, this, [this]() {
-        if (auto *w = window()) {
-            if (w->windowState() & Qt::WindowMaximized) w->showNormal();
-            else w->showMaximized();
-        }
-    });
-    connect(m_btnClose, &QPushButton::clicked, this, [this]() {
-        if (auto *w = window()) w->close();
-    });
-}
-
-void CustomTitleBar::setTitleText(const QString &text)
-{
-    m_titleLabel->setText(text);
-}
-
-void CustomTitleBar::mousePressEvent(QMouseEvent *event)
-{
-    if (event->button() == Qt::LeftButton) {
-        if (auto *w = window()) {
-            if (QWindow *wh = w->windowHandle()) {
-                wh->startSystemMove();
-            }
-        }
-    }
-    QWidget::mousePressEvent(event);
-}
-
-void CustomTitleBar::mouseDoubleClickEvent(QMouseEvent *event)
-{
-    if (event->button() == Qt::LeftButton) {
-        if (auto *w = window()) {
-            if (w->windowState() & Qt::WindowMaximized) w->showNormal();
-            else w->showMaximized();
-        }
-    }
-    QWidget::mouseDoubleClickEvent(event);
-}
+// (v1.0.87 旧 CustomTitleBar 已删除, 由 TopBar 替代 — 严格按 主页-文件头.png)
 
 // --- Tab management ---
 
@@ -2137,6 +2089,7 @@ void MainWindow::switchToTab(int index)
         m_depthRange = 1.25;
         updateTraceRange();
         updateWindowTitle();
+        setHeaderPanelVisible(false);   // v1.0.87 无文件自动收起右栏
         return;
     }
 
@@ -2173,6 +2126,8 @@ void MainWindow::switchToTab(int index)
     m_timeRange = tab->timeRange;
     m_depthRange = tab->depthRange;
     updateTraceRange();
+    if (m_headerPanel && m_headerPanel->isVisible())
+        refreshHeaderPanel();   // v1.0.87 切文件刷新右栏字段
 
     scrollArea = tab->scrollArea;
     imageLabel = tab->imageLabel;
@@ -2246,8 +2201,8 @@ void MainWindow::showWelcome()
     m_leftPanel->hide();
     m_docSplitter->hide();
     welcomeLabel->show();
-    coordinateLabel->setText("");
-    coordinateLabel->setVisible(false);   // 回到 welcome:无活动文件,隐藏鼠标坐标栏
+    coordinateLabel->setText(QString::fromUtf8("道号: -  深度: -"));   // v1.0.87 状态栏常显
+    coordinateLabel->setToolTip(QString());
     QTimer::singleShot(0, this, [this]() { repositionSwitchButton(); });  // 无文件→隐藏三角按钮
     QTimer::singleShot(0, this, [this]() { updateWelcomePixmap(); });  // 布局稳定后按比例铺满
     m_btnApply->setEnabled(false);
@@ -2864,29 +2819,40 @@ static int antennaFreqMHz(const QString &type)
 
 void MainWindow::showFileHeader()
 {
-    if (!requireOpenFile()) return;
+    // 主页"文件头"按钮 toggle: 开=解析并显示右侧栏; 关/无文件=收起
+    if (!m_btnHeaderToggle || !m_btnHeaderToggle->isChecked()) {
+        setHeaderPanelVisible(false);
+        return;
+    }
+    if (!requireOpenFile()) {
+        setHeaderPanelVisible(false);
+        return;
+    }
+    refreshHeaderPanel();
+    setHeaderPanelVisible(true);
+}
 
-    // Read header from DZT file
+// 读当前文件 DZT 头(1024字节) → 右栏 8 字段所需子集
+bool MainWindow::readDztHeaderInfo(DztHeaderInfo &out)
+{
+    if (!m_currentTab) return false;
     QFile file(m_currentTab->filePath);
-    if (!file.open(QIODevice::ReadOnly)) return;
+    if (!file.open(QIODevice::ReadOnly)) return false;
     QByteArray hdr = file.read(1024);
     file.close();
+    if (hdr.size() < 128) return false;
 
-    if (hdr.size() < 128) return;
-
-    // Helper: read little-endian short at offset
     auto rdShort = [&hdr](int off) -> qint16 {
         return static_cast<qint16>(
             (static_cast<quint8>(hdr[off+1]) << 8) |
             static_cast<quint8>(hdr[off]));
     };
-    // Helper: read little-endian float at offset
     auto rdFloat = [&hdr](int off) -> float {
         float val;
         memcpy(&val, hdr.constData() + off, 4);
         return val;
     };
-    // Helper: decode tagRFDate (4 bytes at offset) → "Mon,DD YYYY,HH:MM:SS" 或 "00:00:00"(值为0时)
+    // decode tagRFDate (4 bytes at offset) → "Mon,DD YYYY,HH:MM:SS" 或 "00:00:00"(值为0时)
     auto rdDate = [&hdr](int off) -> QString {
         const char *months[] = {
             "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -2913,213 +2879,141 @@ void MainWindow::showFileHeader()
             .arg(sec2 * 2, 2, 10, QChar('0'));
     };
 
-    // Parse header fields
-    QString fileName = QString::fromLatin1(hdr.mid(114, 12)).trimmed();
-    fileName = fileName.left(fileName.indexOf(QLatin1Char('\0')));
-    QString createDate = rdDate(32);
-    QString modDate = rdDate(36);
-    // Byte 113 bitfield: [rh_version:3 | rh_system:5] — high 5 bits = system code
-    // DZT rh_system control unit table (from RADAN DZT File Format spec):
-    //   2=SIR 2000, 3=SIR 3000, 4=TerraVision, 6=SIR 20,
-    //   7=SS Mini, 8=SIR 4000, 9=SIR 30, 12=UtilityScan DF
-    int systemCode = (static_cast<quint8>(hdr[113]) >> 3) & 0x1F;
-    QString systemName;
-    switch (systemCode) {
-        case 2: systemName = "SIR-2000"; break;
-        case 3: systemName = "SIR-3000"; break;
-        case 4: systemName = "TerraVision"; break;
-        case 6: systemName = "SIR-20"; break;
-        case 7: systemName = "SS Mini"; break;
-        case 8: systemName = "SIR-4000"; break;
-        case 9: systemName = "SIR-30"; break;
-        case 12: systemName = "UtilityScan DF"; break;
-        default: systemName = QString("Unknown(%1)").arg(systemCode); break;
-    }
-    int nchan = rdShort(52);
-    float sps = rdFloat(10);
-    float spm = rdFloat(14);
-    float mpm = rdFloat(18);
-    int nsamp = rdShort(4);
-    int bits = rdShort(6);
-    float epsr = rdFloat(54);
-    QString antName = QString::fromLatin1(hdr.mid(98, 14)).trimmed();
-    antName = antName.left(antName.indexOf(QLatin1Char('\0')));
-    float position = rdFloat(22);
-    float range = rdFloat(26);
-    float top = rdFloat(58);
-    float depth = rdFloat(62);
-    int repeatsSample = rdShort(8);
-    int npass = rdShort(30);
+    out.fileName = QString::fromLatin1(hdr.mid(114, 12)).trimmed();
+    out.fileName = out.fileName.left(out.fileName.indexOf(QLatin1Char('\0')));
+    out.createDate = rdDate(32);
+    out.nsamp = rdShort(4);     // 采样点数 (offset 4)
+    out.range = rdFloat(26);    // 记录长度 ns (offset 26)
+    out.epsr = rdFloat(54);     // 介电常数 (offset 54)
+    out.spm = rdFloat(14);      // 扫描/米 (offset 14), 道间距=1/spm
+    out.antName = QString::fromLatin1(hdr.mid(98, 14)).trimmed();
+    out.antName = out.antName.left(out.antName.indexOf(QLatin1Char('\0')));
+    return true;
+}
 
-    // Processing history: {short typeCode, float value} records, 6 bytes each
-    // typeCode: low byte = processing type (0x4D=77), high byte = record index
-    QVector<QPair<int, float>> procRecords;  // (index, value)
-    qint16 procOff = rdShort(48);
-    qint16 procSize = rdShort(50);
-    if (procOff > 0 && procSize > 0 && procOff + procSize <= hdr.size()) {
-        int nRec = procSize / 6;
-        for (int r = 0; r < nRec; ++r) {
-            int off = procOff + r * 6;
-            quint16 typeCode = static_cast<quint16>(rdShort(off));
-            int recIdx = typeCode >> 8;  // high byte = record index
-            float val;
-            memcpy(&val, hdr.constData() + off + 2, 4);
-            procRecords.append({recIdx, val});
-        }
-    }
+// v1.0.87 右侧 350px 文件头属性栏(严格按 主页-文件头.png: 标题栏40px + 8行两列表格)
+void MainWindow::createHeaderPanel()
+{
+    m_headerPanel = new QWidget(this);
+    m_headerPanel->setFixedWidth(350);
+    m_headerPanel->setStyleSheet("background: #f8f9ff;");
 
-    // 解析 DZT 头处理历史(procOff@48 .. +procSize),按 typeId 还原 RADAN 风格处理记录(不依赖 DZX)
-    auto HFL = [&hdr](int off)->float { float v=0.0f; if(off+4<=hdr.size()) memcpy(&v, hdr.constData()+off,4); return v; };
-    // 采样率 fs(MHz)= 1000*nsamp/range;IIR 垂直截止 MHz = fs/(2π×系数)
-    double fsMHz = (range > 0.0f) ? 1000.0 * nsamp / range : 0.0;
-    QVector<QPair<QString,QString>> procSteps;  // (标题, 摘要)
-    if (procOff > 0 && procSize > 0 && procOff + procSize <= hdr.size()) {
-        int cur = procOff, he = procOff + procSize;
-        while (cur < he) {
-            quint8 tid = static_cast<quint8>(hdr[cur]);
-            if (tid==0x4d && cur+6<=he) {  // 77: 时间零点(sub=0x00)/振幅偏移去除(sub=0x02)
-                quint8 sub = static_cast<quint8>(hdr[cur+1]); float v = HFL(cur+2);
-                procSteps.append({ sub==0x00 ? QString::fromUtf8("时间零点") : QString::fromUtf8("振幅偏移去除"),
-                                   QString::number(v,'f',2) + QString::fromUtf8(" ns") });
-                cur += 6;
-            } else if (tid==0x3b && cur+3<=he) {  // 59 增益
-                int npts = static_cast<quint8>(hdr[cur+1]); QString g;
-                for (int i=0; i<npts && cur+3+i*4+4<=he; ++i) g += QString::number(HFL(cur+3+i*4),'f',1) + (i<npts-1?"/":"");
-                procSteps.append({ QString::fromUtf8("增益调整"), QString::fromUtf8("%1点 %2 dB").arg(npts).arg(g) });
-                cur += 3 + npts*4;
-            } else if (tid==0x04 && cur+12<=he) {  // IIR 垂直带通:MHz = fs/(2π×系数)
-                double hpMHz = (fsMHz>0 && HFL(cur+2)>0) ? fsMHz/(6.28318530718*HFL(cur+2)) : 0;
-                double lpMHz = (fsMHz>0 && HFL(cur+8)>0) ? fsMHz/(6.28318530718*HFL(cur+8)) : 0;
-                procSteps.append({ QString::fromUtf8("IIR滤波器 垂直"),
-                                   QString::fromUtf8("形状:方块  高通%1 / 低通%2 MHz").arg(hpMHz,0,'f',0).arg(lpMHz,0,'f',0) });
-                cur += 12;
-            } else if (tid==0x40 && cur+5<=he) {  // FIR 垂直高通(可能紧跟低通3f)
-                double hpMHz = (fsMHz>0 && HFL(cur+1)>0) ? 1.17*fsMHz/HFL(cur+1) : 0;
-                cur += 5;
-                QString lp;
-                if (cur<he && static_cast<quint8>(hdr[cur])==0x3f && cur+5<=he) {
-                    double lpc = HFL(cur+1);
-                    lp = (lpc >= 0.99) ? QString::fromUtf8(" / 低通%1 MHz").arg(0.6434*fsMHz,0,'f',0)
-                                       : QString::fromUtf8(" / 低通%1 MHz").arg(1.17*fsMHz/lpc,0,'f',0);
-                    cur += 5;
-                }
-                procSteps.append({ QString::fromUtf8("FIR滤波器 垂直"),
-                                   QString::fromUtf8("形状:方块  高通%1 MHz%2").arg(hpMHz,0,'f',0).arg(lp) });
-            } else if ((tid==0x0e || tid==0x0d) && cur+6<=he) {  // IIR 水平(0x0e 或 0x0d)
-                procSteps.append({ QString::fromUtf8("IIR滤波器 水平"), QString::number(HFL(cur+2),'f',0) + QString::fromUtf8(" 扫描数") });
-                cur += 6;
-            } else if (tid==0x43 && cur+5<=he) {  // FIR 水平平滑
-                procSteps.append({ QString::fromUtf8("FIR滤波器 水平 平滑"), QString::number(HFL(cur+1),'f',0) + QString::fromUtf8(" 扫描数") });
-                cur += 5;
-            } else if (tid==0x65 && cur+5<=he) {  // 采样范围记录(1..486),并入上一条,不单列
-                cur += 5;
-            } else if (tid==0x63 && cur+4<=he) {  // 99 标记
-                cur += 4;
-            } else if (tid==0x1b && cur+7<=he) {  // 27 = 增益调整(手动追加)
-                float gv = HFL(cur+3);
-                procSteps.append({ QString::fromUtf8("增益调整(手动)"), QString::number(gv,'f',1) + QString::fromUtf8(" dB") });
-                cur += 7;
-            } else {
-                cur += 1;
-            }
-        }
-    }
+    QVBoxLayout *outer = new QVBoxLayout(m_headerPanel);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(0);
 
-    // --- 显示在左侧面板(非弹窗,复用 m_leftStack 机制) ---
-    // 如果已有文件头页,先删除旧内容
-    if (!m_headerTreePanel) {
-        m_headerTreePanel = new QWidget();
-        QVBoxLayout *hl = new QVBoxLayout(m_headerTreePanel);
-        hl->setContentsMargins(2, 2, 2, 2);
-        m_headerTreeLayout = hl;
-        m_leftStack->addWidget(m_headerTreePanel);
-    }
-    // 清空旧布局
-    QLayoutItem *old;
-    while ((old = m_headerTreeLayout->takeAt(0)) != nullptr) {
-        if (old->widget()) old->widget()->deleteLater();
-        delete old;
-    }
+    // --- 标题栏 40px: [info] 文件头属性 + ✕ ---
+    QWidget *head = new QWidget(m_headerPanel);
+    head->setFixedHeight(40);
+    head->setStyleSheet("background: #eff4ff; border-bottom: 1px solid #c3c6d6;");
+    QHBoxLayout *hl = new QHBoxLayout(head);
+    hl->setContentsMargins(12, 0, 4, 0);
+    hl->setSpacing(8);
+    QLabel *hIcon = new QLabel;
+    hIcon->setStyleSheet("border: none; background: transparent;");
+    if (MatIcon::ready())
+        hIcon->setPixmap(MatIcon::pixmap(QStringLiteral("info"), QColor(0x12, 0x1c, 0x2a), 16, 0.0, devicePixelRatioF()));
+    hl->addWidget(hIcon);
+    QLabel *hTitle = new QLabel(QString::fromUtf8("文件头属性"));
+    hTitle->setStyleSheet("font-size: 11px; font-weight: bold; color: #121c2a;"
+                          " letter-spacing: 1px; border: none; background: transparent;");
+    hl->addWidget(hTitle);
+    hl->addStretch(1);
+    QToolButton *closeBtn = new QToolButton;
+    if (MatIcon::ready())
+        closeBtn->setIcon(MatIcon::icon(QStringLiteral("close"), QColor(0x73, 0x77, 0x85), QColor(),
+                                        QColor(0x12, 0x1c, 0x2a), 16));
+    closeBtn->setIconSize(QSize(16, 16));
+    closeBtn->setFixedSize(24, 24);
+    closeBtn->setCursor(Qt::PointingHandCursor);
+    closeBtn->setStyleSheet(
+        "QToolButton { border: none; border-radius: 2px; background: transparent; }"
+        "QToolButton:hover { background: #dee9fc; }");
+    connect(closeBtn, &QToolButton::clicked, this, [this]() { setHeaderPanelVisible(false); });
+    hl->addWidget(closeBtn);
+    outer->addWidget(head);
 
-    QVBoxLayout *layout = qobject_cast<QVBoxLayout*>(m_headerTreeLayout);
-    if (!layout) return;  // 布局异常
-    QTreeWidget *tree = new QTreeWidget();
-    tree->setHeaderHidden(true);
-    tree->setColumnCount(2);
-    tree->setRootIsDecorated(true);
-    tree->setIndentation(20);
-    tree->setAnimated(true);
-    tree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    tree->setSelectionMode(QAbstractItemView::NoSelection);
-    tree->setFocusPolicy(Qt::NoFocus);
-    tree->header()->setStretchLastSection(true);
-    tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    tree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    tree->setStyleSheet(
-        "QTreeWidget { border: none; font-size: 12px; }"
-        "QTreeWidget::item { padding: 2px 0; }"
-        "QTreeWidget::item:selected { background: transparent; color: inherit; }"
-    );
+    // --- 8 行两列表格(键列白底12px灰 / 值列浅底等宽12px, 行间细分隔线) ---
+    QWidget *body = new QWidget;
+    body->setStyleSheet("background: #f8f9ff;");
+    QVBoxLayout *bl = new QVBoxLayout(body);
+    bl->setContentsMargins(8, 8, 8, 8);
+    QFrame *table = new QFrame;
+    table->setStyleSheet("QFrame { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff; }");
+    QGridLayout *grid = new QGridLayout(table);
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setSpacing(0);
+    const QString keys[8] = {
+        QString::fromUtf8("文件名"), QString::fromUtf8("天线频率"), QString::fromUtf8("采样点数"),
+        QString::fromUtf8("总道数"), QString::fromUtf8("时窗"), QString::fromUtf8("介电常数"),
+        QString::fromUtf8("采集日期"), QString::fromUtf8("道间距")};
+    for (int i = 0; i < 8; ++i) {
+        const QString rowBorder = (i < 7) ? QStringLiteral(" border-bottom: 1px solid #c3c6d6;") : QString();
+        QLabel *k = new QLabel(keys[i]);
+        k->setStyleSheet("background: #ffffff; color: #424654; font-size: 12px;"
+                         " border: none; padding: 6px 8px;" + rowBorder);
+        QLabel *v = new QLabel("-");
+        v->setStyleSheet("background: #f8f9ff; color: #121c2a; font-size: 12px;"
+                         " border: none; border-left: 1px solid #c3c6d6; padding: 6px 8px;" + rowBorder);
+        if (MatIcon::ready())
+            v->setFont(MatIcon::monoFont(12));   // JetBrains Mono 等宽数值
+        v->setWordWrap(true);
+        k->setMinimumHeight(28);
+        v->setMinimumHeight(28);
+        grid->addWidget(k, i, 0);
+        grid->addWidget(v, i, 1);
+        m_headerValueLabels.append(v);
+    }
+    grid->setColumnStretch(0, 1);
+    grid->setColumnStretch(1, 1);
+    bl->addWidget(table);
+    bl->addStretch(1);
 
-    auto addRow = [&tree](QTreeWidgetItem *parent, const QString &label, const QString &value) {
-        QTreeWidgetItem *item = new QTreeWidgetItem(parent, QStringList() << label << "");
-        item->setFlags(item->flags() & ~Qt::ItemIsEditable);
-        QLabel *valLabel = new QLabel(value);
-        valLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-        tree->setItemWidget(item, 1, valLabel);
-        return item;
+    QScrollArea *scroll = new QScrollArea(m_headerPanel);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet("QScrollArea { background: transparent; border: none; }");
+    scroll->setWidget(body);
+    outer->addWidget(scroll, 1);
+
+    m_headerPanel->hide();
+}
+
+// 开关右栏 + 同步主页"文件头"按钮 + 重定位悬浮的文件切换三角按钮
+void MainWindow::setHeaderPanelVisible(bool visible)
+{
+    if (!m_headerPanel) return;
+    m_headerPanel->setVisible(visible);
+    if (m_btnHeaderToggle) {
+        QSignalBlocker blocker(m_btnHeaderToggle);
+        m_btnHeaderToggle->setChecked(visible);
+    }
+    // 右栏显隐改变 docSplitter 几何 → 延迟重定位(照抄 showWelcome 的 singleShot 模式)
+    QTimer::singleShot(0, this, [this]() { repositionSwitchButton(); });
+}
+
+// 解析当前 DZT 头填充 8 个值单元格
+void MainWindow::refreshHeaderPanel()
+{
+    DztHeaderInfo info;
+    const bool ok = readDztHeaderInfo(info);
+    auto setV = [this](int i, const QString &s) {
+        if (i >= 0 && i < m_headerValueLabels.size()) m_headerValueLabels[i]->setText(s);
     };
-
-    // 头文件参数
-    QTreeWidgetItem *headerRoot = new QTreeWidgetItem(tree, QStringList() << "头文件参数" << "");
-    addRow(headerRoot, "文件原始名称", fileName);
-    addRow(headerRoot, "创建", createDate);
-    addRow(headerRoot, "编辑时间", modDate);
-    addRow(headerRoot, "地质雷达系统", systemName);
-    addRow(headerRoot, "通道数", QString::number(nchan));
-
-    // 水平参数
-    QTreeWidgetItem *horiRoot = new QTreeWidgetItem(tree, QStringList() << "水平参数" << "");
-    addRow(horiRoot, "扫描/秒", QString::number(sps, 'f', 2));
-    addRow(horiRoot, "扫描/单位(cm)", QString::number(spm * 100.0, 'f', 3));
-    addRow(horiRoot, "单位/标记(m)", QString::number(mpm, 'f', 3));
-
-    // 垂直参数
-    QTreeWidgetItem *vertRoot = new QTreeWidgetItem(tree, QStringList() << "垂直参数" << "");
-    addRow(vertRoot, "采样点数/扫描", QString::number(nsamp));
-    addRow(vertRoot, "位/采样", QString::number(bits));
-    addRow(vertRoot, "介电常数", QString::number(epsr, 'f', 2));
-
-    // 通道信息
-    QTreeWidgetItem *chanRoot = new QTreeWidgetItem(tree, QStringList() << "通道信息" << "");
-    addRow(chanRoot, "通道", QString::number(nchan));
-    addRow(chanRoot, "天线类型", antName);
-    addRow(chanRoot, "天线序列号", "0");
-    addRow(chanRoot, "信号位置 (ns)", QString::number(position, 'f', 2));
-    addRow(chanRoot, "记录长度(ns)", QString::number(range, 'f', 2));
-    addRow(chanRoot, "顶面(cm)", QString::number(top * 100.0, 'f', 2));
-    addRow(chanRoot, "深度(cm)", QString::number(depth * 100.0, 'f', 2));
-    addRow(chanRoot, "# 采样叠加", QString::number(repeatsSample));
-    addRow(chanRoot, "# 扫描叠加", QString::number(npass));
-
-    // 处理记录(来自 DZT 头处理历史,RADAN 风格,不依赖 DZX)
-    QTreeWidgetItem *procRoot = new QTreeWidgetItem(tree, QStringList() << QString::fromUtf8("处理记录") << "");
-    if (!procSteps.isEmpty()) {
-        for (int i = 0; i < procSteps.size(); ++i) {
-            QTreeWidgetItem *pNode = new QTreeWidgetItem(procRoot, QStringList() << QString("%1. %2").arg(i+1).arg(procSteps[i].first) << "");
-            pNode->setFlags(pNode->flags() & ~Qt::ItemIsEditable);
-            addRow(pNode, QString::fromUtf8("参数"), procSteps[i].second);
-        }
-    } else {
-        addRow(procRoot, QString::fromUtf8("无"), QString::fromUtf8("本文件无处理记录"));
+    if (!ok) {
+        for (int i = 0; i < 8; ++i) setV(i, "-");
+        return;
     }
-
-    tree->expandAll();
-    layout->addWidget(tree);
-
-    // 切换到文件头页并显示左侧面板
-    if (m_leftStack) m_leftStack->setCurrentWidget(m_headerTreePanel);
-    if (m_leftPanel) m_leftPanel->show();
+    const int mhz = antennaFreqMHz(info.antName);
+    setV(0, QFileInfo(m_currentTab->filePath).fileName());
+    setV(1, mhz > 0 ? QString("%1MHz").arg(mhz)
+                    : (info.antName.isEmpty() ? QStringLiteral("-") : info.antName));
+    setV(2, QString::number(info.nsamp));
+    setV(3, QString::number(m_traceCount));
+    setV(4, QString::number(info.range, 'f', 0) + "ns");
+    setV(5, QString::number(info.epsr, 'f', 1));
+    setV(6, info.createDate);
+    setV(7, info.spm > 0 ? QString::number(1.0 / info.spm, 'f', 4) + "m" : "-");
 }
 
 // --- File operations ---
@@ -3134,8 +3028,8 @@ void MainWindow::openDztFile(const QString &filePath)
         return;
     }
 
-    coordinateLabel->setText("");
-    coordinateLabel->setVisible(false);   // 新文件打开:清空旧的鼠标坐标显示
+    coordinateLabel->setText(QString::fromUtf8("道号: -  深度: -"));   // v1.0.87 状态栏常显
+    coordinateLabel->setToolTip(QString());
 
     if (m_tabs.isEmpty()) hideWelcome();
     QTimer::singleShot(0, this, [this]() { repositionSwitchButton(); });  // 有文件→显示三角按钮
@@ -3252,13 +3146,12 @@ void MainWindow::updateCoordinateLabel(int x, int y)
     double depth = m_pixelsPerRow ? y * m_depthRange / m_pixelsPerRow : 0.0;   // 深度 m(按右RANGE换算)
     int amp = pixelValue / 256;                                                // 振幅÷256(整数,保留符号)
 
-    coordinateLabel->setText(QString::fromUtf8("道号: %1 | 采样点数: %2 | 双程走时: %3 ns | 深度: %4 m | 振幅: %5")
-                           .arg(traceNo)
-                           .arg(y)
-                           .arg(twt, 0, 'f', 2)
-                           .arg(depth, 0, 'f', 3)
-                           .arg(amp));
-    coordinateLabel->setVisible(true);   // 有内容才显示(避免空框)
+    // v1.0.87 状态栏按设计稿只显示 道号+深度,其余 3 项放 tooltip
+    coordinateLabel->setText(QString::fromUtf8("道号: %1  深度: %2 m").arg(traceNo).arg(depth, 0, 'f', 2));
+    coordinateLabel->setToolTip(QString::fromUtf8("采样点数: %1 | 双程走时: %2 ns | 振幅: %3")
+                                    .arg(y)
+                                    .arg(twt, 0, 'f', 2)
+                                    .arg(amp));
 
     updateChart(traceNo);
 }
@@ -4904,8 +4797,7 @@ void MainWindow::updateWindowTitle()
         QString fname = QFileInfo(m_currentTab->filePath).completeBaseName();
         text = QString::fromUtf8("劳雷AI数据处理-%1").arg(fname);
     }
-    if (m_titleBar) m_titleBar->setTitleText(text);
-    setWindowTitle(text);  // 同步 OS 任务栏标题
+    setWindowTitle(text);  // 同步 OS 任务栏标题(顶栏品牌固定为"劳雷",不随文件变)
 }
 
 bool MainWindow::requireOpenFile()
@@ -4953,19 +4845,23 @@ void MainWindow::createMenuBar()
     ribbonTab = new QTabWidget(this);
     ribbonTab->setTabPosition(QTabWidget::North);
     ribbonTab->setDocumentMode(true);
-    ribbonTab->setFixedHeight(132);
+    ribbonTab->setFixedHeight(120);          // 设计稿 ribbon-height
+    ribbonTab->tabBar()->hide();             // 5 个模块标签上移至 TopBar
     ribbonTab->setStyleSheet(
-        "QTabWidget::pane { border: none; background: #ffffff; border-top: 1px solid #c2c5d5; }"
-        "QTabBar::tab { background: #f8f9ff; padding: 8px 20px; border: none; color: #444855; font-size: 12px; }"
-        "QTabBar::tab:selected { background: #ffffff; color: #004aae; font-weight: bold; border-bottom: 3px solid #004aae; }"
+        "QTabWidget::pane { border: none; background: #ffffff; border-bottom: 1px solid #c3c6d6; }"
     );
 
-    // --- Tab: 开始 ---
+    // --- Tab: 主页 (v1.0.87 严格按 主页-文件头.png: 4组,组名在底部,组间竖分隔线,Material Symbols 图标) ---
     QWidget *startPage = new QWidget();
     QHBoxLayout *startLayout = new QHBoxLayout(startPage);
-    startLayout->setContentsMargins(4, 2, 4, 2);
-    startLayout->setSpacing(8);
+    startLayout->setContentsMargins(8, 8, 8, 4);
+    startLayout->setSpacing(0);
 
+    const QColor cOutline(0x73, 0x77, 0x85);   // 灰图标 outline
+    const QColor cPrimary(0x00, 0x48, 0xaf);   // 主色 primary
+    const QColor cDark(0x12, 0x1c, 0x2a);      // hover 前景 on-surface
+
+    // 组容器(数据处理标签沿用): 框式组
     auto addGroup = [](QHBoxLayout *parentLayout, const QString &groupName) -> QVBoxLayout* {
         QFrame *frame = new QFrame();
         frame->setFrameShape(QFrame::StyledPanel);
@@ -4985,30 +4881,82 @@ void MainWindow::createMenuBar()
         return groupLayout;
     };
 
-    auto makeBtn = [](const QString &iconPath, const QString &text) -> QToolButton* {
+    // 主页组容器: 按钮行在上 + 组名(11px粗体)在底部; 非末组右侧 1px 竖分隔线
+    auto addRibbonGroup = [](QHBoxLayout *parentLayout, const QString &groupName, bool last = false) -> QHBoxLayout* {
+        QWidget *group = new QWidget();
+        QVBoxLayout *groupLayout = new QVBoxLayout(group);
+        groupLayout->setContentsMargins(0, 0, 0, 0);
+        groupLayout->setSpacing(2);
+        QHBoxLayout *btnRow = new QHBoxLayout();
+        btnRow->setContentsMargins(12, 10, 12, 0);
+        btnRow->setSpacing(2);
+        groupLayout->addLayout(btnRow, 1);
+        QLabel *groupLabel = new QLabel(groupName);
+        groupLabel->setAlignment(Qt::AlignCenter);
+        groupLabel->setStyleSheet(
+            "color: #424654; font-size: 11px; font-weight: bold; letter-spacing: 1px;"
+            " border: none; background: transparent;");
+        groupLayout->addWidget(groupLabel);
+        parentLayout->addWidget(group);
+        if (!last) {
+            QFrame *sep = new QFrame();
+            sep->setFrameShape(QFrame::NoFrame);
+            sep->setFixedWidth(1);
+            sep->setStyleSheet("background: #c3c6d6; border: none;");
+            parentLayout->addWidget(sep);
+        }
+        return btnRow;
+    };
+
+    // 图标在上文字在下的 ribbon 按钮(24px Material Symbols 字形)
+    auto ribbonBtn = [&cOutline, &cPrimary, &cDark](const QString &glyph, const QString &text,
+                                                    bool primaryIcon, int minW = 50) -> QToolButton* {
         QToolButton *btn = new QToolButton();
-        btn->setIcon(QIcon(iconPath));
+        if (MatIcon::ready())
+            btn->setIcon(MatIcon::icon(glyph, primaryIcon ? cPrimary : cOutline, QColor(), cDark, 24));
         btn->setText(text);
         btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-        btn->setIconSize(QSize(32, 32));
-        btn->setFixedSize(56, 64);
+        btn->setIconSize(QSize(24, 24));
+        btn->setMinimumSize(minW, 52);
+        btn->setCursor(Qt::PointingHandCursor);
         btn->setStyleSheet(
-            "QToolButton { border: none; border-radius: 3px; background: transparent; font-size: 11px; }"
-            "QToolButton:hover { background: #dce7f5; }"
-            "QToolButton:pressed { background: #b8d0ea; }"
-        );
+            "QToolButton { border: none; border-radius: 2px; background: transparent;"
+            " font-size: 12px; color: #121c2a; padding: 2px; }"
+            "QToolButton:hover { background: #dee9fc; }"
+            "QToolButton:pressed { background: #c9d8f0; }");
         return btn;
     };
 
-    // 文件操作 group (打开/关闭/保存)
-    QVBoxLayout *fileGroup = addGroup(startLayout, QString::fromUtf8("文件操作"));
-    QHBoxLayout *fileBtns = qobject_cast<QHBoxLayout*>(fileGroup->itemAt(0)->layout());
-    QToolButton *btnOpen = makeBtn(":/icons/resources/icon_open_64.png", QString::fromUtf8("打开"));
-    QToolButton *btnClose = makeBtn(":/icons/resources/icon_close_64.png", QString::fromUtf8("关闭"));
-    QToolButton *btnSave = makeBtn(":/icons/resources/icon_save_64.png", QString::fromUtf8("保存"));
-    fileBtns->addWidget(btnOpen);
-    fileBtns->addWidget(btnClose);
-    fileBtns->addWidget(btnSave);
+    // 显示模式按钮(可选中): active 态 bg#1e60d5 前景#dee5ff 底部2px#0048af (按设计稿)
+    auto displayBtn = [&cOutline, &cDark](const QString &glyph, const QString &text, int minW = 60) -> QToolButton* {
+        QToolButton *btn = new QToolButton();
+        if (MatIcon::ready())
+            btn->setIcon(MatIcon::icon(glyph, cOutline, QColor(0xde, 0xe5, 0xff), cDark, 24));
+        btn->setText(text);
+        btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+        btn->setIconSize(QSize(24, 24));
+        btn->setMinimumSize(minW, 52);
+        btn->setCheckable(true);
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setStyleSheet(
+            "QToolButton { border: none; border-bottom: 2px solid transparent; border-radius: 2px;"
+            " background: transparent; font-size: 12px; color: #121c2a; padding: 2px; }"
+            "QToolButton:hover { background: #dee9fc; }"
+            "QToolButton:pressed { background: #c9d8f0; }"
+            "QToolButton:checked { background: #1e60d5; color: #dee5ff; border-bottom: 2px solid #0048af; }"
+            "QToolButton:checked:hover { background: #1e60d5; }"
+            "QToolButton:checked:pressed { background: #1e60d5; }");
+        return btn;
+    };
+
+    // ===== 组1: 文件操作 =====
+    QHBoxLayout *fileRow = addRibbonGroup(startLayout, QString::fromUtf8("文件操作"));
+    QToolButton *btnOpen = ribbonBtn(QStringLiteral("folder_open"), QString::fromUtf8("打开"), true);
+    QToolButton *btnClose = ribbonBtn(QStringLiteral("close"), QString::fromUtf8("关闭"), false);
+    QToolButton *btnSave = ribbonBtn(QStringLiteral("save"), QString::fromUtf8("保存"), false);
+    fileRow->addWidget(btnOpen);
+    fileRow->addWidget(btnClose);
+    fileRow->addWidget(btnSave);
 
     connect(btnOpen, &QToolButton::clicked, this, &MainWindow::onOpenFile);
     connect(btnClose, &QToolButton::clicked, this, [this]() {
@@ -5022,37 +4970,40 @@ void MainWindow::createMenuBar()
         saveProcessedFile();
     });
 
-    // 图像显示 group (线扫描/线扫描+波形/波列图)
-    QVBoxLayout *zoomGroup = addGroup(startLayout, QString::fromUtf8("图像显示"));
-    QHBoxLayout *zoomBtns = qobject_cast<QHBoxLayout*>(zoomGroup->itemAt(0)->layout());
-    QToolButton *btnHZoomIn = makeBtn(":/icons/resources/hzoomin.png", QString::fromUtf8("线扫描"));
-    QToolButton *btnHZoomOut = makeBtn(":/icons/resources/hzoomout.png", QString::fromUtf8("线扫描+波形"));
-    QToolButton *btnHRestore = makeBtn(":/icons/resources/restore.png", QString::fromUtf8("波列图"));
-    zoomBtns->addWidget(btnHZoomIn);
-    zoomBtns->addWidget(btnHZoomOut);
-    zoomBtns->addWidget(btnHRestore);
-    // 线扫描:隐藏左侧面板,只显示 B-SCAN
-    connect(btnHZoomIn, &QToolButton::clicked, this, [this]() {
-        if (!requireOpenFile()) return;
+    // ===== 组2: 图像显示 (线扫描/线扫描+波形 互斥; 波列图=堆积图独立开关) =====
+    QHBoxLayout *dispRow = addRibbonGroup(startLayout, QString::fromUtf8("图像显示"));
+    QToolButton *btnLineScan = displayBtn(QStringLiteral("view_agenda"), QString::fromUtf8("线扫描"));
+    QToolButton *btnLineWave = displayBtn(QStringLiteral("ssid_chart"), QString::fromUtf8("线扫描+波形"), 84);
+    QToolButton *btnWiggle = displayBtn(QStringLiteral("water"), QString::fromUtf8("波列图"));
+    dispRow->addWidget(btnLineScan);
+    dispRow->addWidget(btnLineWave);
+    dispRow->addWidget(btnWiggle);
+    QButtonGroup *displayGroup = new QButtonGroup(startPage);   // 仅前两个互斥
+    displayGroup->setExclusive(true);
+    displayGroup->addButton(btnLineScan);
+    displayGroup->addButton(btnLineWave);
+    btnLineScan->setChecked(true);
+    // 线扫描:隐藏左侧面板,只显示 B-SCAN (纯视图切换; 互斥组内再点击保持选中)
+    connect(btnLineScan, &QToolButton::clicked, this, [this, btnLineScan]() {
+        btnLineScan->setChecked(true);
         if (m_leftPanel) m_leftPanel->hide();
         if (m_currentTab && m_currentTab->chartView) m_currentTab->chartView->setGainVisible(false);
     });
     // 线扫描+波形:显示左侧面板(增益/波形)
-    connect(btnHZoomOut, &QToolButton::clicked, this, [this]() {
-        if (!requireOpenFile()) return;
+    connect(btnLineWave, &QToolButton::clicked, this, [this, btnLineWave]() {
+        btnLineWave->setChecked(true);
         if (m_leftPanel) m_leftPanel->show();
         if (m_leftStack) m_leftStack->setCurrentWidget(m_gainPage);
         if (m_currentTab && m_currentTab->chartView) m_currentTab->chartView->setGainVisible(true);
     });
-    // 波列图 = 堆积图(wiggle)切换
-    btnHRestore->setCheckable(true);
-    m_btnStack = btnHRestore;
-    connect(btnHRestore, &QToolButton::clicked, this, [this, btnHRestore]() {
+    // 波列图 = 堆积图(wiggle)切换 (与显示模式正交,不进互斥组; m_btnStack 供 switchToTab 同步)
+    m_btnStack = btnWiggle;
+    connect(btnWiggle, &QToolButton::clicked, this, [this, btnWiggle]() {
         if (!requireOpenFile()) {
-            btnHRestore->setChecked(false);
+            btnWiggle->setChecked(false);
             return;
         }
-        m_wiggleMode = btnHRestore->isChecked();
+        m_wiggleMode = btnWiggle->isChecked();
         if (m_currentTab) {
             m_currentTab->wiggleMode = m_wiggleMode;
             m_currentTab->imageLabel->setCrosshairDark(m_wiggleMode);  // 堆积图白底→黑十字
@@ -5061,34 +5012,34 @@ void MainWindow::createMenuBar()
         resizeImageLabel();
     });
 
-    // 色彩渲染 group (彩虹色/线性变换表) — 在图像显示组按钮后面追加
-    {
-        QToolButton *paletteBtn = makeBtn(":/icons/resources/palette.png", QString::fromUtf8("彩虹色"));
-        // 在图标底部画一个小三角，表示可下拉
-        {
-            QPixmap pix(":/icons/resources/palette.png");
-            QPixmap combined(pix.size());
-            combined.fill(Qt::transparent);
-            QPainter p(&combined);
-            p.drawPixmap(0, 0, pix);
-            int w = pix.width();
-            int h = pix.height();
-            p.setPen(Qt::NoPen);
-            p.setBrush(paletteBtn->palette().color(QPalette::ButtonText));
-            QPolygon tri;
-            tri << QPoint(w/2 - 4, h - 5) << QPoint(w/2 + 4, h - 5) << QPoint(w/2, h);
-            p.drawPolygon(tri);
-            p.end();
-            paletteBtn->setIcon(QIcon(combined));
-        }
-        paletteBtn->setPopupMode(QToolButton::InstantPopup);
-        paletteBtn->setStyleSheet(
-            "QToolButton { border: none; border-radius: 3px; background: transparent; font-size: 11px; }"
-            "QToolButton:hover { background: #dce7f5; }"
-            "QToolButton:pressed { background: #b8d0ea; }"
+    // ===== 组3: 色彩渲染 (两行下拉框样式, 按设计稿) =====
+    QHBoxLayout *colorRow = addRibbonGroup(startLayout, QString::fromUtf8("色彩渲染"));
+    QVBoxLayout *colorRows = new QVBoxLayout();
+    colorRows->setSpacing(6);
+    colorRow->addLayout(colorRows);
+
+    // 下拉框样式的行按钮: [16px图标] 文字 ▾
+    auto comboRowBtn = [&cDark](const QString &glyph, const QString &text) -> QToolButton* {
+        QToolButton *btn = new QToolButton();
+        if (MatIcon::ready())
+            btn->setIcon(MatIcon::icon(glyph, QColor(0x42, 0x46, 0x54), QColor(), cDark, 16));
+        btn->setText(text + QString(QChar(0x25BE)));   // ▾
+        btn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        btn->setIconSize(QSize(16, 16));
+        btn->setPopupMode(QToolButton::InstantPopup);
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setStyleSheet(
+            "QToolButton { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
+            " font-size: 12px; color: #121c2a; padding: 3px 8px; }"
+            "QToolButton:hover { background: #dee9fc; border: 1px solid #737785; }"
             "QToolButton::menu-indicator { image: none; }"
-            "QToolButton::down-arrow { image: none; }"
-        );
+            "QToolButton::down-arrow { image: none; }");
+        return btn;
+    };
+
+    // 彩虹色(调色板): 现有 30 调色板悬停预览菜单逻辑原样保留
+    {
+        QToolButton *paletteBtn = comboRowBtn(QStringLiteral("palette"), QString::fromUtf8("彩虹色"));
         QMenu *paletteMenu = new QMenu(paletteBtn);
 
         // 事件过滤器：悬停预览 + 点击确认
@@ -5186,36 +5137,12 @@ void MainWindow::createMenuBar()
         });
 
         paletteBtn->setMenu(paletteMenu);
-        zoomBtns->addWidget(paletteBtn);
+        colorRows->addWidget(paletteBtn);
     }
 
-    // 颜色变换表 button (在调色板旁边)
+    // 线性变换表(颜色变换): 现有 20 变换悬停预览菜单逻辑原样保留
     {
-        QToolButton *colorXformBtn = makeBtn(":/icons/resources/palette.png", QString::fromUtf8("线性变换表"));
-        // 在图标底部画倒三角
-        {
-            QPixmap pix(":/icons/resources/palette.png");
-            QPixmap combined(pix.size());
-            combined.fill(Qt::transparent);
-            QPainter p(&combined);
-            p.drawPixmap(0, 0, pix);
-            int w = pix.width();
-            int h = pix.height();
-            p.setPen(Qt::NoPen);
-            p.setBrush(colorXformBtn->palette().color(QPalette::ButtonText));
-            QPolygon tri;
-            tri << QPoint(w/2 - 4, h - 5) << QPoint(w/2 + 4, h - 5) << QPoint(w/2, h);
-            p.drawPolygon(tri);
-            p.end();
-            colorXformBtn->setIcon(QIcon(combined));
-        }
-        colorXformBtn->setPopupMode(QToolButton::InstantPopup);
-        colorXformBtn->setStyleSheet(
-            "QToolButton { border: none; border-radius: 3px; background: transparent; font-size: 11px; }"
-            "QToolButton:hover { background: #dce7f5; }"
-            "QToolButton:pressed { background: #b8d0ea; }"
-            "QToolButton::menu-indicator { image: none; }"
-        );
+        QToolButton *colorXformBtn = comboRowBtn(QStringLiteral("tune"), QString::fromUtf8("线性变换表"));
         QMenu *cxMenu = new QMenu(colorXformBtn);
 
         // 悬停预览事件过滤器(与调色板风格一致)
@@ -5300,79 +5227,32 @@ void MainWindow::createMenuBar()
         });
 
         colorXformBtn->setMenu(cxMenu);
-        zoomBtns->addWidget(colorXformBtn);
+        colorRows->addWidget(colorXformBtn);
     }
 
-    // 数据信息 group (文件头)
-    QVBoxLayout *infoGroup = addGroup(startLayout, QString::fromUtf8("数据信息"));
-    QHBoxLayout *infoBtns = qobject_cast<QHBoxLayout*>(infoGroup->itemAt(0)->layout());
-    QToolButton *btnHeader = makeBtn(":/icons/resources/icon_fileheader_64.png", QString::fromUtf8("文件头"));
-    infoBtns->addWidget(btnHeader);
+    // ===== 组4: 数据信息 (文件头, 末组无分隔线; active 态 bg#d9e3f6+边框#c3c6d6) =====
+    QHBoxLayout *infoRow = addRibbonGroup(startLayout, QString::fromUtf8("数据信息"), true);
+    QToolButton *btnHeader = new QToolButton();
+    if (MatIcon::ready())
+        btnHeader->setIcon(MatIcon::icon(QStringLiteral("info"), cPrimary, QColor(), cDark, 24, 1.0));  // FILL=1 实心
+    btnHeader->setText(QString::fromUtf8("文件头"));
+    btnHeader->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    btnHeader->setIconSize(QSize(24, 24));
+    btnHeader->setMinimumSize(80, 52);
+    btnHeader->setCheckable(true);
+    btnHeader->setCursor(Qt::PointingHandCursor);
+    btnHeader->setStyleSheet(
+        "QToolButton { border: 1px solid transparent; border-radius: 2px; background: transparent;"
+        " font-size: 12px; font-weight: bold; color: #121c2a; padding: 2px; }"
+        "QToolButton:hover { background: #dee9fc; }"
+        "QToolButton:pressed { background: #c9d8f0; }"
+        "QToolButton:checked { background: #d9e3f6; border: 1px solid #c3c6d6; }");
+    infoRow->addWidget(btnHeader);
     connect(btnHeader, &QToolButton::clicked, this, &MainWindow::showFileHeader);
+    m_btnHeaderToggle = btnHeader;   // 与右侧文件头栏开合联动(Step4)
 
-    // 简易处理 group
-    QVBoxLayout *processGroup = addGroup(startLayout, "简易处理");
-    QHBoxLayout *processBtns = qobject_cast<QHBoxLayout*>(processGroup->itemAt(0)->layout());
-    QToolButton *btnOneClickStart = makeBtn(":/icons/resources/autoprocess.png", "一键处理");
-    connect(btnOneClickStart, &QToolButton::clicked, this, &MainWindow::showOneClickProcess);
-    processBtns->addWidget(btnOneClickStart);
-    QToolButton *btnAdjZero = makeBtn(":/icons/resources/adjustzero.png", "调节零点");
-    connect(btnAdjZero, &QToolButton::clicked, this, [this]() {
-        if (!requireOpenFile()) return;
-        m_leftStack->setCurrentWidget(m_zeroPage);
-        m_leftPanel->show();
-        if (chartView) {
-            chartView->setGainVisible(false);
-            chartView->setYScale(20.0f / 511.0f);
-            float zeroOff = m_zeroRangePctSpin ? -m_zeroRangePctSpin->value() * 0.2f : 0.0f;
-            chartView->setZeroOffset(zeroOff);
-            updateChart(m_lastChartX);
-        }
-    });
-    processBtns->addWidget(btnAdjZero);
-    QToolButton *btnCorrectOffsetStart = makeBtn(":/icons/resources/correctoffset.png", "校正零偏");
-    connect(btnCorrectOffsetStart, &QToolButton::clicked, this, &MainWindow::showCorrectOffset);
-    processBtns->addWidget(btnCorrectOffsetStart);
-    QToolButton *btnBgRemoveStart = makeBtn(":/icons/resources/bgremove.png", "背景消除");
-    connect(btnBgRemoveStart, &QToolButton::clicked, this, &MainWindow::showBackgroundRemoval);
-    processBtns->addWidget(btnBgRemoveStart);
-    QToolButton *btnAdjGainStart = makeBtn(":/icons/resources/adjustgain.png", "调节增益");
-    connect(btnAdjGainStart, &QToolButton::clicked, this, [this]() {
-        if (!requireOpenFile()) return;
-        m_leftStack->setCurrentWidget(m_gainPage);
-        if (m_currentTab) {
-            QFileInfo fi(m_currentTab->filePath);
-            m_leftPanel->setWindowTitle(QString("增益-%1").arg(fi.completeBaseName()));
-        }
-        m_leftPanel->setWindowIcon(QIcon(":/icons/resources/adjustgain.png"));
-        m_leftPanel->setVisible(!m_leftPanel->isVisible());
-        if (m_leftPanel->isVisible() && chartView) {
-            resetGainPanel();   // 打开时重置增益为默认,清除上次残留值
-            chartView->setGainVisible(true);
-            chartView->setYScale(1.0f);
-            QValueAxis *axisY = qobject_cast<QValueAxis*>(chartView->chart()->axisY(chartSeries));
-            if (axisY) {
-                axisY->setRange(0, m_pixelsPerRow - 1);
-                axisY->setLabelFormat("%d");
-            }
-            updateChart(m_lastChartX);
-        }
-    });
-    processBtns->addWidget(btnAdjGainStart);
-    QToolButton *btnDigFilterStart = makeBtn(":/icons/resources/filter.png", "数字滤波");
-    processBtns->addWidget(btnDigFilterStart);
-    connect(btnDigFilterStart, &QToolButton::clicked, this, &MainWindow::showDigitalFilter);
-    processBtns->addWidget(makeBtn(":/icons/resources/batch.png", "批处理"));
-
-    // 其他 group
-    QVBoxLayout *otherGroup = addGroup(startLayout, QString::fromUtf8("其他"));
-    QHBoxLayout *otherBtns = qobject_cast<QHBoxLayout*>(otherGroup->itemAt(0)->layout());
-    QToolButton *btnAbout = makeBtn(":/icons/resources/icon_about_64.png", QString::fromUtf8("关于"));
-    QToolButton *btnUpgrade = makeBtn(":/icons/resources/icon_upgrade_64.png", QString::fromUtf8("升级"));
-    otherBtns->addWidget(btnAbout);
-    otherBtns->addWidget(btnUpgrade);
-    connect(btnAbout, &QToolButton::clicked, this, &MainWindow::showAbout);
-    connect(btnUpgrade, &QToolButton::clicked, this, &MainWindow::showUpgrade);
+    // (v1.0.87 删除"简易处理"与"其他"组: 处理功能全部在"数据处理"标签,
+    //  关于/升级移至顶栏右上角齿轮菜单 — 严格按 主页-文件头.png 只保留 4 组)
 
     startLayout->addStretch();
     ribbonTab->addTab(startPage, QString::fromUtf8("主页"));

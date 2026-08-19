@@ -35,7 +35,9 @@ DEFINES += QT_DEPRECATED_WARNINGS
 
 SOURCES += \
     src/main.cpp \
-    src/MainWindow.cpp
+    src/MainWindow.cpp \
+    src/MatIcon.cpp \
+    src/TopBar.cpp
 
 INCLUDEPATH += $$PWD/include
 
@@ -55,7 +57,9 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
 
 HEADERS += \
-    include/MainWindow.h
+    include/MainWindow.h \
+    include/MatIcon.h \
+    include/TopBar.h
 
 RESOURCES += \
     resources.qrc

@@ -31,10 +31,14 @@ set(OpenCV_LIBS
 set(SOURCES
     src/main.cpp
     src/MainWindow.cpp
+    src/MatIcon.cpp
+    src/TopBar.cpp
 )
 
 set(HEADERS
     include/MainWindow.h
+    include/MatIcon.h
+    include/TopBar.h
 )
 
 set(RESOURCES

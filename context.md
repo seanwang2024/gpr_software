@@ -1,19 +1,31 @@
 # 项目上下文 (2026-08-19)
 
 ## 项目概述
-劳雷GPR(探地雷达)数据处理软件,Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, 当前版本 v1.0.86
+劳雷GPR(探地雷达)数据处理软件,Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, 当前版本 v1.0.87
 
 ## 当前工作: UI重构
-按 `specs/软件需求20260817/UI/主页-文件头.png` 重构主页界面
+按 `specs/软件需求20260817/软件需求20260817/UI/主页-文件头.png`(同源HTML=精确规格)彻底重构
 
-### 已完成(v1.0.85-1.0.86):
-- 标题改为"劳雷"(原"劳雷AI数据处理")
-- 5个菜单标签: 主页/编辑/数据处理/数据解译/AI分析(后3个占位)
-- 主页4组: 文件操作(打开/关闭/保存) | 图像显示(线扫描/线扫描+波形/波列图) | 色彩渲染(彩虹色/线性变换表) | 数据信息(文件头)
-- 波列图=堆积图(wiggle)切换
-- 文件头从弹窗改为左侧内嵌面板
-- 配色: 浅蓝主题(#f8f9ff背景/#eef4ff面板/#004aae选中)
-- 已提取37+56个UI参考PNG到 resources/ui_ref/
+### 已完成(v1.0.87 头部彻底重构):
+- **图标系统**: 内嵌 Material Symbols Outlined 矢量字体(设计稿同款) + JetBrains Mono
+  - `include/MatIcon.h/.cpp`: MatIcon::icon(name,color,checked,hover,size,fill) 按码点渲染
+  - resources/fonts/ 三件套(ttf+codepoints+mono), qrc /fonts 前缀
+- **顶栏 TopBar** (`include/TopBar.h/.cpp`, 40px, 替代旧CustomTitleBar已删除):
+  劳雷▾品牌下拉(打开/关闭/保存+数据组装/工作路径/格式转换占位) | 5模块标签(互斥,active=蓝字+底2px蓝线)
+  | 右上角⚙(关于+检查升级)/?(占位)/◯(占位) | —□×
+- **Ribbon 120px**: tabBar隐藏,模块切换由TopBar驱动; 主页4组(组名在底+竖分隔线):
+  文件操作 | 图像显示(线扫描/线扫描+波形互斥active=#1e60d5, 波列图独立checkable=m_btnStack)
+  | 色彩渲染=两行下拉框样式(挂原30调色板/20变换表菜单) | 数据信息(文件头toggle)
+- **文件头右侧350px栏**: 标题栏40px(文件头属性+✕) + 8行两列表格(键白/值等宽mono),
+  字段: 文件名/天线频率(型号→MHz表)/采样点数/总道数/时窗/介电常数/采集日期/道间距
+  - readDztHeaderInfo()/createHeaderPanel()/setHeaderPanelVisible()/refreshHeaderPanel()
+  - 切tab刷新, 无文件收起, toggle后重定位悬浮切换按钮
+- **状态栏28px**: 左●就绪 | 右mono"道号:N 深度:X m"(其余3项进tooltip)+进度条
+- 删除: 主页简易处理/其他组(功能在数据处理tab)、旧缩放按钮、左侧树形文件头面板
+- 配色token: #0048af主色(原#004aae)/#f8f9ff面/#dee9fc悬停/#d9e3f6状态栏/#c3c6d6线
+
+### v1.0.85-1.0.86(已被1.0.87替代):
+- 5个菜单标签框架/波列图切换/浅蓝主题雏形
 
 ## DZX PROCESS 逆向(已完成)
 完整typeId映射已验证(27组文件交叉对照):

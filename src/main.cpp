@@ -2,6 +2,7 @@
 #include <QFile>
 #include <QCoreApplication>
 #include "MainWindow.h"
+#include "MatIcon.h"
 #include "version.h"
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -57,6 +58,9 @@ int main(int argc, char *argv[])
     qInstallMessageHandler(silentMessageHandler); // 屏蔽其他 qDebug
 
     QApplication app(argc, argv);
+
+    // Material Symbols 矢量图标字体(设计稿同款) — 失败仅告警, UI 回退 PNG
+    MatIcon::init();
 
 #ifdef Q_OS_WIN
     if (hasConsole) {

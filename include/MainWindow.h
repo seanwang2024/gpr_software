@@ -27,6 +27,7 @@
 #include <QStackedWidget>
 #include <QCheckBox>
 #include <QSplitter>
+#include "TopBar.h"
 #include <QNetworkAccessManager>
 
 QT_BEGIN_NAMESPACE
@@ -164,26 +165,7 @@ private:
     double m_hypTimePerSample = 0.039; // ns
 };
 
-// 自定义标题栏：LOGO + 居中标题 + 最小/最大/关闭按钮
-class CustomTitleBar : public QWidget
-{
-    Q_OBJECT
-
-public:
-    explicit CustomTitleBar(QWidget *parent = nullptr);
-    void setTitleText(const QString &text);
-
-protected:
-    void mousePressEvent(QMouseEvent *event) override;
-    void mouseDoubleClickEvent(QMouseEvent *event) override;
-
-private:
-    QLabel *m_logoLabel;
-    QLabel *m_titleLabel;
-    QPushButton *m_btnMin;
-    QPushButton *m_btnMax;
-    QPushButton *m_btnClose;
-};
+// (v1.0.87 旧 CustomTitleBar 已删除, 由 TopBar.h 的 TopBar 替代 — 严格按 主页-文件头.png)
 
 // Per-file data and widgets for each open tab
 struct TabData {
@@ -277,6 +259,16 @@ private:
     void showWelcome();
     void hideWelcome();
     void showFileHeader();
+    void createHeaderPanel();                  // v1.0.87 右侧350px文件头属性栏
+    void setHeaderPanelVisible(bool visible); // 开关右栏+同步主页按钮+重定位悬浮切换按钮
+    void refreshHeaderPanel();                // 解析当前DZT头填充8字段
+
+    struct DztHeaderInfo {                     // 右栏8字段所需的DZT头子集
+        QString fileName, createDate, antName;
+        int nsamp = 0;
+        float range = 0.f, epsr = 0.f, spm = 0.f;
+    };
+    bool readDztHeaderInfo(DztHeaderInfo &out);
     void showDigitalFilter();
     void showMovingAverage();
     void applyMovingAverage();
@@ -292,8 +284,8 @@ private:
     QLabel *coordinateLabel;
     QTreeWidget *gainTree;
     QTreeWidgetItem *m_gainSampleEndItem = nullptr;  // 增益面板"采样点数/结束"(随 nsamp 更新)
-    QWidget *m_headerTreePanel = nullptr;            // 文件头信息面板(内嵌,非弹窗)
-    QLayout *m_headerTreeLayout = nullptr;           // 文件头面板布局
+    QWidget *m_headerPanel = nullptr;                // v1.0.87 右侧350px文件头属性栏
+    QVector<QLabel*> m_headerValueLabels;            // 8个值单元格(文件名/天线频率/采样点数/总道数/时窗/介电常数/采集日期/道间距)
     QDialog *m_leftPanel;
     QStackedWidget *m_leftStack;
     QWidget *m_gainPage;
@@ -311,7 +303,8 @@ private:
     QStringList m_welcomeTips;          // 4 个功能说明(悬停显示在右上角)
     QList<QPixmap> m_welcomeIconPix;    // 预切的 4 个图标(放大用)
     QTabWidget *m_docTabWidget;
-    CustomTitleBar *m_titleBar = nullptr;
+    TopBar *m_topBar = nullptr;              // v1.0.87 顶栏(劳雷▾+5模块标签+齿轮/帮助/账号+窗口控制)
+    QToolButton *m_btnHeaderToggle = nullptr; // 主页"文件头"按钮(与右侧文件头栏开合联动)
 
     // Tab group management (splitter)
     QSplitter *m_docSplitter = nullptr;
