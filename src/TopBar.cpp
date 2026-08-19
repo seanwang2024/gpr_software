@@ -238,7 +238,7 @@ TopBar::TopBar(QWidget *parent)
     connect(aAbout, &QAction::triggered, this, [this] { emit aboutRequested(); });
     QAction *aUpgrade = m_settingsMenu->addAction(QStringLiteral("检查升级"));
     connect(aUpgrade, &QAction::triggered, this, [this] { emit upgradeRequested(); });
-    connect(m_settingsBtn, &QToolButton::clicked, this, [this, &popupRight]() {
+    connect(m_settingsBtn, &QToolButton::clicked, this, [this, popupRight]() {
         popupRight(m_settingsBtn, m_settingsMenu);
     });
     corner->addWidget(m_settingsBtn);
@@ -249,7 +249,7 @@ TopBar::TopBar(QWidget *parent)
     helpMenu->setStyleSheet(kMenuSS);
     QAction *aHelpDoc = helpMenu->addAction(QStringLiteral("帮助文档"));
     connect(aHelpDoc, &QAction::triggered, this, [this] { emit helpRequested(); });
-    connect(helpBtn, &QToolButton::clicked, this, [helpBtn, helpMenu, &popupRight]() {
+    connect(helpBtn, &QToolButton::clicked, this, [helpBtn, helpMenu, popupRight]() {
         popupRight(helpBtn, helpMenu);
     });
     corner->addWidget(helpBtn);
@@ -260,7 +260,7 @@ TopBar::TopBar(QWidget *parent)
     accountMenu->setStyleSheet(kMenuSS);
     QAction *aAccount = accountMenu->addAction(QStringLiteral("账号信息"));
     connect(aAccount, &QAction::triggered, this, [this] { emit accountRequested(); });
-    connect(accountBtn, &QToolButton::clicked, this, [accountBtn, accountMenu, &popupRight]() {
+    connect(accountBtn, &QToolButton::clicked, this, [accountBtn, accountMenu, popupRight]() {
         popupRight(accountBtn, accountMenu);
     });
     corner->addWidget(accountBtn);

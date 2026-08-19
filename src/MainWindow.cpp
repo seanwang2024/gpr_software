@@ -5042,14 +5042,14 @@ void MainWindow::createMenuBar()
     };
 
     // 线扫描: 只显示 B-SCAN — 隐藏 A-SCAN 波形列, 关闭 wiggle 渲染
-    connect(btnLineScan, &QToolButton::clicked, this, [this, btnLineScan, &setWiggle]() {
+    connect(btnLineScan, &QToolButton::clicked, this, [this, btnLineScan, setWiggle]() {
         btnLineScan->setChecked(true);
         m_showAscan = false;
         if (m_wiggleMode) setWiggle(false);
         syncAscanVisibility();
     });
     // 线扫描+波形: B-SCAN + A-SCAN(波形)并列显示 — 关闭 wiggle, 恢复纯波形标尺(无增益手柄)
-    connect(btnLineWave, &QToolButton::clicked, this, [this, btnLineWave, &setWiggle]() {
+    connect(btnLineWave, &QToolButton::clicked, this, [this, btnLineWave, setWiggle]() {
         btnLineWave->setChecked(true);
         m_showAscan = true;
         if (m_wiggleMode) setWiggle(false);
@@ -5070,7 +5070,7 @@ void MainWindow::createMenuBar()
     });
     // 波列图: 纯 wiggle 视图 — 隐藏 A-SCAN 波形列 (退出波列图请点线扫描/线扫描+波形)
     m_btnStack = btnWiggle;
-    connect(btnWiggle, &QToolButton::clicked, this, [this, btnWiggle, btnLineScan, &setWiggle]() {
+    connect(btnWiggle, &QToolButton::clicked, this, [this, btnWiggle, btnLineScan, setWiggle]() {
         if (!requireOpenFile()) {
             btnLineScan->setChecked(true);   // 无文件回退线扫描(互斥组内, 程序化setChecked不发clicked)
             return;
