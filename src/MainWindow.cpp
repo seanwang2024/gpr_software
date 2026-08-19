@@ -2349,6 +2349,7 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     });
 
     // 新建 tab 立即成为当前 tab → 同步标题（防止 currentChanged 信号未触发的边界情况）
+    tab->markers = readDzxMarkers(filePath);   // v1.0.98: 同名 DZX <MarkGroup> 标记
     m_currentTab = tab;
     updateWindowTitle();
 
@@ -3446,6 +3447,107 @@ double MainWindow::readDzxUnitsPerScan(const QString &dztPath)
     return 0.0;
 }
 
+// 读同名 DZX 的 <MarkGroup> 标记(仅 MarkGroup 内的 <scan>, 不碰 WayPt 的 scan; 失败返回空表)
+QVector<int> MainWindow::readDzxMarkers(const QString &dztPath)
+{
+    QVector<int> markers;
+    QFileInfo fi(dztPath);
+    QFile f(fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX");
+    if (!f.open(QIODevice::ReadOnly)) return markers;
+    QXmlStreamReader r(&f);
+    bool inGroup = false, inScan = false;
+    while (!r.atEnd()) {
+        const QXmlStreamReader::TokenType tok = r.readNext();
+        if (tok == QXmlStreamReader::StartElement) {
+            if (r.name() == QStringLiteral("MarkGroup")) inGroup = true;
+            else if (inGroup && r.name() == QStringLiteral("scan")) inScan = true;
+        } else if (tok == QXmlStreamReader::Characters && inScan) {
+            bool ok = false;
+            const int v = r.text().toInt(&ok);
+            if (ok && v >= 0) markers.append(v);
+        } else if (tok == QXmlStreamReader::EndElement) {
+            if (r.name() == QStringLiteral("scan")) inScan = false;
+            else if (r.name() == QStringLiteral("MarkGroup")) inGroup = false;
+        }
+    }
+    std::sort(markers.begin(), markers.end());
+    return markers;
+}
+
+// 标记写回同名 DZX: 文本级手术(RADAN 原字节不动); 无 DZX 则新建最小文件; 空表也写(显式清空)
+bool MainWindow::writeDzxMarkers(const QString &dztPath, const QVector<int> &markers)
+{
+    QFileInfo fi(dztPath);
+    const QString dzxPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX";
+
+    QString block = QStringLiteral("  <MarkGroup>\r\n    <display>1</display>\r\n");
+    for (int t : markers)
+        block += QStringLiteral("    <Mark>\r\n      <scan>%1</scan>\r\n    </Mark>\r\n").arg(t);
+    block += QStringLiteral("  </MarkGroup>\r\n");
+
+    QByteArray content;
+    QFile f(dzxPath);
+    if (f.exists() && f.open(QIODevice::ReadOnly)) {
+        content = f.readAll();
+        f.close();
+    }
+    if (!content.isEmpty()) {
+        const QByteArray blockUtf8 = block.toUtf8();
+        const int s = content.indexOf("<MarkGroup>");
+        if (s >= 0) {
+            const int e = content.indexOf("</MarkGroup>", s);
+            if (e < 0) return false;
+            content.replace(s, e + 12 - s, blockUtf8);   // 替换既有 MarkGroup 区段
+        } else {
+            const int e = content.lastIndexOf("</DZX>");
+            if (e < 0) return false;
+            content.insert(e, blockUtf8);                // 插到 </DZX> 之前
+        }
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+        f.write(content);
+        f.close();
+    } else {
+        if (!f.open(QIODevice::WriteOnly)) return false;
+        QByteArray xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
+                         "<DZX xmlns=\"www.geophysical.com/DZX/1.02\">\r\n";
+        xml += block.toUtf8();
+        xml += "</DZX>\r\n";
+        f.write(xml);
+        f.close();
+    }
+
+    // mtime 同步 DZT: 仅当 DZX 不含 BinaryData(含则改时间会触发打开时自动处理链重复生成 _P_ 对)
+    if (!content.contains("<BinaryData"))
+        syncDzxMtimeToDzt(dztPath, dzxPath);
+    return true;
+}
+
+// Windows: 把 DZX 时间戳设为与 DZT 完全一致(QFile 无此 API, 借 Win32)
+bool MainWindow::syncDzxMtimeToDzt(const QString &dztPath, const QString &dzxPath)
+{
+#ifdef Q_OS_WIN
+    bool ok = false;
+    HANDLE hd = CreateFileW((const wchar_t *)dztPath.utf16(), GENERIC_READ,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hd != INVALID_HANDLE_VALUE) {
+        HANDLE hx = CreateFileW((const wchar_t *)dzxPath.utf16(), GENERIC_WRITE, FILE_SHARE_READ,
+                                nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hx != INVALID_HANDLE_VALUE) {
+            FILETIME ct, at, wt;
+            if (GetFileTime(hd, &ct, &at, &wt))
+                ok = SetFileTime(hx, &ct, &at, &wt) != FALSE;
+            CloseHandle(hx);
+        }
+        CloseHandle(hd);
+    }
+    return ok;
+#else
+    Q_UNUSED(dztPath); Q_UNUSED(dzxPath);
+    return false;
+#endif
+}
+
 // 米/道: DZT spm>0 → 1/spm; 否则 DZX unitsPerScan; 都无 → 0
 double MainWindow::markerSpacingM()
 {
@@ -3668,11 +3770,19 @@ void MainWindow::deleteMarkerRow()
     commitMarkers();
 }
 
-// 标记提交: 排序 + 面板/覆盖层/缩略图刷新 + 持久化(S4 接 DZX MarkGroup)
+// 标记提交: 排序 + 持久化到 DZX <MarkGroup> + 面板/覆盖层/缩略图刷新
 void MainWindow::commitMarkers()
 {
     if (!m_currentTab) return;
     std::sort(m_currentTab->markers.begin(), m_currentTab->markers.end());
+    if (!writeDzxMarkers(m_currentTab->filePath, m_currentTab->markers)) {
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            QMessageBox::warning(this, QString::fromUtf8("标记保存"),
+                QString::fromUtf8("标记写入 DZX 失败(文件可能被占用/只读), 本次修改仅在内存中生效。"));
+        }
+    }
     refreshMarkerPanel();
     updateMarkerThumb();
 }

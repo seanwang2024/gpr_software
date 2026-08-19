@@ -343,6 +343,9 @@ private:
     void commitMarkers();                     // 标记提交: 排序+刷新+持久化(S4接DZX)
     double markerSpacingM();                  // 米/道(spm 优先, DZX unitsPerScan 兜底)
     static double readDzxUnitsPerScan(const QString &dztPath);
+    static QVector<int> readDzxMarkers(const QString &dztPath);      // 读 DZX <MarkGroup>
+    bool writeDzxMarkers(const QString &dztPath, const QVector<int> &markers);  // 写回(文本级手术)
+    static bool syncDzxMtimeToDzt(const QString &dztPath, const QString &dzxPath);
 
     struct DztHeaderInfo {                     // 右栏8字段所需的DZT头子集
         QString fileName, createDate, antName;
