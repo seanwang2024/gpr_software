@@ -9,6 +9,7 @@ extern void diagPrint(const QString &msg);
 #include <QButtonGroup>
 #include <QTimer>
 #include <QFileDialog>
+#include <QGraphicsDropShadowEffect>
 #include <QXmlStreamReader>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -3918,12 +3919,18 @@ void MainWindow::createMarkerPanel()
 
     QWidget *rbody = new QWidget(right);
     QVBoxLayout *rbl = new QVBoxLayout(rbody);
-    rbl->setContentsMargins(12, 12, 12, 12);   // 缩略图四周留白(不铺满小窗)
-    rbl->addStretch(1);                        // 横向长条缩略图垂直居中, 不撑满整个高度
+    rbl->setContentsMargins(12, 8, 12, 8);     // 左右12px; 上下由弹性间距控制
+    rbl->addStretch(2);                        // 上侧留白 20%
     m_markerThumb = new MarkerThumbWidget(rbody);
     m_markerThumb->setMaximumHeight(150);
+    // 浮影效果(悬浮感)
+    auto *thumbShadow = new QGraphicsDropShadowEffect(m_markerThumb);
+    thumbShadow->setBlurRadius(12);
+    thumbShadow->setOffset(0, 2);
+    thumbShadow->setColor(QColor(18, 28, 42, 60));
+    m_markerThumb->setGraphicsEffect(thumbShadow);
     rbl->addWidget(m_markerThumb);
-    rbl->addStretch(1);
+    rbl->addStretch(1);                        // 下侧留白 10%
     rl->addWidget(rbody, 1);
 
     lay->addWidget(left, 40);
@@ -6586,29 +6593,26 @@ void MainWindow::createMenuBar()
 
         editLayout->addStretch(1);   // 关键: 剩余宽度给尾部空白(此前两组被撑开,按钮间距过大)
 
-        // 三按钮联动(v1.0.100 规则): 标记/数据块互斥; 缩放是标记模式的子开关
+        // 三按钮联动(v1.0.102 规则): 标记/数据块不可取消、必居其一(默认标记);
+        // 缩放可自由勾选/取消; 数据块选中时右栏恒显属性面板(无视缩放勾选)
         connect(m_btnEditMarker, &QToolButton::clicked, this, [this](bool on) {
-            if (on && !requireOpenFile()) { m_btnEditMarker->setChecked(false); return; }
-            if (on && m_btnEditBlock && m_btnEditBlock->isChecked())
-                m_btnEditBlock->setChecked(false);              // 与数据块互斥
-            if (!on && m_btnHZoom && m_btnHZoom->isChecked())
-                m_btnHZoom->setChecked(false);                  // 缩放随标记模式关闭
+            if (!on) { m_btnEditMarker->setChecked(true); return; }   // 不可取消
+            if (!requireOpenFile()) { m_btnEditMarker->setChecked(false); return; }
+            if (m_btnEditBlock && m_btnEditBlock->isChecked())
+                m_btnEditBlock->setChecked(false);                    // 与数据块互斥
             syncEditUiState();
         });
         connect(m_btnEditBlock, &QToolButton::clicked, this, [this](bool on) {
-            if (on && !requireOpenFile()) { m_btnEditBlock->setChecked(false); return; }
-            if (on) {
-                if (m_btnEditMarker && m_btnEditMarker->isChecked())
-                    m_btnEditMarker->setChecked(false);         // 与标记互斥
-                if (m_btnHZoom && m_btnHZoom->isChecked())
-                    m_btnHZoom->setChecked(false);              // 缩放属于标记模式
-            }
+            if (!on) { m_btnEditBlock->setChecked(true); return; }    // 不可取消
+            if (!requireOpenFile()) { m_btnEditBlock->setChecked(false); return; }
+            if (m_btnEditMarker && m_btnEditMarker->isChecked())
+                m_btnEditMarker->setChecked(false);                   // 与标记互斥
             syncEditUiState();
         });
         connect(m_btnHZoom, &QToolButton::clicked, this, [this](bool on) {
-            if (on && !requireOpenFile()) { m_btnHZoom->setChecked(false); return; }
-            if (on && m_btnEditMarker && !m_btnEditMarker->isChecked())
-                m_btnEditMarker->setChecked(true);              // 缩放属于标记模式: 自动进入
+            Q_UNUSED(on);   // 自由勾选/取消(无文件时不允许选中)
+            if (m_btnHZoom->isChecked() && !requireOpenFile())
+                m_btnHZoom->setChecked(false);
             syncEditUiState();
         });
 
