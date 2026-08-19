@@ -3922,7 +3922,7 @@ void MainWindow::createMarkerPanel()
     rbl->setContentsMargins(12, 8, 12, 8);     // 左右12px; 上下由弹性间距控制
     rbl->addStretch(2);                        // 上侧留白 20%
     m_markerThumb = new MarkerThumbWidget(rbody);
-    m_markerThumb->setMaximumHeight(150);
+    m_markerThumb->setFixedHeight(120);        // 横向长条高度(定值, 不再被弹性压到最小40px)
     // 浮影效果(悬浮感)
     auto *thumbShadow = new QGraphicsDropShadowEffect(m_markerThumb);
     thumbShadow->setBlurRadius(12);
@@ -3999,7 +3999,9 @@ void MainWindow::refreshMarkerPanel()
 
     if (m_currentTab && m_currentTab->imageLabel)
         m_currentTab->imageLabel->setMarkerOverlay(
-            m_btnEditMarker && m_btnEditMarker->isChecked(), mk);
+            (m_btnEditMarker && m_btnEditMarker->isChecked())
+                || (m_btnEditBlock && m_btnEditBlock->isChecked()),   // 数据块模式红线也保持
+            mk);
     if (m_markerThumb) {
         m_markerThumb->setMarkers(mk);
         m_markerThumb->setTraceCount(m_currentTab ? m_currentTab->traceCount : 0);
