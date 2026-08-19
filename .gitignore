@@ -73,3 +73,5 @@ docs*/
 
 # Training datasets and large data (local only, not pushed)
 GPR_data/
+.qtc_clangd/
+build/
