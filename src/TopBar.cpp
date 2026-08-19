@@ -98,18 +98,23 @@ TopBar::TopBar(QWidget *parent)
 
     QHBoxLayout *lay = new QHBoxLayout(this);
     lay->setContentsMargins(8, 0, 0, 0);
-    lay->setSpacing(12);
+    lay->setSpacing(24);   // 设计稿 space-x-6=24px: 品牌↔模块标签
 
-    // ---- 左: 品牌按钮 "劳雷" + ▾ ----
-    QPushButton *brand = new QPushButton(QStringLiteral("劳雷"), this);
+    // ---- 左: 品牌按钮 "劳雷" + ▾ (space-x-1=4px, 独立容器) ----
+    QWidget *brandBox = new QWidget(this);
+    QHBoxLayout *brandLay = new QHBoxLayout(brandBox);
+    brandLay->setContentsMargins(0, 0, 0, 0);
+    brandLay->setSpacing(2);
+
+    QPushButton *brand = new QPushButton(QStringLiteral("劳雷"), brandBox);
     brand->setCursor(Qt::PointingHandCursor);
     brand->setStyleSheet(
         "QPushButton { border: none; background: transparent; color: #0048af;"
         " font-size: 18px; font-weight: bold; padding: 0 4px 0 6px; }"
         "QPushButton:hover { background: #dee9fc; border-radius: 2px; }");
-    lay->addWidget(brand);
+    brandLay->addWidget(brand);
 
-    QToolButton *arrow = new QToolButton(this);
+    QToolButton *arrow = new QToolButton(brandBox);
     arrow->setCursor(Qt::PointingHandCursor);
     if (MatIcon::ready())
         arrow->setIcon(MatIcon::icon(QStringLiteral("arrow_drop_down"), QColor(0x73, 0x77, 0x85)));
@@ -118,7 +123,8 @@ TopBar::TopBar(QWidget *parent)
     arrow->setStyleSheet(
         "QToolButton { border: none; background: transparent; }"
         "QToolButton:hover { background: #dee9fc; border-radius: 2px; }");
-    lay->addWidget(arrow);
+    brandLay->addWidget(arrow);
+    lay->addWidget(brandBox);
 
     // 品牌下拉菜单(200px): 打开/关闭/保存 + 数据组装/工作路径/格式转换(占位)
     QMenu *brandMenu = new QMenu(this);
@@ -152,7 +158,7 @@ TopBar::TopBar(QWidget *parent)
 
     // ---- 中: 5 个模块标签(互斥, 顶栏即模块切换) ----
     QHBoxLayout *tabs = new QHBoxLayout;
-    tabs->setSpacing(8);
+    tabs->setSpacing(16);   // 设计稿 space-x-4=16px: 标签间距
     lay->addLayout(tabs, 1);
 
     m_moduleGroup = new QButtonGroup(this);
@@ -184,15 +190,24 @@ TopBar::TopBar(QWidget *parent)
         QToolButton *b = new QToolButton(this);
         if (MatIcon::ready())
             b->setIcon(MatIcon::icon(glyph, QColor(0x73, 0x77, 0x85), QColor(),
-                                     QColor(0x12, 0x1c, 0x2a), 20));
-        b->setIconSize(QSize(20, 20));
-        b->setFixedSize(28, 28);
+                                     QColor(0x12, 0x1c, 0x2a), 22));
+        b->setIconSize(QSize(22, 22));
+        b->setFixedSize(30, 30);
         b->setStyleSheet(
             "QToolButton { border: none; border-radius: 4px; background: transparent; }"
             "QToolButton:hover { background: #dee9fc; }");
         return b;
     };
 
+    // 三个角标 space-x-2=8px, 独立容器(不受外层 24px spacing 影响)
+    QHBoxLayout *corner = new QHBoxLayout;
+    corner->setSpacing(8);
+    auto popupRight = [](QToolButton *btn, QMenu *menu) {
+        menu->show();
+        menu->move(btn->mapToGlobal(QPoint(btn->width() - menu->width(), btn->height())));
+    };
+
+    // ⚙ 设置: 关于 + 检查升级
     m_settingsBtn = iconBtn(QStringLiteral("settings"));
     m_settingsMenu = new QMenu(this);
     m_settingsMenu->setStyleSheet(kMenuSS);
@@ -200,24 +215,35 @@ TopBar::TopBar(QWidget *parent)
     connect(aAbout, &QAction::triggered, this, [this] { emit aboutRequested(); });
     QAction *aUpgrade = m_settingsMenu->addAction(QStringLiteral("检查升级"));
     connect(aUpgrade, &QAction::triggered, this, [this] { emit upgradeRequested(); });
-    connect(m_settingsBtn, &QToolButton::clicked, this, [this]() {
-        m_settingsMenu->show();
-        m_settingsMenu->move(m_settingsBtn->mapToGlobal(
-            QPoint(m_settingsBtn->width() - m_settingsMenu->width(), m_settingsBtn->height())));
+    connect(m_settingsBtn, &QToolButton::clicked, this, [this, &popupRight]() {
+        popupRight(m_settingsBtn, m_settingsMenu);
     });
-    lay->addWidget(m_settingsBtn);
+    corner->addWidget(m_settingsBtn);
 
+    // ? 帮助: 帮助文档
     QToolButton *helpBtn = iconBtn(QStringLiteral("help"));
-    helpBtn->setEnabled(false);           // 占位, 后续版本
-    helpBtn->setToolTip(QStringLiteral("后续版本提供"));
-    lay->addWidget(helpBtn);
+    QMenu *helpMenu = new QMenu(this);
+    helpMenu->setStyleSheet(kMenuSS);
+    QAction *aHelpDoc = helpMenu->addAction(QStringLiteral("帮助文档"));
+    connect(aHelpDoc, &QAction::triggered, this, [this] { emit helpRequested(); });
+    connect(helpBtn, &QToolButton::clicked, this, [helpBtn, helpMenu, &popupRight]() {
+        popupRight(helpBtn, helpMenu);
+    });
+    corner->addWidget(helpBtn);
 
+    // ◯ 账号: 账号信息
     QToolButton *accountBtn = iconBtn(QStringLiteral("account_circle"));
-    accountBtn->setEnabled(false);       // 占位, 后续版本
-    accountBtn->setToolTip(QStringLiteral("后续版本提供"));
-    lay->addWidget(accountBtn);
+    QMenu *accountMenu = new QMenu(this);
+    accountMenu->setStyleSheet(kMenuSS);
+    QAction *aAccount = accountMenu->addAction(QStringLiteral("账号信息"));
+    connect(aAccount, &QAction::triggered, this, [this] { emit accountRequested(); });
+    connect(accountBtn, &QToolButton::clicked, this, [accountBtn, accountMenu, &popupRight]() {
+        popupRight(accountBtn, accountMenu);
+    });
+    corner->addWidget(accountBtn);
 
-    lay->addSpacing(8);
+    lay->addLayout(corner);
+    lay->addSpacing(12);
 
     // ---- 最右: 窗口控制 —□× ----
     auto winBtn = [this](const QString &text) -> QPushButton * {
@@ -233,9 +259,14 @@ TopBar::TopBar(QWidget *parent)
     QPushButton *btnMin = winBtn(QString::fromUtf8("\xE2\x80\x94"));    // —
     QPushButton *btnMax = winBtn(QString::fromUtf8("\xE2\x96\xA1"));    // □
     QPushButton *btnClose = winBtn(QString::fromUtf8("\xC3\x97"));      // ×
-    lay->addWidget(btnMin);
-    lay->addWidget(btnMax);
-    lay->addWidget(btnClose);
+    QWidget *winBox = new QWidget(this);
+    QHBoxLayout *winLay = new QHBoxLayout(winBox);
+    winLay->setContentsMargins(0, 0, 0, 0);
+    winLay->setSpacing(0);
+    winLay->addWidget(btnMin);
+    winLay->addWidget(btnMax);
+    winLay->addWidget(btnClose);
+    lay->addWidget(winBox);
 
     connect(btnMin, &QPushButton::clicked, this, [this]() {
         if (auto *w = window()) w->showMinimized();

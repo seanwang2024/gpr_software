@@ -28,6 +28,8 @@ signals:
     void saveFileRequested();        // 品牌下拉-保存
     void aboutRequested();           // 齿轮菜单-关于
     void upgradeRequested();         // 齿轮菜单-检查升级
+    void helpRequested();            // 帮助-帮助文档
+    void accountRequested();         // 账号-账号信息
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;        // 拖动移动窗口

@@ -1743,6 +1743,24 @@ MainWindow::MainWindow(QWidget *parent)
     // 齿轮菜单: 关于 / 检查升级
     connect(m_topBar, &TopBar::aboutRequested, this, &MainWindow::showAbout);
     connect(m_topBar, &TopBar::upgradeRequested, this, &MainWindow::showUpgrade);
+    // 帮助: 帮助文档
+    connect(m_topBar, &TopBar::helpRequested, this, [this]() {
+        QMessageBox::information(this, QString::fromUtf8("帮助"), QString::fromUtf8(
+            "基本操作指引:\n"
+            "1. 打开数据: 左上角\"劳雷▾\"菜单或主页\"打开\"按钮, 选择 DZT/DZX 文件\n"
+            "2. 图像显示: 主页-图像显示组 切换 线扫描 / 线扫描+波形 / 波列图\n"
+            "3. 色彩渲染: 主页-色彩渲染组 选择 彩虹色调色板(30种) 与 线性变换表(20种)\n"
+            "4. 文件头: 主页\"文件头\"按钮 在右侧栏查看当前文件元数据\n"
+            "5. 数据处理: \"数据处理\"标签提供 零点调节/滤波/增益/一键处理/批处理\n"
+            "6. 多文件: 可同时打开多个文件, 文档区标签页切换, 右上角三角按钮快速切换\n"
+            "7. 关于与升级: 顶栏右上角齿轮菜单"));
+    });
+    // 账号: 账号信息
+    connect(m_topBar, &TopBar::accountRequested, this, [this]() {
+        QMessageBox::information(this, QString::fromUtf8("账号信息"),
+            QString::fromUtf8("劳雷探地雷达数据处理软件\n版本: v%1\n\n账号登录与授权管理将在后续版本提供。")
+                .arg(APP_VERSION));
+    });
     loadLUT(12);
     connect(m_docTabWidget, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
     connect(m_docTabWidget, &QTabWidget::currentChanged, this, &MainWindow::switchToTab);

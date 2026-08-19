@@ -60,7 +60,16 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     // Material Symbols 矢量图标字体(设计稿同款) — 失败仅告警, UI 回退 PNG
-    MatIcon::init();
+    if (MatIcon::init()) {
+        if (hasConsole) {
+            diagPrint(QString("MatIcon OK: family=%1 mono=%2").arg(MatIcon::family(), MatIcon::monoFamily()));
+        }
+        // 渲染自检: 输出测试 PNG(验证字体加载/码点渲染, 排查图标不显示问题)
+        QPixmap pm = MatIcon::pixmap(QStringLiteral("settings"), QColor("#0048af"), 64);
+        pm.save(QCoreApplication::applicationDirPath() + "/maticon_test.png");
+    } else if (hasConsole) {
+        diagPrint("MatIcon FAIL: 字体未加载, 所有 UI 图标将为空!");
+    }
 
 #ifdef Q_OS_WIN
     if (hasConsole) {
