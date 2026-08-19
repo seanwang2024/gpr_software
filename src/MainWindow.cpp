@@ -584,11 +584,132 @@ void ImageLabel::setHyperbolaParams(double firstWave, double velocity, int width
     if (m_showHyperbola) update();
 }
 
+// ---- v1.0.98 编辑模块覆盖层 ----
+
+void ImageLabel::setMarkerOverlay(bool on, const QVector<int> &traces)
+{
+    m_showMarkerOverlay = on;
+    m_markerTraces = traces;
+    update();
+}
+
+void ImageLabel::setEditRectVisible(bool on)
+{
+    m_rectVisible = on;
+    if (!on) m_dragMode = DragNone;
+    update();
+}
+
+void ImageLabel::setEditRect(const QRectF &rectTS)
+{
+    m_editRectT = rectTS.normalized();
+    update();
+}
+
+void ImageLabel::setGeometryForMapping(int traceCount, int drawRows, float pxPerTrace, int wiggleStep)
+{
+    m_mapTraceCount = traceCount;
+    m_mapDrawRows = drawRows;
+    m_mapPxPerTrace = (pxPerTrace > 0.01f) ? pxPerTrace : 1.0f;
+    m_mapWiggleStep = wiggleStep;
+    update();
+}
+
+// 道号 → widget x: 普通模式 t×pxPerTrace; wiggle 槽位中心 ((t/2)*32+16)×pxPerTrace
+int ImageLabel::traceToWidgetX(int t) const
+{
+    if (m_mapWiggleStep == 2)
+        return qRound(((t / 2) * 32 + 16) * static_cast<double>(m_mapPxPerTrace));
+    return qRound(t * static_cast<double>(m_mapPxPerTrace));
+}
+
+int ImageLabel::widgetXToTrace(int x) const
+{
+    if (m_mapWiggleStep == 2)
+        return qRound(((x / static_cast<double>(m_mapPxPerTrace)) / 32.0)) * 2;   // 对齐偶数道
+    return qRound(x / static_cast<double>(m_mapPxPerTrace));
+}
+
+int ImageLabel::sampleToWidgetY(int s) const
+{
+    if (m_mapDrawRows <= 1) return 0;
+    return qRound(static_cast<double>(s) * (height() - 1) / (m_mapDrawRows - 1));
+}
+
+int ImageLabel::widgetYToSample(int y) const
+{
+    if (height() <= 1) return 0;
+    return qRound(static_cast<double>(y) * (m_mapDrawRows - 1) / qMax(1, height() - 1));
+}
+
+QRect ImageLabel::rectFromRectT() const
+{
+    const int x1 = traceToWidgetX(qRound(m_editRectT.left()));
+    const int x2 = traceToWidgetX(qRound(m_editRectT.right()));
+    const int y1 = sampleToWidgetY(qRound(m_editRectT.top()));
+    const int y2 = sampleToWidgetY(qRound(m_editRectT.bottom()));
+    return QRect(QPoint(qMin(x1, x2), qMin(y1, y2)), QPoint(qMax(x1, x2), qMax(y1, y2)));
+}
+
+// 框上方右侧 [保留][删除] pill (画在 paintEvent, mousePress 命中区测试)
+QRect ImageLabel::keepButtonRect() const
+{
+    if (!m_rectVisible) return QRect();
+    const QRect r = rectFromRectT();
+    int y = r.top() - 26;
+    if (y < 1) y = r.top() + 3;   // 框贴顶时画到框内
+    return QRect(r.right() - 116, y, 54, 21);
+}
+
+QRect ImageLabel::deleteButtonRect() const
+{
+    if (!m_rectVisible) return QRect();
+    const QRect r = rectFromRectT();
+    int y = r.top() - 26;
+    if (y < 1) y = r.top() + 3;
+    return QRect(r.right() - 58, y, 54, 21);
+}
+
+ImageLabel::DragMode ImageLabel::hitTest(const QPoint &pos, bool *onKeepBtn, bool *onDeleteBtn) const
+{
+    *onKeepBtn = *onDeleteBtn = false;
+    if (!m_rectVisible) return DragNone;
+    if (keepButtonRect().contains(pos)) { *onKeepBtn = true; return DragNone; }
+    if (deleteButtonRect().contains(pos)) { *onDeleteBtn = true; return DragNone; }
+    const QRect r = rectFromRectT();
+    static const int tol = 6;
+    const QPoint cs[8] = {
+        r.topLeft(), QPoint(r.center().x(), r.top()), r.topRight(),
+        QPoint(r.right(), r.center().y()), r.bottomRight(),
+        QPoint(r.center().x(), r.bottom()), r.bottomLeft(),
+        QPoint(r.left(), r.center().y())};
+    for (int i = 0; i < 8; ++i) {
+        if (QRect(cs[i].x() - tol, cs[i].y() - tol, tol * 2, tol * 2).contains(pos))
+            return static_cast<DragMode>(DragTL + i);
+    }
+    if (r.contains(pos)) return DragMove;
+    return DragNone;
+}
+
 void ImageLabel::mousePressEvent(QMouseEvent *event)
 {
     if (m_image.isNull()) {
         QLabel::mousePressEvent(event);
         return;
+    }
+
+    if (event->button() == Qt::LeftButton && m_rectVisible) {
+        // 编辑矩形框交互优先: [保留]/[删除]按钮 > 8手柄 > 框内拖动 > 十字线
+        bool onKeep = false, onDel = false;
+        const DragMode dm = hitTest(event->pos(), &onKeep, &onDel);
+        if (onKeep) { emit editKeepRequested(); return; }
+        if (onDel)  { emit editDeleteRequested(); return; }
+        if (dm != DragNone && !m_hyperbolaTracking) {
+            m_dragMode = dm;
+            m_dragAnchor = event->pos();
+            m_dragRectStart = m_editRectT;
+            return;   // 编辑拖拽中不走十字线
+        }
     }
 
     if (event->button() == Qt::LeftButton) {
@@ -607,6 +728,55 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
 
 void ImageLabel::mouseMoveEvent(QMouseEvent *event)
 {
+    // 矩形框拖动/调整: 按锚点差更新 trace/sample 域选区
+    if (m_dragMode != DragNone && (event->buttons() & Qt::LeftButton)) {
+        const double dTrace = widgetXToTrace(event->pos().x()) - widgetXToTrace(qRound(m_dragAnchor.x()));
+        const double dSamp  = widgetYToSample(event->pos().y()) - widgetYToSample(qRound(m_dragAnchor.y()));
+        QRectF r = m_dragRectStart;
+        switch (m_dragMode) {
+        case DragMove: r.translate(dTrace, dSamp); break;
+        case DragTL: r.setLeft(r.left() + dTrace); r.setTop(r.top() + dSamp); break;
+        case DragT:  r.setTop(r.top() + dSamp); break;
+        case DragTR: r.setRight(r.right() + dTrace); r.setTop(r.top() + dSamp); break;
+        case DragR:  r.setRight(r.right() + dTrace); break;
+        case DragBR: r.setRight(r.right() + dTrace); r.setBottom(r.bottom() + dSamp); break;
+        case DragB:  r.setBottom(r.bottom() + dSamp); break;
+        case DragBL: r.setLeft(r.left() + dTrace); r.setBottom(r.bottom() + dSamp); break;
+        case DragL:  r.setLeft(r.left() + dTrace); break;
+        default: break;
+        }
+        // 夹取 [0,traceCount-1]×[0,drawRows-1], 保持最小 1道×1采样
+        r = r.normalized();
+        const double maxT = qMax(0.0, static_cast<double>(m_mapTraceCount) - 1);
+        const double maxS = qMax(0.0, static_cast<double>(m_mapDrawRows) - 1);
+        double l = qBound(0.0, r.left(), maxT), rr = qBound(0.0, r.right(), maxT);
+        double t = qBound(0.0, r.top(), maxS), b = qBound(0.0, r.bottom(), maxS);
+        if (rr - l < 1.0) { if (m_dragMode == DragL || m_dragMode == DragTL || m_dragMode == DragBL) l = rr - 1.0; else rr = l + 1.0; }
+        if (b - t < 1.0) { if (m_dragMode == DragT || m_dragMode == DragTL || m_dragMode == DragTR) t = b - 1.0; else b = t + 1.0; }
+        l = qBound(0.0, l, maxT); rr = qBound(l, rr, maxT);
+        t = qBound(0.0, t, maxS); b = qBound(t, b, maxS);
+        m_editRectT = QRectF(QPointF(l, t), QPointF(rr, b));
+        update();
+        return;
+    }
+
+    // hover 光标(矩形框可见且无按键)
+    if (m_rectVisible && !(event->buttons() & Qt::LeftButton)) {
+        bool onKeep = false, onDel = false;
+        const DragMode dm = hitTest(event->pos(), &onKeep, &onDel);
+        Qt::CursorShape cs = Qt::ArrowCursor;
+        if (onKeep || onDel) cs = Qt::PointingHandCursor;
+        else if (dm == DragMove) cs = Qt::SizeAllCursor;
+        else switch (dm) {
+        case DragTL: case DragBR: cs = Qt::SizeFDiagCursor; break;
+        case DragTR: case DragBL: cs = Qt::SizeBDiagCursor; break;
+        case DragT: case DragB:   cs = Qt::SizeVerCursor; break;
+        case DragL: case DragR:   cs = Qt::SizeHorCursor; break;
+        default: break;
+        }
+        setCursor(cs);
+    }
+
     if (m_showCrosshair && !m_image.isNull() && (event->buttons() & Qt::LeftButton)) {
         m_crosshairPos = event->pos();
         int clampedY = qBound(0, event->pos().y(), height() - 1);
@@ -628,6 +798,14 @@ void ImageLabel::mouseMoveEvent(QMouseEvent *event)
 void ImageLabel::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
+        if (m_dragMode != DragNone) {
+            m_dragMode = DragNone;
+            m_editRectT = m_editRectT.normalized();
+            emit editRectChanged(m_editRectT);
+            update();
+            QLabel::mouseReleaseEvent(event);
+            return;
+        }
         m_showCrosshair = false;
         update();
     }
@@ -704,6 +882,73 @@ void ImageLabel::paintEvent(QPaintEvent *event)
         painter.setBrush(QColor(0, 255, 0, 180));
         painter.setPen(QPen(QColor(0, 255, 0), 1));
         painter.drawEllipse(m_hyperbolaApex, 4, 4);
+    }
+
+    // v1.0.98 编辑模块覆盖层: 标记红虚线 + 数据块矩形框
+    if (!m_image.isNull() && (m_showMarkerOverlay || m_rectVisible))
+        drawEditOverlay();
+}
+
+// 编辑覆盖层绘制: 红虚线标记(+道号标签) → 矩形框(+8手柄+[保留][删除]pill)
+void ImageLabel::drawEditOverlay()
+{
+    QPainter p(this);
+
+    if (m_showMarkerOverlay) {
+        QPen pen(QColor(0xb3, 0x27, 0x2d), 2, Qt::DashLine);
+        p.setPen(pen);
+        const QFont mono = MatIcon::monoFont(10);
+        for (int t : m_markerTraces) {
+            if (t < 0 || t >= m_mapTraceCount) continue;
+            const int x = traceToWidgetX(t);
+            if (x < 0 || x > width()) continue;
+            p.drawLine(x, 0, x, height());
+            // 顶部"道号 N"红底白字小标签
+            const QString lbl = QString::fromUtf8("道号 %1").arg(t);
+            p.setFont(mono);
+            const int tw = QFontMetrics(mono).horizontalAdvance(lbl) + 10;
+            QRect badge(QPoint(x - tw / 2, 2), QSize(tw, 15));
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(0xb3, 0x27, 0x2d));
+            p.drawRoundedRect(badge, 2, 2);
+            p.setPen(QPen(Qt::white, 1));
+            p.drawText(badge, Qt::AlignCenter, lbl);
+            p.setPen(pen);
+            p.setBrush(Qt::NoBrush);
+        }
+    }
+
+    if (m_rectVisible) {
+        const QRect r = rectFromRectT();
+        p.setPen(QPen(QColor(0x00, 0x48, 0xaf), 2, Qt::DashLine));
+        p.setBrush(QColor(0, 0x48, 0xaf, 13));
+        p.drawRect(r);
+
+        // 8 个 8×8 白底蓝边手柄(4角+4边中点)
+        const QPoint cs[8] = {
+            r.topLeft(), QPoint(r.center().x(), r.top()), r.topRight(),
+            QPoint(r.right(), r.center().y()), r.bottomRight(),
+            QPoint(r.center().x(), r.bottom()), r.bottomLeft(),
+            QPoint(r.left(), r.center().y())};
+        p.setBrush(Qt::white);
+        p.setPen(QPen(QColor(0x00, 0x48, 0xaf), 1));
+        for (const QPoint &c : cs)
+            p.drawRect(QRect(c.x() - 4, c.y() - 4, 8, 8));
+
+        // 框上方 [保留](蓝底白字) [删除](白底蓝边) pill
+        const QRect kb = keepButtonRect(), db = deleteButtonRect();
+        QFont bf; bf.setPixelSize(11);
+        p.setFont(bf);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0x00, 0x48, 0xaf));
+        p.drawRoundedRect(kb, 10, 10);
+        p.setBrush(Qt::white);
+        p.setPen(QPen(QColor(0x00, 0x48, 0xaf), 1));
+        p.drawRoundedRect(db, 10, 10);
+        p.setPen(Qt::white);
+        p.drawText(kb, Qt::AlignCenter, QString::fromUtf8("保留"));
+        p.setPen(QColor(0x00, 0x48, 0xaf));
+        p.drawText(db, Qt::AlignCenter, QString::fromUtf8("删除"));
     }
 }
 
@@ -4508,6 +4753,8 @@ void MainWindow::resizeImageLabel()
     // 堆积图模式下每道占 16 个显示像素(32列槽/步长2),故等效 zoom = 16*m_hZoom
     float rulerZoom = m_wiggleMode ? (16.0f * m_hZoom) : m_hZoom;
     m_currentTab->topRuler->setZoom(rulerZoom);
+    // v1.0.98: 注入编辑覆盖层映射参数(trace/sample域 ↔ widget像素)
+    m_currentTab->imageLabel->setGeometryForMapping(m_traceCount, drawRows, m_hZoom, m_wiggleMode ? 2 : 0);
     m_currentTab->leftRuler->update();
     m_currentTab->rightRuler->update();
 }

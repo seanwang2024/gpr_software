@@ -15,12 +15,12 @@
     <Setting>
       <name>ColorTable</name>
       <state>0</state>
-      <value>17</value>
+      <value>12</value>
     </Setting>
     <Setting>
       <name>ColorTransform</name>
       <state>0</state>
-      <value>3</value>
+      <value>5</value>
     </Setting>
     <Setting>
       <name>RibbonCategory</name>
@@ -30,7 +30,7 @@
     <Setting>
       <name>DisplayViews</name>
       <state>0</state>
-      <value>2</value>
+      <value>97</value>
     </Setting>
     <Setting>
       <name>PickType</name>
@@ -213,6 +213,18 @@
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
     <defaultVelocity>0.1060000</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>187,179,0,0</scanSampChanProp>
+      <timeAmpDepVel>13.9843750,2202487.0000000,0.7372444,0.1060000</timeAmpDepVel>
+    </TargetWayPt>
+    <TargetWayPt>
+      <scanSampChanProp>277,186,0,0</scanSampChanProp>
+      <timeAmpDepVel>14.5312500,3276320.0000000,0.7663773,0.1060000</timeAmpDepVel>
+    </TargetWayPt>
+    <TargetWayPt>
+      <scanSampChanProp>441,174,0,0</scanSampChanProp>
+      <timeAmpDepVel>13.5937500,1594182.0000000,0.7164278,0.1060000</timeAmpDepVel>
+    </TargetWayPt>
   </TargetGroup>
   <DataCollection>
     <system>SIR4K</system>

@@ -133,6 +133,14 @@ public:
     void setHyperbolaParams(double firstWave, double velocity, int width,
                             double traceSpacing, double timePerSample);
 
+    // v1.0.98 编辑模块覆盖层: 标记红虚线 + 数据块矩形框 (状态存 trace/sample 域, 抗缩放/刷新)
+    void setMarkerOverlay(bool on, const QVector<int> &traces);
+    void setEditRectVisible(bool on);
+    void setEditRect(const QRectF &rectTS);       // (t0,s0,t1,s1) trace/sample 域
+    QRectF editRect() const { return m_editRectT; }
+    bool editRectVisible() const { return m_rectVisible; }
+    void setGeometryForMapping(int traceCount, int drawRows, float pxPerTrace, int wiggleStep);
+
 protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -145,6 +153,9 @@ signals:
     void gainSelected(float gain);
     void imageChanged();
     void transformSelected(int mode);
+    void editRectChanged(const QRectF &rectTS);   // 矩形框拖动/调整结束
+    void editKeepRequested();                     // 框上[保留]按钮
+    void editDeleteRequested();                   // 框上[删除]按钮
 
 private:
     QImage m_image;
@@ -164,6 +175,32 @@ private:
     int m_hypWidth = 60;               // aperture (traces)
     double m_hypTraceSpacing = 0.01;   // meters
     double m_hypTimePerSample = 0.039; // ns
+
+    // ---- v1.0.98 编辑模块覆盖层 ----
+    bool m_showMarkerOverlay = false;
+    QVector<int> m_markerTraces;
+    bool m_rectVisible = false;
+    QRectF m_editRectT;                // (t0,s0,t1,s1) trace/sample 域
+    // 映射参数(外部注入, 不自己算)
+    int m_mapTraceCount = 0;
+    int m_mapDrawRows = 0;
+    float m_mapPxPerTrace = 1.0f;
+    int m_mapWiggleStep = 0;           // 0=普通 2=wiggle(每槽2道×32px)
+    enum DragMode { DragNone, DragMove, DragTL, DragT, DragTR,
+                    DragR, DragBR, DragB, DragBL, DragL };
+    DragMode m_dragMode = DragNone;
+    QPointF m_dragAnchor;
+    QRectF m_dragRectStart;
+
+    int traceToWidgetX(int t) const;
+    int widgetXToTrace(int x) const;
+    int sampleToWidgetY(int s) const;
+    int widgetYToSample(int y) const;
+    QRect rectFromRectT() const;       // editRectT → widget 像素
+    QRect keepButtonRect() const;
+    QRect deleteButtonRect() const;
+    DragMode hitTest(const QPoint &pos, bool *onKeepBtn, bool *onDeleteBtn) const;
+    void drawEditOverlay();
 };
 
 // (v1.0.87 旧 CustomTitleBar 已删除, 由 TopBar.h 的 TopBar 替代 — 严格按 主页-文件头.png)
@@ -190,6 +227,9 @@ struct TabData {
     int nsamp = 512;              // 采样点数/扫描 (offset 4)
     float headerRange = 20.0f;    // 记录长度 ns (offset 26)
     float epsr = 1.0f;            // 介电常数 (offset 54)
+    QVector<int> markers;         // 编辑标记(升序道号), 持久化到同名 DZX <MarkGroup>
+    int dataRev = 0;              // 数据内容版本号(裁剪等改变 rawData 时++)
+    QRectF editRectT;             // 数据块选区(trace/sample域), 会话内不持久化
 
     QWidget *page = nullptr;
     QScrollArea *scrollArea = nullptr;
