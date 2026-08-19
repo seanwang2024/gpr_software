@@ -98,7 +98,7 @@ TopBar::TopBar(QWidget *parent)
 
     QHBoxLayout *lay = new QHBoxLayout(this);
     lay->setContentsMargins(8, 0, 0, 0);
-    lay->setSpacing(24);   // 设计稿 space-x-6=24px: 品牌↔模块标签
+    lay->setSpacing(32);   // 品牌↔模块标签间距(观感调优, 比HTML基准略放宽)
 
     // ---- 左: 品牌按钮 "劳雷" + ▾ (space-x-1=4px, 独立容器) ----
     QWidget *brandBox = new QWidget(this);
@@ -158,7 +158,7 @@ TopBar::TopBar(QWidget *parent)
 
     // ---- 中: 5 个模块标签(互斥, 顶栏即模块切换) ----
     QHBoxLayout *tabs = new QHBoxLayout;
-    tabs->setSpacing(16);   // 设计稿 space-x-4=16px: 标签间距
+    tabs->setSpacing(28);   // 标签间距(观感调优: 用户反馈 主页↔编辑 过密)
     lay->addLayout(tabs, 1);
 
     m_moduleGroup = new QButtonGroup(this);
@@ -174,7 +174,7 @@ TopBar::TopBar(QWidget *parent)
         b->setStyleSheet(
             "QPushButton { border: none; border-bottom: 2px solid transparent;"
             " border-top-left-radius: 2px; border-top-right-radius: 2px;"
-            " padding: 10px 8px 4px 8px; background: transparent; color: #424654; font-size: 14px; }"
+            " padding: 10px 14px 4px 14px; background: transparent; color: #424654; font-size: 14px; }"
             "QPushButton:hover { background: #dee9fc; }"
             "QPushButton:checked { color: #0048af; font-weight: bold;"
             " border-bottom: 2px solid #0048af; }");
