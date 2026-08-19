@@ -349,6 +349,7 @@ private:
     void refreshSelectionInfo();            // 选区几何4字段刷新(道号/时间/尺寸)
     void clearEditRect();                   // 删除/重置选区矩形
     void performCropSelection();            // 保留/确认裁剪: 整幅数据裁剪为选区(数据手术)
+    void patchDztHeaderForTab(QByteArray &header);  // 保存路径头补丁(nsamp/ntraces/range按tab实际值)
 
     struct DztHeaderInfo {                     // 右栏8字段所需的DZT头子集
         QString fileName, createDate, antName;

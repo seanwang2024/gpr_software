@@ -2244,6 +2244,9 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
     connect(tab->imageLabel, &ImageLabel::editDeleteRequested, this, [this, tab]() {
         if (m_currentTab == tab) clearEditRect();
     });
+    connect(tab->imageLabel, &ImageLabel::editKeepRequested, this, [this, tab]() {
+        if (m_currentTab == tab) performCropSelection();
+    });
 
     // Page layout: imageGrid + chartView
     pageLayout->addLayout(tab->imageGrid, 1);
@@ -3247,6 +3250,127 @@ void MainWindow::clearEditRect()
     refreshSelectionInfo();
 }
 
+// 保留/确认裁剪: 把整幅数据裁剪为选区(内存手术; 落盘走"保存"→_P_NN.DZT, 头由 patchDztHeaderForTab 保证一致)
+void MainWindow::performCropSelection()
+{
+    if (!m_currentTab) return;
+    if (m_currentTab->editRectT.isNull()
+        || !m_currentTab->imageLabel || !m_currentTab->imageLabel->editRectVisible()) {
+        QMessageBox::information(this, QString::fromUtf8("确认裁剪"),
+            QString::fromUtf8("请先点击\"新建矩形框\"并调整好选区。"));
+        return;
+    }
+    TabData *tab = m_currentTab;
+    const QRectF rf = tab->editRectT.normalized();
+    const int oldSamp = m_pixelsPerRow;
+    const int skip = tab->zeroApplied ? tab->zeroSkipRows : 0;
+    const int t0 = qBound(0, qRound(rf.left()), qMax(0, tab->traceCount - 1));
+    const int t1 = qBound(t0, qRound(rf.right()), qMax(0, tab->traceCount - 1));
+    const int s0 = qBound(0, qRound(rf.top()), qMax(0, oldSamp - skip - 1));
+    const int s1 = qBound(s0, qRound(rf.bottom()), qMax(0, oldSamp - skip - 1));
+    const int newTraceCount = t1 - t0 + 1;
+    const int newSamp = s1 - s0 + 1;
+
+    if (newTraceCount >= tab->traceCount && newSamp >= oldSamp) {
+        QMessageBox::information(this, QString::fromUtf8("确认裁剪"),
+            QString::fromUtf8("选区已覆盖整幅数据, 无需裁剪。"));
+        return;
+    }
+    if (QMessageBox::question(this, QString::fromUtf8("确认裁剪"),
+            QString::fromUtf8("将把整幅数据裁剪为选区 %1 道 × %2 采样(不可撤销), 是否继续?")
+                .arg(newTraceCount).arg(newSamp),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+        return;
+
+    // 1. 数据手术: 逐道拷贝采样区间 [s0, s1]
+    auto cropData = [&](const QByteArray &src) -> QByteArray {
+        QByteArray dst;
+        dst.resize(newTraceCount * newSamp * 4);
+        for (int t = 0; t < newTraceCount; ++t)
+            memcpy(dst.data() + (qint64)t * newSamp * 4,
+                   src.constData() + ((qint64)(t0 + t) * oldSamp + s0) * 4,
+                   (size_t)newSamp * 4);
+        return dst;
+    };
+    tab->rawData = cropData(tab->rawData);
+    m_rawData = tab->rawData;
+    if (!tab->originalRawData.isEmpty()
+        && tab->originalRawData.size() == tab->traceCount * oldSamp * 4)
+        tab->originalRawData = cropData(tab->originalRawData);
+
+    // 2. 头字段: nsamp i16@4 / ntraces i32@20 / range f32@26(比例缩放保持 ns/采样)
+    const float oldRange = tab->headerRange;
+    const double dt = oldSamp > 0 ? oldRange / oldSamp : 0.0;
+    if (tab->header.size() >= 30) {
+        qint16 ns = (qint16)newSamp;
+        memcpy(tab->header.data() + 4, &ns, 2);
+        qint32 nt = (qint32)newTraceCount;
+        memcpy(tab->header.data() + 20, &nt, 4);
+        const float rg = oldRange * (float)newSamp / (float)oldSamp;
+        memcpy(tab->header.data() + 26, &rg, 4);
+    }
+    m_header = tab->header;
+
+    // 3. 字段同步(tab 与 MainWindow 成员)
+    tab->nsamp = newSamp;
+    tab->pixelsPerRow = newSamp;
+    m_pixelsPerRow = newSamp;
+    tab->headerRange = oldRange * (float)newSamp / (float)oldSamp;
+    m_headerRange = tab->headerRange;
+    tab->signalPosition = qMax(0.0f, tab->signalPosition - (float)(s0 * dt));
+    m_signalPos = tab->signalPosition;
+    tab->zeroApplied = false;
+    tab->zeroSkipRows = 0;
+    tab->traceCount = newTraceCount;
+    m_traceCount = newTraceCount;
+    tab->dataRev++;
+
+    // 4. 标记平移(界外剔除, 随裁剪持久化)
+    QVector<int> mk2;
+    for (int t : tab->markers)
+        if (t >= t0 && t <= t1) mk2.append(t - t0);
+    tab->markers = mk2;
+    writeDzxMarkers(tab->filePath, tab->markers);
+
+    // 5. 图表同步
+    if (tab->chartView) {
+        tab->chartView->setSampleCount(newSamp);
+        QValueAxis *axisY = qobject_cast<QValueAxis *>(tab->chartView->chart()->axisY(tab->chartSeries));
+        if (axisY) axisY->setRange(0, newSamp - 1);
+    }
+    if (m_gainSampleEndItem) m_gainSampleEndItem->setText(1, QString::number(newSamp - 1));
+    m_lastChartX = qBound(0, m_lastChartX, qMax(0, newTraceCount - 1));
+    if (m_transformMode == 3) m_transformMode = 0;   // FFT 分支写死512采样, 归零防越界
+
+    // 6. 视图全面刷新
+    tab->editRectT = QRectF();
+    tab->imageLabel->setEditRectVisible(false);
+    m_thumbKey.clear();   // 缩略图缓存失效
+    refreshImage();
+    updateRulers();
+    resizeImageLabel();
+    updateTraceRange();
+    if (m_headerPanel && m_headerPanel->isVisible()) refreshHeaderPanel();
+    refreshSelectionInfo();
+    refreshMarkerPanel();
+    updateChart(m_lastChartX);
+    QMessageBox::information(this, QString::fromUtf8("确认裁剪"),
+        QString::fromUtf8("裁剪完成: %1 道 × %2 采样。保存后将生成新 _P 文件。")
+            .arg(newTraceCount).arg(newSamp));
+}
+
+// 保存路径头补丁: 按当前 tab 实际值写头(裁剪后防"旧头+新数据"损坏文件)
+void MainWindow::patchDztHeaderForTab(QByteArray &header)
+{
+    if (!m_currentTab || header.size() < 30) return;
+    const qint16 ns = (qint16)m_currentTab->nsamp;
+    memcpy(header.data() + 4, &ns, 2);
+    const qint32 nt = (qint32)m_currentTab->traceCount;
+    memcpy(header.data() + 20, &nt, 4);
+    const float rg = m_currentTab->headerRange;
+    memcpy(header.data() + 26, &rg, 4);
+}
+
 // v1.0.98 右侧 256px 编辑属性面板: 页0=编辑数据块(新建矩形框/选区几何/重置/确认裁剪) 页1=横向缩放
 void MainWindow::createEditPanel()
 {
@@ -3381,6 +3505,7 @@ void MainWindow::createEditPanel()
             refreshSelectionInfo();
         });
         connect(m_btnResetRect, &QPushButton::clicked, this, [this]() { clearEditRect(); });
+        connect(m_btnCrop, &QPushButton::clicked, this, [this]() { performCropSelection(); });
 
         m_editStack->addWidget(page);
     }
@@ -4676,6 +4801,7 @@ void MainWindow::saveProcessedWithDzx(const QString &origDztPath, const QList<Dz
         return;
     }
     QByteArray header = srcFile.read(m_dataOffset);
+    patchDztHeaderForTab(header);   // v1.0.98: 裁剪后头一致性补丁
     srcFile.close();
 
     // 修改头:信号位置归零(时间零点已处理)
@@ -4937,6 +5063,7 @@ void MainWindow::saveProcessedFile()
         return;
     }
     QByteArray header = srcFile.read(m_currentTab->dataOffset);
+    patchDztHeaderForTab(header);   // v1.0.98: 裁剪后头一致性补丁
     outFile.write(header);
     srcFile.close();
     outFile.write(m_rawData);
