@@ -1659,8 +1659,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_progressBar->hide();
 
     QWidget *statusBar = new QWidget(this);
+    statusBar->setObjectName("gprStatusBar");
     statusBar->setFixedHeight(28);
-    statusBar->setStyleSheet("background: #d9e3f6; border-top: 1px solid #c3c6d6;");
+    statusBar->setStyleSheet("#gprStatusBar { background: #d9e3f6; border-top: 1px solid #c3c6d6; }");
     QHBoxLayout *buttonLayout = new QHBoxLayout(statusBar);
     buttonLayout->setContentsMargins(12, 0, 12, 0);
     buttonLayout->setSpacing(12);

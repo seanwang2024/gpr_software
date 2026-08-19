@@ -98,7 +98,9 @@ TopBar::TopBar(QWidget *parent)
 {
     setFixedHeight(40);   // 设计稿 toolbar-height
     setAttribute(Qt::WA_StyledBackground, true);
-    setStyleSheet("background-color: #f8f9ff; border-bottom: 1px solid #c3c6d6;");
+    // 注意必须用类选择器限定: 裸声明会传播给所有子控件, brandBox 曾继承 border-bottom
+    // 在劳雷下方画出一条 70px 灰线(y=31, 实测 #c3c6d6)
+    setStyleSheet("TopBar { background-color: #f8f9ff; border-bottom: 1px solid #c3c6d6; }");
 
     // 间距常量(参考PNG实测: 文字间距设计值≈34px, 按窗口1440/设计1280放大1.125→取整)
     const int kBrandTabGap = 28;   // 品牌▾ ↔ 首标签 (实测34px设计×1.125≈38, 含标签内边距10)
