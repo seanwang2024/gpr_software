@@ -1996,6 +1996,9 @@ MainWindow::MainWindow(QWidget *parent)
             ribbonTab->setCurrentIndex(1);   // 编辑页
             QTimer::singleShot(300, this, [this, cur]() {
                 ribbonTab->grab().save(QCoreApplication::applicationDirPath() + "/ribbon_edit_render.png");
+                grab().save(QCoreApplication::applicationDirPath() + "/editpage_render.png");   // 含底部标记面板+缩略图
+                if (m_markerPanel && m_markerPanel->isVisible())
+                    m_markerPanel->grab().save(QCoreApplication::applicationDirPath() + "/markerpanel_render.png");
                 ribbonTab->setCurrentIndex(cur);
             });
         }
@@ -2012,6 +2015,12 @@ MainWindow::MainWindow(QWidget *parent)
                 && (!m_btnEditBlock || !m_btnEditBlock->isChecked()))
                 m_btnEditMarker->setChecked(true);
             syncEditUiState();
+            // 渲染自检: 运行中进入编辑页且面板可见时抓取(供布局核查)
+            QTimer::singleShot(400, this, [this]() {
+                if (m_markerPanel && m_markerPanel->isVisible())
+                    m_markerPanel->grab().save(QCoreApplication::applicationDirPath()
+                                               + "/markerpanel_render.png");
+            });
             return;
         }
         bool any = false;
@@ -3225,12 +3234,13 @@ void MainWindow::syncEditUiState()
         refreshSelectionInfo();
     }
 
-    // 标记面板与主图覆盖层(S3)
-    const bool markerOn = m_btnEditMarker && m_btnEditMarker->isChecked() && m_currentTab;
-    if (m_markerPanel) m_markerPanel->setVisible(markerOn);
+    // 标记面板: 编辑标记/编辑数据块两种模式都显示(数据块参考图也含标记表+缩略图)
+    const bool panelOn = ((m_btnEditMarker && m_btnEditMarker->isChecked())
+                          || (m_btnEditBlock && m_btnEditBlock->isChecked())) && m_currentTab;
+    if (m_markerPanel) m_markerPanel->setVisible(panelOn);
     if (m_currentTab && m_currentTab->imageLabel)
-        m_currentTab->imageLabel->setMarkerOverlay(markerOn, m_currentTab->markers);
-    if (markerOn) {
+        m_currentTab->imageLabel->setMarkerOverlay(panelOn, m_currentTab->markers);
+    if (panelOn) {
         refreshMarkerPanel();
         updateMarkerThumb();
     }
@@ -3614,6 +3624,7 @@ void MainWindow::createEditPanel()
 MarkerThumbWidget::MarkerThumbWidget(QWidget *parent) : QWidget(parent)
 {
     setMinimumHeight(40);
+    setMouseTracking(true);   // hover 视口框变光标
 }
 
 void MarkerThumbWidget::setSource(const QImage &img) { m_thumb = img; update(); }
@@ -3658,9 +3669,36 @@ void MarkerThumbWidget::paintEvent(QPaintEvent *)
 
 void MarkerThumbWidget::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton && width() > 0)
-        emit viewportJumpRequested(qBound(0.0, (double)event->pos().x() / width(), 1.0));
+    if (event->button() == Qt::LeftButton && width() > 0) {
+        const double frac = (double)event->pos().x() / width();
+        if (frac >= m_vpX0 - 0.01 && frac <= m_vpX1 + 0.01) {
+            // 按住视口框拖动 → 主图视窗跟随
+            m_vpDrag = true;
+            m_vpGrabOffset = frac - (m_vpX0 + m_vpX1) / 2.0;
+        } else {
+            emit viewportJumpRequested(qBound(0.0, frac, 1.0));
+        }
+    }
     QWidget::mousePressEvent(event);
+}
+
+void MarkerThumbWidget::mouseMoveEvent(QMouseEvent *event)
+{
+    if (width() <= 0) { QWidget::mouseMoveEvent(event); return; }
+    const double frac = qBound(0.0, (double)event->pos().x() / width(), 1.0);
+    if (m_vpDrag && (event->buttons() & Qt::LeftButton)) {
+        emit viewportDragRequested(qBound(0.0, frac - m_vpGrabOffset, 1.0));
+    } else if (!(event->buttons() & Qt::LeftButton)) {
+        const bool inBox = frac >= m_vpX0 && frac <= m_vpX1;
+        setCursor(inBox ? Qt::SizeAllCursor : Qt::PointingHandCursor);
+    }
+    QWidget::mouseMoveEvent(event);
+}
+
+void MarkerThumbWidget::mouseReleaseEvent(QMouseEvent *event)
+{
+    m_vpDrag = false;
+    QWidget::mouseReleaseEvent(event);
 }
 
 // 从同名 DZX 读 <unitsPerScan>(米/道) — 标记距离列兜底(DZT spm 实测可能为 0)
@@ -3881,19 +3919,28 @@ void MainWindow::createMarkerPanel()
     QWidget *rbody = new QWidget(right);
     QVBoxLayout *rbl = new QVBoxLayout(rbody);
     rbl->setContentsMargins(12, 12, 12, 12);   // 缩略图四周留白(不铺满小窗)
+    rbl->addStretch(1);                        // 横向长条缩略图垂直居中, 不撑满整个高度
     m_markerThumb = new MarkerThumbWidget(rbody);
+    m_markerThumb->setMaximumHeight(150);
     rbl->addWidget(m_markerThumb);
+    rbl->addStretch(1);
     rl->addWidget(rbody, 1);
 
     lay->addWidget(left, 40);
     lay->addWidget(right, 60);
 
-    // 缩略图点击 → 主图滚动到该处
+    // 缩略图点击 → 主图滚动到该处; 按住视口框拖动 → 主图视窗跟随
     connect(m_markerThumb, &MarkerThumbWidget::viewportJumpRequested, this, [this](double frac) {
         if (!m_currentTab) return;
         const int total = m_currentTab->imageLabel->width();
         const int vw = m_currentTab->scrollArea->viewport()->width();
         m_currentTab->extHScrollBar->setValue(qMax(0, qRound(frac * total - vw / 2.0)));
+    });
+    connect(m_markerThumb, &MarkerThumbWidget::viewportDragRequested, this, [this](double centerFrac) {
+        if (!m_currentTab) return;
+        const int total = m_currentTab->imageLabel->width();
+        const int vw = m_currentTab->scrollArea->viewport()->width();
+        m_currentTab->extHScrollBar->setValue(qMax(0, qRound(centerFrac * total - vw / 2.0)));
     });
     // 插入/删除
     connect(btnIns, &QPushButton::clicked, this, [this]() { insertMarkerRow(); });

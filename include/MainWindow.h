@@ -218,17 +218,22 @@ public:
     void setViewportRange(double x0Frac, double x1Frac);   // 0..1
 
 signals:
-    void viewportJumpRequested(double traceFrac);          // 点击位置(0..1)
+    void viewportJumpRequested(double traceFrac);          // 点击空白处跳转(0..1)
+    void viewportDragRequested(double centerFrac);         // 按住视口框拖动 → 主图视窗跟随
 
 protected:
     void paintEvent(QPaintEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
 
 private:
     QImage m_thumb;
     QVector<int> m_markers;
     int m_traceCount = 0;
     double m_vpX0 = 0.0, m_vpX1 = 1.0;
+    bool m_vpDrag = false;
+    double m_vpGrabOffset = 0.0;   // 按下点相对视口中心的偏移(0..1)
 };
 
 // Per-file data and widgets for each open tab
