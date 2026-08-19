@@ -309,6 +309,7 @@ private:
     QToolButton *m_btnHeaderToggle = nullptr; // 主页"文件头"按钮(与右侧文件头栏开合联动)
     bool m_showAscan = false;                 // 线扫描+波形模式(默认false=线扫描,仅B-SCAN)
     QButtonGroup *m_displayGroup = nullptr;   // 图像显示三按钮互斥组(0线扫描/1线扫描+波形/2波列图)
+    QVector<QLabel*> m_cxBarLabels;           // 线性变换表下拉的20条缩略图(当前调色板合成)
 
     // Tab group management (splitter)
     QSplitter *m_docSplitter = nullptr;
@@ -349,7 +350,7 @@ private:
     int m_paletteIndex = 12;
     void loadLUT(int index = 1);
     int m_colorTransformIndex = 0;   // 颜色变换表索引(0=无,1-20=20种映射)
-    void applyColorTransform(QImage &img);  // 应用颜色变换
+    void refreshCxBarThumbnails();  // 线性变换表缩略图重绘=当前调色板∘变换表 合成色(RADAN叠加规律)
     QString m_colorTransformName(int idx);  // 获取变换名称
     int m_traceCount;
     float m_hZoom = 1.0f;        // 当前 tab 的水平缩放

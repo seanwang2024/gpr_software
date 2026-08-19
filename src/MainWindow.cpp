@@ -4319,34 +4319,21 @@ static const unsigned char s_cxLUTData[20][256] = {
       247,247,248,248,249,249,250,250,251,251,252,252,253,253,254,254,
     },
 };
-// 加载颜色变换 LUT(内嵌数据,不需要外部文件)
-static void cxLoadLUT(int idx, QRgb lut[256])
+// 线性变换表下拉缩略图重绘: 颜色 = 当前调色板 ∘ 变换表 (RADAN 叠加规律, 随调色板联动)
+void MainWindow::refreshCxBarThumbnails()
 {
-    if (idx < 1 || idx > 20) {
-        for (int i = 0; i < 256; ++i) lut[i] = qRgb(i, i, i);
-        return;
-    }
-    for (int i = 0; i < 256; ++i) {
-        unsigned char v = s_cxLUTData[idx - 1][i];
-        lut[i] = qRgb(v, v, v);
-    }
-}
-
-// 对 B-SCAN 图像应用颜色变换(基于从PNG精确提取的 LUT)
-void MainWindow::applyColorTransform(QImage &img)
-{
-    if (m_colorTransformIndex <= 0 || img.isNull()) return;
-
-    QRgb lut[256];
-    cxLoadLUT(m_colorTransformIndex, lut);
-
-    int w = img.width(), h = img.height();
-    for (int yy = 0; yy < h; ++yy) {
-        for (int xx = 0; xx < w; ++xx) {
-            QRgb px = img.pixel(xx, yy);
-            int gray = qGray(px);
-            img.setPixel(xx, yy, lut[gray]);
+    for (int i = 0; i < m_cxBarLabels.size(); ++i) {
+        if (!m_cxBarLabels[i]) continue;
+        QPixmap pm(128, 14);
+        QPainter pt(&pm);
+        const unsigned char *cxMap = s_cxLUTData[i];
+        for (int x = 0; x < 128; ++x) {
+            const int gray = qRound(x * 255.0 / 127);
+            pt.setPen(QPen(QColor(m_lut[cxMap[gray]]), 1));
+            pt.drawLine(x, 0, x, 13);
         }
+        pt.end();
+        m_cxBarLabels[i]->setPixmap(pm);
     }
 }
 
@@ -4419,6 +4406,10 @@ void MainWindow::refreshImage()
         int dataSize = m_rawData.size();
         int bytesPerPixel = 4;
 
+        // RADAN 叠加规律(1_1方案叠加规律.png 数值闭环验证): 最终颜色 = 调色板[变换表(灰度)]
+        const unsigned char *cxMap = (m_colorTransformIndex >= 1 && m_colorTransformIndex <= 20)
+                                         ? s_cxLUTData[m_colorTransformIndex - 1] : nullptr;
+
         for (int y = 0; y < rows; ++y) {
             for (int x = 0; x < drawRows; ++x) {
                 int srcX = x + srcOffset;
@@ -4448,13 +4439,12 @@ void MainWindow::refreshImage()
                 int lutIdx = pixelValue_display / (256 * 256) + 128;
                 if (lutIdx < 0) lutIdx = 0;
                 if (lutIdx > 255) lutIdx = 255;
-                image.setPixel(y, x, m_lut[lutIdx]);
+                image.setPixel(y, x, m_lut[cxMap ? cxMap[lutIdx] : lutIdx]);
             }
         }
     }
 
     image = image.convertToFormat(QImage::Format_RGB32);
-    applyColorTransform(image);
     imageLabel->setImage(image);
 }
 
@@ -5155,6 +5145,7 @@ void MainWindow::createMenuBar()
         PaletteItemFilter *hoverFilter = new PaletteItemFilter(m_paletteIndex, *hoverIndex, *numLabels,
             [this](int idx) {
                 loadLUT(idx);
+                refreshCxBarThumbnails();   // 变换表缩略图随调色板联动
                 if (m_currentTab) refreshImage();
             }, paletteMenu);
 
@@ -5202,6 +5193,7 @@ void MainWindow::createMenuBar()
         // 菜单关闭时恢复为当前已确认的palette
         connect(paletteMenu, &QMenu::aboutToHide, this, [this]() {
             loadLUT(m_paletteIndex);
+            refreshCxBarThumbnails();
             if (m_currentTab) refreshImage();
         });
 
@@ -5214,13 +5206,14 @@ void MainWindow::createMenuBar()
         QToolButton *colorXformBtn = comboRowBtn(QStringLiteral("tune"), QString::fromUtf8("线性变换表"));
         QMenu *cxMenu = new QMenu(colorXformBtn);
 
-        // 悬停预览事件过滤器(与调色板风格一致)
+        // 悬停预览事件过滤器(与调色板风格一致); press 同时提交 confirmed(修复关闭菜单回滚旧值的悬垂捕获bug)
         class CxHoverFilter : public QObject {
             int &m_cxIndex;
+            int &m_confirmed;
             std::function<void(int)> m_onPreview;
         public:
-            CxHoverFilter(int &cxIdx, std::function<void(int)> onPreview, QObject *parent = nullptr)
-                : QObject(parent), m_cxIndex(cxIdx), m_onPreview(onPreview) {}
+            CxHoverFilter(int &cxIdx, int &confirmed, std::function<void(int)> onPreview, QObject *parent = nullptr)
+                : QObject(parent), m_cxIndex(cxIdx), m_confirmed(confirmed), m_onPreview(std::move(onPreview)) {}
             bool eventFilter(QObject *watched, QEvent *event) override {
                 QWidget *w = qobject_cast<QWidget*>(watched);
                 if (!w) return QObject::eventFilter(watched, event);
@@ -5232,34 +5225,20 @@ void MainWindow::createMenuBar()
                     w->setStyleSheet("QWidget { background: transparent; border: none; }");
                 } else if (event->type() == QEvent::MouseButtonPress) {
                     m_cxIndex = idx;
+                    m_confirmed = idx;   // 点击即确认
                 }
                 return QObject::eventFilter(watched, event);
             }
         };
 
-        int savedCxIndex = m_colorTransformIndex;
-        CxHoverFilter *cxHover = new CxHoverFilter(m_colorTransformIndex,
+        int *confirmedCx = new int(m_colorTransformIndex);   // 堆上共享: 已确认索引(悬停预览不覆盖)
+        CxHoverFilter *cxHover = new CxHoverFilter(m_colorTransformIndex, *confirmedCx,
             [this](int idx) {
                 m_colorTransformIndex = idx;
                 if (m_currentTab) refreshImage();
             }, cxMenu);
 
-        // 直接从 LUT 生成渐变预览条(不经 applyColorTransform,确保每条独立)
-        auto makeCxBarPixmap = [](int cxIdx, int barW, int barH) -> QPixmap {
-            QRgb lut[256];
-            cxLoadLUT(cxIdx, lut);
-            QPixmap pm(barW, barH);
-            QPainter pt(&pm);
-            for (int x = 0; x < barW; ++x) {
-                int gray = qRound(x * 255.0 / (barW - 1));
-                pt.setPen(QPen(QColor(lut[gray]), 1));
-                pt.drawLine(x, 0, x, barH);
-            }
-            pt.end();
-            return pm;
-        };
-
-        // 20 种变换(渐变条预览 + 编号)
+        // 20 种变换(渐变条预览 + 编号); 预览条颜色 = 当前调色板∘变换表, 由 refreshCxBarThumbnails 统一重绘
         for (int i = 1; i <= 20; ++i) {
             QWidgetAction *wa = new QWidgetAction(cxMenu);
             QWidget *itemWidget = new QWidget;
@@ -5270,10 +5249,9 @@ void MainWindow::createMenuBar()
             il->setContentsMargins(4, 2, 4, 2);
             il->setSpacing(8);
 
-            // 生成变换预览渐变条
             QLabel *bar = new QLabel;
-            bar->setPixmap(makeCxBarPixmap(i, 128, 14));
             bar->setFixedSize(128, 14);
+            m_cxBarLabels.append(bar);
             il->addWidget(bar);
 
             QLabel *name = new QLabel(QString("%1").arg(i, 2, 10, QChar(' ')));
@@ -5285,18 +5263,20 @@ void MainWindow::createMenuBar()
             cxMenu->addAction(wa);
         }
 
-        // 菜单关闭时恢复为已确认的索引
-        connect(cxMenu, &QMenu::aboutToHide, this, [this, savedCxIndex]() mutable {
-            m_colorTransformIndex = savedCxIndex;
+        // 菜单关闭时恢复为已确认的索引(悬停预览不落地)
+        connect(cxMenu, &QMenu::aboutToHide, this, [this, confirmedCx]() {
+            m_colorTransformIndex = *confirmedCx;
             if (m_currentTab) refreshImage();
         });
-        // 每次打开菜单前同步 savedCxIndex
-        connect(cxMenu, &QMenu::aboutToShow, this, [this, &savedCxIndex]() {
-            savedCxIndex = m_colorTransformIndex;
+        // 每次打开菜单前同步已确认索引
+        connect(cxMenu, &QMenu::aboutToShow, this, [this, confirmedCx]() {
+            *confirmedCx = m_colorTransformIndex;
         });
 
         colorXformBtn->setMenu(cxMenu);
         colorRows->addWidget(colorXformBtn);
+
+        refreshCxBarThumbnails();   // 初始绘制(当前调色板合成)
     }
 
     // ===== 组4: 数据信息 (文件头, 末组无分隔线; active 态 bg#d9e3f6+边框#c3c6d6) =====
