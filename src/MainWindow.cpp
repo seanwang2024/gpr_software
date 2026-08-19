@@ -1984,11 +1984,19 @@ MainWindow::MainWindow(QWidget *parent)
 
     createMenuBar();
 
-    // 渲染自检: 布局稳定后保存顶栏/整窗离屏渲染图(QWidget::grab, 不受DPI/截屏干扰, 排查布局样式问题)
+    // 渲染自检: 布局稳定后保存顶栏/整窗/编辑页ribbon离屏渲染图(QWidget::grab, 不受DPI/截屏干扰)
     QTimer::singleShot(800, this, [this]() {
         const QString dir = QCoreApplication::applicationDirPath();
         if (m_topBar) m_topBar->grab().save(dir + "/topbar_render.png");
         grab().save(dir + "/window_render.png");
+        if (ribbonTab) {
+            const int cur = ribbonTab->currentIndex();
+            ribbonTab->setCurrentIndex(1);   // 编辑页
+            QTimer::singleShot(300, this, [this, cur]() {
+                ribbonTab->grab().save(QCoreApplication::applicationDirPath() + "/ribbon_edit_render.png");
+                ribbonTab->setCurrentIndex(cur);
+            });
+        }
     });
 
     // 顶栏 5 模块标签 ↔ ribbon 页双向联动(程序化 setChecked 不发 idClicked, 无环)
@@ -6105,6 +6113,7 @@ void MainWindow::createMenuBar()
     // 主页组容器: 按钮行在上 + 组名(11px粗体)在底部; 非末组右侧 1px 竖分隔线
     auto addRibbonGroup = [](QHBoxLayout *parentLayout, const QString &groupName, bool last = false) -> QHBoxLayout* {
         QWidget *group = new QWidget();
+        group->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);   // 防拉伸: 组容器不可增长
         QVBoxLayout *groupLayout = new QVBoxLayout(group);
         groupLayout->setContentsMargins(0, 0, 0, 0);
         groupLayout->setSpacing(2);
@@ -6139,6 +6148,7 @@ void MainWindow::createMenuBar()
         btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         btn->setIconSize(QSize(24, 24));
         btn->setMinimumSize(minW, 52);
+        btn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);   // 防拉伸: 钉死自然宽度
         btn->setCursor(Qt::PointingHandCursor);
         btn->setStyleSheet(
             "QToolButton { border: none; border-radius: 2px; background: transparent;"
@@ -6157,6 +6167,7 @@ void MainWindow::createMenuBar()
         btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         btn->setIconSize(QSize(24, 24));
         btn->setMinimumSize(minW, 52);
+        btn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);   // 防拉伸: 钉死自然宽度
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
         btn->setStyleSheet(
@@ -6510,6 +6521,8 @@ void MainWindow::createMenuBar()
         QHBoxLayout *zoomRow = addRibbonGroup(editLayout, QString::fromUtf8("视口缩放"), true);
         m_btnHZoom = displayBtn(QStringLiteral("zoom_in_map"), QString::fromUtf8("横向缩放"), 88);
         zoomRow->addWidget(m_btnHZoom);
+
+        editLayout->addStretch(1);   // 关键: 剩余宽度给尾部空白(此前两组被撑开,按钮间距过大)
 
         // 三按钮: 无文件回退; 有文件走状态总闸
         auto editBtnGuard = [this](QToolButton *btn) {
