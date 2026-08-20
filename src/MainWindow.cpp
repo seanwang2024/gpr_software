@@ -2440,8 +2440,8 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
             }
             if (m_btnManualTrack && m_btnManualTrack->isChecked()) {
                 const int hIdx = selectedHorizon();
-                if (hIdx >= 0 && hIdx < tab->horizons.size()) {
-                    HorizonLayer &h = tab->horizons[hIdx];
+                if (hIdx >= 0 && hIdx < tab->radanLayers.size()) {
+                    HorizonLayer &h = tab->radanLayers[hIdx];
                     h.points.append(QPointF(pos.x(), pos.y()));
                     std::sort(h.points.begin(), h.points.end(),
                               [](const QPointF &a, const QPointF &b) { return a.x() < b.x(); });
@@ -2572,13 +2572,9 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
 
     // 新建 tab 立即成为当前 tab → 同步标题（防止 currentChanged 信号未触发的边界情况）
     tab->markers = readDzxMarkers(filePath);   // v1.0.98: 同名 DZX <MarkGroup> 标记
-    // v1.0.108: 读 InterpGroup(层位/异常), 失败或无数据时建默认两层
-    if (!readDzxInterp(filePath, tab->horizons, tab->anomalies)
-        || tab->horizons.isEmpty()) {
-        tab->horizons.append(makeDefaultHorizon(0));
-        tab->horizons.append(makeDefaultHorizon(1));
-    }
-    // v1.0.113: 读 RADAN 原生 LayerGroup/LayerWayPt 层位点(彩色圆点展示)
+    // v1.0.108: 读 InterpGroup(异常标注)
+    readDzxInterp(filePath, tab->horizons, tab->anomalies);
+    // v1.0.113: 读 RADAN 原生 LayerGroup/LayerWayPt 层位(层位列表数据源)
     readDzxDLayers(filePath, tab->radanLayers);
     m_currentTab = tab;
     updateWindowTitle();
@@ -4400,10 +4396,11 @@ void MainWindow::commitInterp()
     syncInterpOverlays();
 }
 
-// RADAN规律: 关闭/切换文件时一次性把层位/异常写入 DZX(InterpGroup)
+// RADAN规律: 关闭/切换文件时一次性把层位(LayerGroup)+异常(InterpGroup)写入 DZX
 void MainWindow::flushInterpToDzx(TabData *tab)
 {
     if (!tab || tab->filePath.isEmpty()) return;
+    writeDzxDLayers(tab->filePath, tab->radanLayers);
     writeDzxInterp(tab->filePath, tab->horizons, tab->anomalies);
 }
 
@@ -4473,10 +4470,85 @@ bool MainWindow::readDzxDLayers(const QString &dztPath, QVector<HorizonLayer> &r
         } else if (tok == QXmlStreamReader::EndElement && name == QStringLiteral("LayerGroup") && inGroup) {
             const int ci = qBound(0, layerIdx, 7);
             cur.color = layerColors[ci];
+            cur.layerNum = layerIdx;
+            if (cur.name.isEmpty() || cur.name.startsWith(QStringLiteral("第 ")))
+                cur.name = QStringLiteral("第%1层").arg(radanLayers.size() + 1);
             radanLayers.append(cur);
             inGroup = false;
         }
     }
+    return true;
+}
+
+// 写回 DZX LayerGroup(文本级手术: 删旧全部 LayerGroup → 在 TargetGroup/DataCollection 前插新)
+bool MainWindow::writeDzxDLayers(const QString &dztPath, const QVector<HorizonLayer> &radanLayers)
+{
+    QFileInfo fi(dztPath);
+    const QString dzxPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX";
+
+    QByteArray content;
+    QFile f(dzxPath);
+    if (f.exists() && f.open(QIODevice::ReadOnly)) {
+        content = f.readAll();
+        f.close();
+    }
+    if (content.isEmpty()) return false;
+
+    // 1. 删除所有 <LayerGroup>...</LayerGroup> 区段
+    {
+        int s = 0;
+        while ((s = content.indexOf("<LayerGroup>")) >= 0) {
+            const int e = content.indexOf("</LayerGroup>", s);
+            if (e < 0) break;
+            const int le = e + 13;
+            int ls = s;
+            while (ls > 0 && (content[ls-1] == ' ' || content[ls-1] == '\t')) ls--;
+            if (ls > 0 && content[ls-1] == '\n') ls--;
+            if (ls > 0 && content[ls-1] == '\r') ls--;
+            if (le < content.size() && content[le] == '\r') content.remove(ls, le + 1 - ls);
+            else if (le < content.size() && content[le] == '\n') content.remove(ls, le + 1 - ls);
+            else content.remove(ls, le - ls);
+        }
+    }
+
+    // 2. 构建新 LayerGroup 块
+    QString block;
+    for (const HorizonLayer &h : radanLayers) {
+        block += QStringLiteral("  <LayerGroup>\r\n");
+        block += QStringLiteral("    <groupName>%1</groupName>\r\n").arg(h.name.toHtmlEscaped());
+        block += QStringLiteral("    <display>%1</display>\r\n").arg(h.visible ? 1 : 0);
+        block += QStringLiteral("    <color>%1</color>\r\n").arg(h.layerNum + 1);
+        block += QStringLiteral("    <sizePx>%1</sizePx>\r\n").arg(h.lineWidth);
+        block += QStringLiteral("    <outline>0</outline>\r\n");
+        block += QStringLiteral("    <readOnly>0</readOnly>\r\n");
+        block += QStringLiteral("    <diameter>0.0000000</diameter>\r\n");
+        block += QStringLiteral("    <link>1</link>\r\n");
+        block += QStringLiteral("    <pickType>0</pickType>\r\n");
+        block += QStringLiteral("    <layerNum>%1</layerNum>\r\n").arg(h.layerNum);
+        block += QStringLiteral("    <velMethod>0</velMethod>\r\n");
+        block += QStringLiteral("    <lockVelocity>0</lockVelocity>\r\n");
+        block += QStringLiteral("    <defaultVelocity>0.1060000</defaultVelocity>\r\n");
+        for (const QPointF &p : h.points) {
+            block += QStringLiteral("    <LayerWayPt>\r\n"
+                                    "      <scanSampChanProp>%1,%2,0,0</scanSampChanProp>\r\n"
+                                    "    </LayerWayPt>\r\n")
+                         .arg(qRound(p.x())).arg(qRound(p.y()));
+        }
+        block += QStringLiteral("  </LayerGroup>\r\n");
+    }
+
+    // 3. 插入到 <TargetGroup> 或 <DataCollection> 或 </DZX> 之前
+    int pos = content.indexOf("<TargetGroup>");
+    if (pos < 0) pos = content.indexOf("<DataCollection>");
+    if (pos < 0) pos = content.lastIndexOf("</DZX>");
+    if (pos < 0) return false;
+    content.insert(pos, block.toUtf8());
+
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    f.write(content);
+    f.close();
+    if (!content.contains("<BinaryData"))
+        syncDzxMtimeToDzt(dztPath, dzxPath);
     return true;
 }
 
@@ -4965,16 +5037,16 @@ int MainWindow::selectedHorizon() const
 {
     if (!m_horizonTree || !m_currentTab) return 0;
     const int idx = m_horizonTree->indexOfTopLevelItem(m_horizonTree->currentItem());
-    return (idx >= 0 && idx < m_currentTab->horizons.size()) ? idx : 0;
+    return (idx >= 0 && idx < m_currentTab->radanLayers.size()) ? idx : 0;
 }
 
-// tab 解译数据 → 主图叠加(含 RADAN 原生层位点)
+// tab 解译数据 → 主图叠加(层位列表=radanLayers: 画彩色圆点+追踪折线)
 void MainWindow::syncInterpOverlays()
 {
     if (!m_currentTab || !m_currentTab->imageLabel) return;
     m_currentTab->imageLabel->setRadanLayers(m_currentTab->radanLayers);
     m_currentTab->imageLabel->setInterpOverlays(
-        m_currentTab->horizons, m_currentTab->anomalies, m_currentTab->trackSeeds,
+        m_currentTab->radanLayers, m_currentTab->anomalies, m_currentTab->trackSeeds,
         interpMPerSample(), m_selectedAnomaly);
 }
 
@@ -5184,14 +5256,14 @@ void MainWindow::createInterpPanel()
     });
 }
 
-// 层位列表刷新: 眼睛开关/色块/名称/粗细滑条 (名称与粗细可交互改)
+// 层位列表刷新: 数据源=radanLayers(DZX LayerGroup); 眼睛(黑=显/灰=隐)/色块/名称可编辑/粗细滑条1-10
 void MainWindow::refreshHorizonList()
 {
     if (!m_horizonTree || !m_currentTab) return;
     m_horizonTree->blockSignals(true);
     m_horizonTree->clear();
-    for (int i = 0; i < m_currentTab->horizons.size(); ++i) {
-        HorizonLayer &h = m_currentTab->horizons[i];
+    for (int i = 0; i < m_currentTab->radanLayers.size(); ++i) {
+        HorizonLayer &h = m_currentTab->radanLayers[i];
         QTreeWidgetItem *item = new QTreeWidgetItem(m_horizonTree);
         item->setData(0, Qt::UserRole, i);
         m_horizonTree->addTopLevelItem(item);
@@ -5205,20 +5277,21 @@ void MainWindow::refreshHorizonList()
         if (MatIcon::ready())
             eye->setIcon(MatIcon::icon(h.visible ? QStringLiteral("visibility")
                                                  : QStringLiteral("visibility_off"),
-                                       h.visible ? QColor(0x42, 0x46, 0x54) : QColor(0xb0, 0xb4, 0xc0)));
+                                       h.visible ? QColor(0x1a, 0x1a, 0x1a)   // 黑=显示
+                                                 : QColor(0xb0, 0xb4, 0xc0)));  // 灰=隐藏
         eye->setToolTip(QString::fromUtf8("显示/隐藏"));
         eye->setCursor(Qt::PointingHandCursor);
         eye->setStyleSheet("QToolButton { border: none; } QToolButton:hover { background: #dee9fc; border-radius: 2px; }");
         connect(eye, &QToolButton::clicked, this, [this, i]() {
-            if (!m_currentTab || i >= m_currentTab->horizons.size()) return;
-            m_currentTab->horizons[i].visible = !m_currentTab->horizons[i].visible;
+            if (!m_currentTab || i >= m_currentTab->radanLayers.size()) return;
+            m_currentTab->radanLayers[i].visible = !m_currentTab->radanLayers[i].visible;
             refreshHorizonList();
             syncInterpOverlays();
         });
         rl->addWidget(eye);
 
         QLabel *swatch = new QLabel(row);
-        swatch->setFixedSize(16, 16);
+        swatch->setFixedSize(14, 14);
         swatch->setStyleSheet(QString("background: %1; border: 1px solid #c3c6d6; border-radius: 2px;")
                                   .arg(h.color.name()));
         rl->addWidget(swatch);
@@ -5227,28 +5300,29 @@ void MainWindow::refreshHorizonList()
         nameEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 12px;"
                               " color: #121c2a; padding: 0; }"
                               "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
-        nameEd->setFixedWidth(120);
+        nameEd->setFixedWidth(110);
         connect(nameEd, &QLineEdit::editingFinished, this, [this, i, nameEd]() {
-            if (!m_currentTab || i >= m_currentTab->horizons.size()) return;
+            if (!m_currentTab || i >= m_currentTab->radanLayers.size()) return;
             const QString t = nameEd->text().trimmed();
             if (!t.isEmpty()) {
-                m_currentTab->horizons[i].name = t;
+                m_currentTab->radanLayers[i].name = t;
                 syncInterpOverlays();
             }
         });
         rl->addWidget(nameEd, 1);
 
         QSlider *wSlider = new QSlider(Qt::Horizontal, row);
-        wSlider->setRange(1, 5);
+        wSlider->setRange(1, 10);
         wSlider->setValue(h.lineWidth);
         wSlider->setFixedWidth(60);
+        wSlider->setToolTip(QString::fromUtf8("圆点大小: %1px").arg(h.lineWidth));
         wSlider->setStyleSheet(
             "QSlider::groove:horizontal { height: 3px; background: #c3c6d6; border-radius: 1px; }"
             "QSlider::handle:horizontal { width: 10px; height: 10px; margin: -4px 0;"
             " border-radius: 5px; background: #0048af; }");
         connect(wSlider, &QSlider::valueChanged, this, [this, i](int v) {
-            if (!m_currentTab || i >= m_currentTab->horizons.size()) return;
-            m_currentTab->horizons[i].lineWidth = v;
+            if (!m_currentTab || i >= m_currentTab->radanLayers.size()) return;
+            m_currentTab->radanLayers[i].lineWidth = v;
             syncInterpOverlays();
         });
         rl->addWidget(wSlider);
@@ -5314,9 +5388,20 @@ void MainWindow::syncInterpUiState()
     if (m_interpPanel) {
         m_interpPanel->setVisible(on);
         if (on) {
-            if (m_currentTab && m_currentTab->horizons.isEmpty()) {
-                m_currentTab->horizons.append(makeDefaultHorizon(0));
-                m_currentTab->horizons.append(makeDefaultHorizon(1));
+            if (m_currentTab && m_currentTab->radanLayers.isEmpty()) {
+                // 无DZX层位数据: 建7个空层(第1~7层, 固定色)
+                static const QColor cls[7] = {
+                    QColor(0xff,0xff,0x00), QColor(0xff,0x00,0x00), QColor(0x00,0xff,0x00),
+                    QColor(0x00,0x00,0xff), QColor(0xa0,0x52,0x2d), QColor(0x00,0x00,0x00),
+                    QColor(0xff,0xff,0xff) };
+                for (int i = 0; i < 7; ++i) {
+                    HorizonLayer h;
+                    h.name = QStringLiteral("第%1层").arg(i + 1);
+                    h.color = cls[i];
+                    h.lineWidth = 5;
+                    h.layerNum = i;
+                    m_currentTab->radanLayers.append(h);
+                }
             }
             refreshHorizonList();
             refreshAnomalyList();
@@ -5358,13 +5443,13 @@ void MainWindow::clearTrackSeeds()
 // 峰值跟随自动追踪: 从每个种子向左右逐步(1道), 在上一采样点±W窗口内取|振幅|峰值
 void MainWindow::autoTrackHorizon(int layerIdx)
 {
-    if (!m_currentTab || layerIdx < 0 || layerIdx >= m_currentTab->horizons.size()) return;
+    if (!m_currentTab || layerIdx < 0 || layerIdx >= m_currentTab->radanLayers.size()) return;
     if (m_rawData.isEmpty() || m_pixelsPerRow <= 0) return;
     const int skip = m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0;
     const int drawRows = m_pixelsPerRow - skip;
     if (drawRows <= 0) return;
 
-    HorizonLayer &h = m_currentTab->horizons[layerIdx];
+    HorizonLayer &h = m_currentTab->radanLayers[layerIdx];
     QVector<QPointF> tracked;   // 本次追踪产出的点
     const int W = 10;           // 搜索窗口(±采样)
     for (const QPointF &seed : m_currentTab->trackSeeds) {

@@ -136,6 +136,7 @@ struct HorizonLayer {
     bool visible = true;
     int lineWidth = 2;      // 1-5
     bool dashed = false;
+    int layerNum = 0;          // DZX LayerGroup 序号(0-based)
     QVector<QPointF> points;   // (trace, sample) 按 trace 升序
 };
 
@@ -423,6 +424,7 @@ private:
     static bool readDzxInterp(const QString &dztPath,
                               QVector<HorizonLayer> &horizons, QVector<AnomalyMark> &anomalies);
     static bool readDzxDLayers(const QString &dztPath, QVector<HorizonLayer> &radanLayers);
+    bool writeDzxDLayers(const QString &dztPath, const QVector<HorizonLayer> &radanLayers);
     bool writeDzxInterp(const QString &dztPath,
                         const QVector<HorizonLayer> &horizons,
                         const QVector<AnomalyMark> &anomalies);
