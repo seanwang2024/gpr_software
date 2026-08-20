@@ -128,6 +128,28 @@ struct EditBlk {
     int state = 0;
 };
 
+// v1.0.108 数据解译: 层位曲线 (trace,sample) 域
+struct HorizonLayer {
+    QString name;
+    QColor color;
+    bool visible = true;
+    int lineWidth = 2;      // 1-5
+    bool dashed = false;
+    QVector<QPointF> points;   // (trace, sample) 按 trace 升序
+};
+
+// v1.0.108 数据解译: 异常标注 (trace,sample) 域
+struct AnomalyMark {
+    int shape = 0;             // 0圆 1矩 2闭合多边形 3文本
+    QString name;
+    QString remark;
+    QColor color;
+    QString fontFamily = QStringLiteral("Microsoft YaHei");
+    int fontSize = 12;
+    QRectF rect;               // 圆(外接框)/矩/文本框
+    QVector<QPointF> poly;     // 多边形顶点
+};
+
 class ImageLabel : public QLabel
 {
     Q_OBJECT
@@ -148,6 +170,12 @@ public:
     bool editBlocksVisible() const { return m_blocksVisible; }
     int editActiveBlock() const { return m_activeBlock; }
     void setGeometryForMapping(int traceCount, int drawRows, float pxPerTrace, int wiggleStep);
+    // v1.0.108 数据解译叠加: 层位曲线/异常标注/追踪种子 (mPerSample 供深度标签)
+    void setInterpOverlays(const QVector<HorizonLayer> &horizons,
+                           const QVector<AnomalyMark> &anomalies,
+                           const QVector<QPointF> &seeds,
+                           double mPerSample, int selectedAnomaly = -1);
+    bool hasInterpOverlay() const;
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
@@ -213,6 +241,13 @@ private:
     DragMode hitTest(const QPoint &pos, int idx, bool *onKeep, bool *onDel) const;
     QRectF clampNoOverlap(const QRectF &r, int selfIdx) const;  // 防重叠实时夹取
     void drawEditOverlay();
+    // v1.0.108 解译叠加
+    QVector<HorizonLayer> m_horizons;
+    QVector<AnomalyMark> m_anomalies;
+    QVector<QPointF> m_seeds;         // 追踪参考点(选中层)
+    double m_interpMPerSample = 0.0;  // 深度标签换算
+    int m_interpSelectedAnomaly = -1;
+    void drawInterpOverlay();
 };
 
 // (v1.0.87 旧 CustomTitleBar 已删除, 由 TopBar.h 的 TopBar 替代 — 严格按 主页-文件头.png)
@@ -277,6 +312,9 @@ struct TabData {
     int dataRev = 0;              // 数据内容版本号(裁剪等改变 rawData 时++)
     QVector<EditBlk> editBlocks;  // 数据块(多块, 会话内不持久化)
     int activeEditBlock = -1;     // 活动数据块索引
+    QVector<HorizonLayer> horizons;   // 层位曲线(默认2层, 持久化到 DZX <InterpGroup>)
+    QVector<AnomalyMark> anomalies;   // 异常标注
+    QVector<QPointF> trackSeeds;      // 追踪参考点(会话内)
 
     QWidget *page = nullptr;
     QScrollArea *scrollArea = nullptr;

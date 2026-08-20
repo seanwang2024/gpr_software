@@ -15,12 +15,12 @@
     <Setting>
       <name>ColorTable</name>
       <state>0</state>
-      <value>17</value>
+      <value>25</value>
     </Setting>
     <Setting>
       <name>ColorTransform</name>
       <state>0</state>
-      <value>3</value>
+      <value>7</value>
     </Setting>
     <Setting>
       <name>RibbonCategory</name>
@@ -37,7 +37,44 @@
       <state>0</state>
       <value>1</value>
     </Setting>
+    <Setting>
+      <name>AmpUnits</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>LayerFill</name>
+      <state>0</state>
+      <value>1</value>
+    </Setting>
+    <Setting>
+      <name>R3DXViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>R3DYViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>R3DZViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
   </GlobalProperties>
+  <VelocityRecord>
+    <scan>0</scan>
+    <name></name>
+    <channel>0</channel>
+    <distance>0.0000000</distance>
+    <localCoords>0.0000000,0.0000000,0.0000000</localCoords>
+    <globalCoords>0.0000000,0.0000000,0.0000000</globalCoords>
+    <time>0.0000000</time>
+    <distanceDecrements>0</distanceDecrements>
+    <ScanSampAmp>0,0,0</ScanSampAmp>
+    <TimeDepthVel>0.0000000,0.0000000,52.6315804</TimeDepthVel>
+  </VelocityRecord>
   <File>
     <scanRange>0,393</scanRange>
     <name>DZXDEMO__002 P_1.DZT</name>
@@ -55,6 +92,7 @@
       <WayPt>
         <scan>393</scan>
         <distance>4.9125000</distance>
+        <localCoords>10.0000000,0.0000000,0.0000000</localCoords>
       </WayPt>
     </Profile>
   </File>

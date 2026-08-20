@@ -947,6 +947,10 @@ void ImageLabel::paintEvent(QPaintEvent *event)
     // v1.0.98/107 编辑模块覆盖层: 标记红虚线 + 多数据块矩形框
     if (!m_image.isNull() && (m_showMarkerOverlay || m_blocksVisible))
         drawEditOverlay();
+
+    // v1.0.108 数据解译叠加: 层位曲线 + 异常标注 + 种子
+    if (!m_image.isNull() && hasInterpOverlay())
+        drawInterpOverlay();
 }
 
 // 编辑覆盖层绘制: 红虚线标记(+道号标签) → 矩形框(+8手柄+[保留][删除]pill)
@@ -4288,6 +4292,150 @@ void MainWindow::commitMarkers()
     }
     refreshMarkerPanel();
     updateMarkerThumb();
+}
+
+// ---- v1.0.108 数据解译叠加 ----
+
+void ImageLabel::setInterpOverlays(const QVector<HorizonLayer> &horizons,
+                                   const QVector<AnomalyMark> &anomalies,
+                                   const QVector<QPointF> &seeds,
+                                   double mPerSample, int selectedAnomaly)
+{
+    m_horizons = horizons;
+    m_anomalies = anomalies;
+    m_seeds = seeds;
+    m_interpMPerSample = mPerSample;
+    m_interpSelectedAnomaly = selectedAnomaly;
+    update();
+}
+
+bool ImageLabel::hasInterpOverlay() const
+{
+    for (const HorizonLayer &h : m_horizons)
+        if (h.visible && !h.points.isEmpty()) return true;
+    if (!m_anomalies.isEmpty()) return true;
+    if (!m_seeds.isEmpty()) return true;
+    return false;
+}
+
+// 解译叠加绘制: 层位折线+左缘名称chip → 异常形状+标签 → 追踪种子十字
+void ImageLabel::drawInterpOverlay()
+{
+    QPainter p(this);
+
+    // 层位曲线 + 左缘名称 chip
+    for (const HorizonLayer &h : m_horizons) {
+        if (!h.visible) continue;
+        QPen pen(h.color, h.lineWidth, h.dashed ? Qt::DashLine : Qt::SolidLine);
+        p.setPen(pen);
+        if (h.points.size() == 1) {
+            const QPoint c(traceToWidgetX(qRound(h.points[0].x())),
+                           sampleToWidgetY(qRound(h.points[0].y())));
+            p.drawEllipse(c, 3, 3);
+        } else if (h.points.size() >= 2) {
+            QPainterPath path;
+            path.moveTo(traceToWidgetX(qRound(h.points.first().x())),
+                        sampleToWidgetY(qRound(h.points.first().y())));
+            for (int i = 1; i < h.points.size(); ++i)
+                path.lineTo(traceToWidgetX(qRound(h.points[i].x())),
+                            sampleToWidgetY(qRound(h.points[i].y())));
+            p.drawPath(path);
+        } else {
+            continue;   // 无点也画名称chip(便于识别层)
+        }
+        // 左缘层名 chip: 黑底彩边小标签
+        const int chipY = h.points.isEmpty() ? 20
+            : qBound(10, sampleToWidgetY(qRound(h.points.first().y())) - 8, height() - 22);
+        const QFont f = MatIcon::monoFont(11);
+        p.setFont(f);
+        const int tw = QFontMetrics(f).horizontalAdvance(h.name) + 10;
+        QRect chip(QPoint(2, chipY), QSize(tw, 16));
+        p.setPen(QPen(h.color, 1));
+        p.setBrush(QColor(0, 0, 0, 150));
+        p.drawRoundedRect(chip, 2, 2);
+        p.setPen(h.color);
+        p.drawText(chip, Qt::AlignCenter, h.name);
+        p.setBrush(Qt::NoBrush);
+    }
+
+    // 异常标注
+    for (int i = 0; i < m_anomalies.size(); ++i) {
+        const AnomalyMark &a = m_anomalies[i];
+        const bool sel = (i == m_interpSelectedAnomaly);
+        QPen pen(a.color, sel ? a.color == Qt::red ? 3 : 3 : 2,
+                 (a.shape == 0) ? Qt::DashLine : Qt::SolidLine);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        QString depthLbl;
+        if (m_interpMPerSample > 0) {
+            const double s0 = (a.shape == 2 && !a.poly.isEmpty())
+                                  ? a.poly.first().y() : a.rect.normalized().top();
+            depthLbl = QString::fromUtf8(" [深度: %1m]").arg(s0 * m_interpMPerSample, 0, 'f', 2);
+        }
+
+        if (a.shape == 0) {          // 圆(外接框画椭圆)
+            const QRect r = rectFromRectT(a.rect.normalized());
+            p.drawEllipse(r);
+        } else if (a.shape == 1) {   // 矩形
+            p.drawRect(rectFromRectT(a.rect.normalized()));
+        } else if (a.shape == 2) {   // 闭合多边形
+            if (a.poly.size() >= 3) {
+                QPainterPath path;
+                path.moveTo(traceToWidgetX(qRound(a.poly[0].x())),
+                            sampleToWidgetY(qRound(a.poly[0].y())));
+                for (int k = 1; k < a.poly.size(); ++k)
+                    path.lineTo(traceToWidgetX(qRound(a.poly[k].x())),
+                                sampleToWidgetY(qRound(a.poly[k].y())));
+                path.closeSubpath();
+                p.drawPath(path);
+            }
+        } else {                      // 文本框
+            const QRect r = rectFromRectT(a.rect.normalized());
+            p.drawRect(r);
+            QFont tf(a.fontFamily);
+            tf.setPixelSize(a.fontSize);
+            p.setFont(tf);
+            p.setPen(a.color);
+            p.drawText(r.adjusted(3, 1, -3, -1), Qt::AlignTop | Qt::AlignLeft, a.name);
+        }
+
+        // 标签(名称+深度): 气泡盒置于形状上方; 文本批注自身即文字不再加气泡
+        if (a.shape != 3) {
+            QRectF geoF = a.rect.normalized();
+            if (a.shape == 2 && !a.poly.isEmpty()) {
+                geoF = QRectF(a.poly.first(), a.poly.first());
+                for (const QPointF &pt : a.poly)
+                    geoF = geoF.united(QRectF(pt, pt));
+            }
+            const QRect r = rectFromRectT(geoF);
+            const QString lbl = a.name + depthLbl;
+            const QFont lf = MatIcon::monoFont(11);
+            p.setFont(lf);
+            const int lw = QFontMetrics(lf).horizontalAdvance(lbl) + 10;
+            int ly = r.top() - 20;
+            if (ly < 1) ly = r.top() + 3;
+            QRect box(QPoint(qBound(1, r.left(), qMax(1, width() - lw - 2)), ly),
+                      QSize(lw, 17));
+            p.setPen(QPen(a.color, 1));
+            p.setBrush(QColor(0, 0, 0, 170));
+            p.drawRoundedRect(box, 2, 2);
+            p.setPen(a.color);
+            p.drawText(box, Qt::AlignCenter, lbl);
+            p.setBrush(Qt::NoBrush);
+        }
+    }
+
+    // 追踪参考点种子: 层色小十字
+    if (!m_seeds.isEmpty()) {
+        QPen pen(QColor(0xff, 0xff, 0x00), 2);
+        p.setPen(pen);
+        for (const QPointF &s : m_seeds) {
+            const int x = traceToWidgetX(qRound(s.x()));
+            const int y = sampleToWidgetY(qRound(s.y()));
+            p.drawLine(x - 5, y, x + 5, y);
+            p.drawLine(x, y - 5, x, y + 5);
+        }
+    }
 }
 
 // 天线型号(DZT 头 offset 0x62/98)→ 中心频率(MHz)对照表(GSSI)。仅内部使用,不显示。
