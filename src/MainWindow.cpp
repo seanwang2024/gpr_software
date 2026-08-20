@@ -1980,6 +1980,11 @@ MainWindow::MainWindow(QWidget *parent)
     createMarkerPanel();
     mainLayout->addWidget(m_markerPanel);
 
+    // v1.0.108: 右侧 320px 解译与管理面板(数据解译模块, 默认隐藏)
+    createInterpPanel();
+    contentLayout->addWidget(m_interpPanel);
+    m_interpPanel->hide();
+
     // --- 状态栏 (v1.0.87 28px,按设计稿: 左 ●就绪 | 右 道号/深度 等宽 + 进度条) ---
     m_progressBar = new QProgressBar(this);
     m_net = new QNetworkAccessManager(this);
@@ -2102,10 +2107,15 @@ MainWindow::MainWindow(QWidget *parent)
             });
             return;
         }
+        if (idx == 3) {   // 3 = 数据解译页
+            syncInterpUiState();
+            return;
+        }
         bool any = false;
         for (auto *b : { m_btnEditMarker, m_btnEditBlock, m_btnHZoom })
             if (b && b->isChecked()) { b->setChecked(false); any = true; }
         if (any) syncEditUiState();
+        syncInterpUiState();   // 离开数据解译页也收起其面板
     });
     // 品牌下拉菜单
     connect(m_topBar, &TopBar::openFileRequested, this, &MainWindow::onOpenFile);
@@ -2554,6 +2564,7 @@ void MainWindow::switchToTab(int index)
     if (m_headerPanel && m_headerPanel->isVisible())
         refreshHeaderPanel();   // v1.0.87 切文件刷新右栏字段
     syncEditUiState();          // v1.0.98 切文件同步编辑面板(缩放控件回填/无文件收起)
+    syncInterpUiState();        // v1.0.108 切文件同步解译面板
 
     scrollArea = tab->scrollArea;
     imageLabel = tab->imageLabel;
@@ -4435,6 +4446,402 @@ void ImageLabel::drawInterpOverlay()
             p.drawLine(x - 5, y, x + 5, y);
             p.drawLine(x, y - 5, x, y + 5);
         }
+    }
+}
+
+// ---- v1.0.108 数据解译面板与状态 ----
+
+// 默认两层位(用户指定: 暂时只有两个层可供选择)
+static HorizonLayer makeDefaultHorizon(int idx)
+{
+    HorizonLayer h;
+    if (idx == 0) {
+        h.name = QString::fromUtf8("路基顶面");
+        h.color = QColor(0x00, 0xff, 0xff);
+        h.dashed = true;
+    } else {
+        h.name = QString::fromUtf8("基底原土层");
+        h.color = QColor(0xff, 0x00, 0xff);
+        h.dashed = false;
+    }
+    h.visible = true;
+    h.lineWidth = 2;
+    return h;
+}
+
+// 采样点→米: 用 headerRange/nsamp 与介电常数换算深度; 简化用 depthRange/drawRows
+double MainWindow::interpMPerSample() const
+{
+    if (!m_currentTab || m_pixelsPerRow <= 0) return 0.0;
+    const int skip = m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0;
+    const int drawRows = m_pixelsPerRow - skip;
+    if (drawRows <= 0) return 0.0;
+    return m_depthRange / drawRows;
+}
+
+int MainWindow::selectedHorizon() const
+{
+    if (!m_horizonTree || !m_currentTab) return 0;
+    const int idx = m_horizonTree->indexOfTopLevelItem(m_horizonTree->currentItem());
+    return (idx >= 0 && idx < m_currentTab->horizons.size()) ? idx : 0;
+}
+
+// tab 解译数据 → 主图叠加
+void MainWindow::syncInterpOverlays()
+{
+    if (!m_currentTab || !m_currentTab->imageLabel) return;
+    m_currentTab->imageLabel->setInterpOverlays(
+        m_currentTab->horizons, m_currentTab->anomalies, m_currentTab->trackSeeds,
+        interpMPerSample(), m_selectedAnomaly);
+}
+
+// 右侧 320px 解译与管理面板: 层位列表 + 追踪控制 + 异常标注列表 (按 数据解译-追踪异常.html)
+void MainWindow::createInterpPanel()
+{
+    m_interpPanel = new QWidget(this);
+    m_interpPanel->setFixedWidth(320);
+    m_interpPanel->setStyleSheet("#gprInterpPanel { background: #f8f9ff; }");
+
+    QHBoxLayout *shell = new QHBoxLayout(m_interpPanel);
+    shell->setContentsMargins(0, 0, 0, 0);
+    shell->setSpacing(0);
+    QWidget *leftEdge = new QWidget(m_interpPanel);
+    leftEdge->setFixedWidth(1);
+    leftEdge->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    leftEdge->setStyleSheet("background: #c3c6d6;");
+    shell->addWidget(leftEdge);
+    QWidget *inner = new QWidget(m_interpPanel);
+    QVBoxLayout *outer = new QVBoxLayout(inner);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(0);
+
+    // --- 头条 40px: [tune] 解译与管理面板 ---
+    QWidget *head = new QWidget(inner);
+    head->setFixedHeight(40);
+    head->setStyleSheet("background: #eff4ff; border-bottom: 1px solid #c3c6d6;");
+    QHBoxLayout *hl = new QHBoxLayout(head);
+    hl->setContentsMargins(12, 0, 12, 0);
+    hl->setSpacing(8);
+    QLabel *hIcon = new QLabel(head);
+    if (MatIcon::ready())
+        hIcon->setPixmap(MatIcon::pixmap(QStringLiteral("tune"), QColor(0x42, 0x46, 0x54), 18,
+                                         0.0, devicePixelRatioF()));
+    hl->addWidget(hIcon);
+    QLabel *hTitle = new QLabel(QString::fromUtf8("解译与管理面板"), head);
+    hTitle->setStyleSheet("font-size: 14px; font-weight: bold; color: #121c2a;"
+                          " border: none; background: transparent;");
+    hl->addWidget(hTitle);
+    hl->addStretch(1);
+    outer->addWidget(head);
+
+    QScrollArea *scroll = new QScrollArea(inner);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet("QScrollArea { background: transparent; border: none; }");
+    QWidget *body = new QWidget;
+    body->setStyleSheet("background: #f8f9ff;");
+    QVBoxLayout *bl = new QVBoxLayout(body);
+    bl->setContentsMargins(12, 12, 12, 12);
+    bl->setSpacing(12);
+
+    // ==== Section 1: 层位列表 ====
+    QFrame *hzBox = new QFrame(body);
+    hzBox->setStyleSheet("QFrame { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff; }");
+    QVBoxLayout *hzL = new QVBoxLayout(hzBox);
+    hzL->setContentsMargins(0, 0, 0, 0);
+    hzL->setSpacing(0);
+    QWidget *hzHead = new QWidget(hzBox);
+    hzHead->setStyleSheet("background: #e6eeff; border-bottom: 1px solid #c3c6d6;");
+    QHBoxLayout *hzHL = new QHBoxLayout(hzHead);
+    hzHL->setContentsMargins(8, 3, 8, 3);
+    QLabel *hzCap = new QLabel(QString::fromUtf8("层位列表"), hzHead);
+    hzCap->setStyleSheet("font-size: 11px; font-weight: bold; color: #121c2a; border: none;"
+                         " background: transparent;");
+    hzHL->addWidget(hzCap);
+    hzHL->addStretch(1);
+    QToolButton *hzAdd = new QToolButton(hzHead);
+    if (MatIcon::ready())
+        hzAdd->setIcon(MatIcon::icon(QStringLiteral("add"), QColor(0xb0, 0xb4, 0xc0)));
+    hzAdd->setToolTip(QStringLiteral("后续版本提供"));
+    hzAdd->setEnabled(false);
+    hzHL->addWidget(hzAdd);
+    hzL->addWidget(hzHead);
+
+    m_horizonTree = new QTreeWidget(hzBox);
+    m_horizonTree->setHeaderHidden(true);
+    m_horizonTree->setRootIsDecorated(false);
+    m_horizonTree->setStyleSheet(
+        "QTreeWidget { border: none; background: #ffffff; font-size: 12px; }"
+        "QTreeWidget::item { padding: 2px 4px; }"
+        "QTreeWidget::item:selected { background: #dee9fc; color: #121c2a; }");
+    hzL->addWidget(m_horizonTree);
+    bl->addWidget(hzBox);
+
+    // ==== Section 2: 追踪控制 ====
+    QFrame *tkBox = new QFrame(body);
+    tkBox->setStyleSheet("QFrame { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff; }");
+    QVBoxLayout *tkL = new QVBoxLayout(tkBox);
+    tkL->setContentsMargins(0, 0, 0, 0);
+    tkL->setSpacing(0);
+    QWidget *tkHead = new QWidget(tkBox);
+    tkHead->setStyleSheet("background: #e6eeff; border-bottom: 1px solid #c3c6d6;");
+    QHBoxLayout *tkHL = new QHBoxLayout(tkHead);
+    tkHL->setContentsMargins(8, 3, 8, 3);
+    QLabel *tkCap = new QLabel(QString::fromUtf8("追踪控制"), tkHead);
+    tkCap->setStyleSheet("font-size: 11px; font-weight: bold; color: #121c2a; border: none;"
+                         " background: transparent;");
+    tkHL->addWidget(tkCap);
+    tkL->addWidget(tkHead);
+
+    QWidget *tkBody = new QWidget(tkBox);
+    QGridLayout *tkGrid = new QGridLayout(tkBody);
+    tkGrid->setContentsMargins(8, 8, 8, 8);
+    tkGrid->setSpacing(6);
+
+    m_btnPickSeed = new QPushButton(QString::fromUtf8(" 拾取参考点"), tkBody);
+    if (MatIcon::ready())
+        m_btnPickSeed->setIcon(MatIcon::icon(QStringLiteral("ads_click"), QColor(0x12, 0x1c, 0x2a)));
+    m_btnPickSeed->setCheckable(true);
+    m_btnPickSeed->setCursor(Qt::PointingHandCursor);
+    m_btnPickSeed->setStyleSheet(
+        "QPushButton { background: #dee9fc; color: #121c2a; border: 1px solid #c3c6d6;"
+        " border-radius: 3px; padding: 5px; font-size: 13px; }"
+        "QPushButton:hover { background: #d9e3f6; }"
+        "QPushButton:checked { background: #0048af; color: #ffffff; border-color: #0048af; }");
+    tkGrid->addWidget(m_btnPickSeed, 0, 0, 1, 2);
+
+    m_btnTrackStart = new QPushButton(QString::fromUtf8("开始"), tkBody);
+    m_btnTrackStart->setCursor(Qt::PointingHandCursor);
+    m_btnTrackStart->setStyleSheet(
+        "QPushButton { background: #0048af; color: #ffffff; border: none; border-radius: 3px;"
+        " padding: 5px; font-size: 13px; font-weight: bold; }"
+        "QPushButton:hover { background: #1e60d5; }");
+    tkGrid->addWidget(m_btnTrackStart, 1, 0);
+
+    QPushButton *btnTrackPause = new QPushButton(QString::fromUtf8("暂停"), tkBody);
+    btnTrackPause->setEnabled(false);
+    btnTrackPause->setToolTip(QStringLiteral("同步算法瞬时完成, 无需暂停"));
+    btnTrackPause->setStyleSheet(
+        "QPushButton { background: #dee9fc; color: #121c2a; border: 1px solid #c3c6d6;"
+        " border-radius: 3px; padding: 5px; font-size: 13px; }");
+    tkGrid->addWidget(btnTrackPause, 1, 1);
+
+    m_btnTrackStop = new QPushButton(QString::fromUtf8("停止"), tkBody);
+    m_btnTrackStop->setCursor(Qt::PointingHandCursor);
+    m_btnTrackStop->setStyleSheet(
+        "QPushButton { background: #ffffff; color: #ba1a1a; border: 1px solid #ba1a1a;"
+        " border-radius: 3px; padding: 5px; font-size: 13px; }"
+        "QPushButton:hover { background: rgba(186,26,26,0.08); }");
+    tkGrid->addWidget(m_btnTrackStop, 2, 0, 1, 2);
+    tkL->addWidget(tkBody);
+    bl->addWidget(tkBox);
+
+    // ==== Section 3: 异常标注列表 ====
+    QFrame *anBox = new QFrame(body);
+    anBox->setStyleSheet("QFrame { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff; }");
+    QVBoxLayout *anL = new QVBoxLayout(anBox);
+    anL->setContentsMargins(0, 0, 0, 0);
+    anL->setSpacing(0);
+    QWidget *anHead = new QWidget(anBox);
+    anHead->setStyleSheet("background: #e6eeff; border-bottom: 1px solid #c3c6d6;");
+    QHBoxLayout *anHL = new QHBoxLayout(anHead);
+    anHL->setContentsMargins(8, 3, 4, 3);
+    QLabel *anCap = new QLabel(QString::fromUtf8("异常标注列表"), anHead);
+    anCap->setStyleSheet("font-size: 11px; font-weight: bold; color: #121c2a; border: none;"
+                         " background: transparent;");
+    anHL->addWidget(anCap);
+    anHL->addStretch(1);
+    QToolButton *anDel = new QToolButton(anHead);
+    if (MatIcon::ready())
+        anDel->setIcon(MatIcon::icon(QStringLiteral("delete"), QColor(0xba, 0x1a, 0x1a)));
+    anDel->setToolTip(QString::fromUtf8("删除选中异常"));
+    anDel->setCursor(Qt::PointingHandCursor);
+    anDel->setStyleSheet("QToolButton { border: none; border-radius: 2px; }"
+                         "QToolButton:hover { background: #dee9fc; }");
+    anHL->addWidget(anDel);
+    anL->addWidget(anHead);
+
+    m_anomalyList = new QListWidget(anBox);
+    m_anomalyList->setStyleSheet(
+        "QListWidget { border: none; background: #ffffff; font-size: 12px; }"
+        "QListWidget::item { padding: 4px 6px; border-bottom: 1px solid #e6eeff; }"
+        "QListWidget::item:selected { background: #dee9fc; color: #121c2a; }");
+    m_anomalyList->setMinimumHeight(120);
+    anL->addWidget(m_anomalyList);
+    bl->addWidget(anBox, 1);
+
+    scroll->setWidget(body);
+    outer->addWidget(scroll, 1);
+    shell->addWidget(inner, 1);
+
+    // 层位列表行选中 → 图上叠加刷新(S3 追踪目标)
+    connect(m_horizonTree, &QTreeWidget::currentItemChanged, this,
+            [this](QTreeWidgetItem *, QTreeWidgetItem *) { syncInterpOverlays(); });
+    // 异常列表选中 → 图上高亮
+    connect(m_anomalyList, &QListWidget::currentRowChanged, this, [this](int row) {
+        m_selectedAnomaly = row;
+        syncInterpOverlays();
+    });
+    // 删除选中异常
+    connect(anDel, &QToolButton::clicked, this, [this]() {
+        if (!m_currentTab || m_selectedAnomaly < 0
+            || m_selectedAnomaly >= m_currentTab->anomalies.size()) return;
+        m_currentTab->anomalies.remove(m_selectedAnomaly);
+        m_selectedAnomaly = -1;
+        refreshAnomalyList();
+        syncInterpOverlays();
+    });
+}
+
+// 层位列表刷新: 眼睛开关/色块/名称/粗细滑条 (名称与粗细可交互改)
+void MainWindow::refreshHorizonList()
+{
+    if (!m_horizonTree || !m_currentTab) return;
+    m_horizonTree->blockSignals(true);
+    m_horizonTree->clear();
+    for (int i = 0; i < m_currentTab->horizons.size(); ++i) {
+        HorizonLayer &h = m_currentTab->horizons[i];
+        QTreeWidgetItem *item = new QTreeWidgetItem(m_horizonTree);
+        item->setData(0, Qt::UserRole, i);
+        m_horizonTree->addTopLevelItem(item);
+
+        QWidget *row = new QWidget(m_horizonTree);
+        QHBoxLayout *rl = new QHBoxLayout(row);
+        rl->setContentsMargins(4, 2, 4, 2);
+        rl->setSpacing(6);
+
+        QToolButton *eye = new QToolButton(row);
+        if (MatIcon::ready())
+            eye->setIcon(MatIcon::icon(h.visible ? QStringLiteral("visibility")
+                                                 : QStringLiteral("visibility_off"),
+                                       h.visible ? QColor(0x42, 0x46, 0x54) : QColor(0xb0, 0xb4, 0xc0)));
+        eye->setToolTip(QString::fromUtf8("显示/隐藏"));
+        eye->setCursor(Qt::PointingHandCursor);
+        eye->setStyleSheet("QToolButton { border: none; } QToolButton:hover { background: #dee9fc; border-radius: 2px; }");
+        connect(eye, &QToolButton::clicked, this, [this, i]() {
+            if (!m_currentTab || i >= m_currentTab->horizons.size()) return;
+            m_currentTab->horizons[i].visible = !m_currentTab->horizons[i].visible;
+            refreshHorizonList();
+            syncInterpOverlays();
+        });
+        rl->addWidget(eye);
+
+        QLabel *swatch = new QLabel(row);
+        swatch->setFixedSize(16, 16);
+        swatch->setStyleSheet(QString("background: %1; border: 1px solid #c3c6d6; border-radius: 2px;")
+                                  .arg(h.color.name()));
+        rl->addWidget(swatch);
+
+        QLineEdit *nameEd = new QLineEdit(h.name, row);
+        nameEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 12px;"
+                              " color: #121c2a; padding: 0; }"
+                              "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
+        nameEd->setFixedWidth(120);
+        connect(nameEd, &QLineEdit::editingFinished, this, [this, i, nameEd]() {
+            if (!m_currentTab || i >= m_currentTab->horizons.size()) return;
+            const QString t = nameEd->text().trimmed();
+            if (!t.isEmpty()) {
+                m_currentTab->horizons[i].name = t;
+                syncInterpOverlays();
+            }
+        });
+        rl->addWidget(nameEd, 1);
+
+        QSlider *wSlider = new QSlider(Qt::Horizontal, row);
+        wSlider->setRange(1, 5);
+        wSlider->setValue(h.lineWidth);
+        wSlider->setFixedWidth(60);
+        wSlider->setStyleSheet(
+            "QSlider::groove:horizontal { height: 3px; background: #c3c6d6; border-radius: 1px; }"
+            "QSlider::handle:horizontal { width: 10px; height: 10px; margin: -4px 0;"
+            " border-radius: 5px; background: #0048af; }");
+        connect(wSlider, &QSlider::valueChanged, this, [this, i](int v) {
+            if (!m_currentTab || i >= m_currentTab->horizons.size()) return;
+            m_currentTab->horizons[i].lineWidth = v;
+            syncInterpOverlays();
+        });
+        rl->addWidget(wSlider);
+        m_horizonTree->setItemWidget(item, 0, row);
+    }
+    m_horizonTree->blockSignals(false);
+    if (m_horizonTree->topLevelItemCount() > 0)
+        m_horizonTree->setCurrentItem(m_horizonTree->topLevelItem(selectedHorizon()));
+}
+
+// 异常列表刷新: [形状图标+名称+色点] + 备注
+void MainWindow::refreshAnomalyList()
+{
+    if (!m_anomalyList || !m_currentTab) return;
+    m_anomalyList->blockSignals(true);
+    m_anomalyList->clear();
+    static const char *shapeGlyph[4] = { "radio_button_unchecked", "check_box_outline_blank",
+                                         "pentagon", "title" };
+    static const char *shapeName[4] = { "圆形", "矩形", "多边形", "文本" };
+    for (int i = 0; i < m_currentTab->anomalies.size(); ++i) {
+        const AnomalyMark &a = m_currentTab->anomalies[i];
+        QWidget *row = new QWidget(m_anomalyList);
+        QVBoxLayout *rl = new QVBoxLayout(row);
+        rl->setContentsMargins(2, 2, 2, 2);
+        rl->setSpacing(1);
+        QHBoxLayout *top = new QHBoxLayout;
+        top->setSpacing(6);
+        QLabel *icon = new QLabel;
+        if (MatIcon::ready())
+            icon->setPixmap(MatIcon::pixmap(QString::fromLatin1(shapeGlyph[qBound(0, a.shape, 3)]),
+                                            QColor(0x00, 0x48, 0xaf), 14, 0.0, devicePixelRatioF()));
+        top->addWidget(icon);
+        QLabel *name = new QLabel(a.name.isEmpty()
+                                      ? QString::fromUtf8(shapeName[qBound(0, a.shape, 3)])
+                                      : a.name);
+        name->setStyleSheet("font-size: 12px; font-weight: bold; color: #121c2a; border: none;");
+        top->addWidget(name, 1);
+        QLabel *dot = new QLabel;
+        dot->setFixedSize(12, 12);
+        dot->setStyleSheet(QString("background: %1; border: 1px solid #c3c6d6; border-radius: 6px;")
+                               .arg(a.color.name()));
+        top->addWidget(dot);
+        rl->addLayout(top);
+        if (!a.remark.isEmpty()) {
+            QLabel *rem = new QLabel(a.remark);
+            rem->setStyleSheet("font-size: 11px; color: #424654; border: none;");
+            rem->setWordWrap(true);
+            rl->addWidget(rem);
+        }
+        QListWidgetItem *it = new QListWidgetItem;
+        it->setSizeHint(QSize(0, 44));
+        m_anomalyList->addItem(it);
+        m_anomalyList->setItemWidget(it, row);
+    }
+    m_anomalyList->blockSignals(false);
+}
+
+// 数据解译状态总闸: 进出数据解译页/切tab; 面板显隐+按钮复位+列表刷新
+void MainWindow::syncInterpUiState()
+{
+    const bool on = m_currentTab != nullptr
+                    && ribbonTab && ribbonTab->currentIndex() == 3;   // 3 = 数据解译页
+    if (m_interpPanel) {
+        m_interpPanel->setVisible(on);
+        if (on) {
+            if (m_currentTab && m_currentTab->horizons.isEmpty()) {
+                m_currentTab->horizons.append(makeDefaultHorizon(0));
+                m_currentTab->horizons.append(makeDefaultHorizon(1));
+            }
+            refreshHorizonList();
+            refreshAnomalyList();
+            syncInterpOverlays();
+        }
+    }
+    if (!on) {
+        // 离开数据解译页: 模式按钮复位 + 清叠加
+        QAbstractButton *btns[] = { m_btnAutoTrack, m_btnManualTrack, m_btnAnoCircle,
+                                    m_btnAnoRect, m_btnAnoPoly, m_btnAnoText, m_btnPickSeed };
+        for (QAbstractButton *b : btns)
+            if (b) b->setChecked(false);
+        if (m_currentTab && m_currentTab->imageLabel)
+            m_currentTab->imageLabel->setInterpOverlays(
+                QVector<HorizonLayer>(), QVector<AnomalyMark>(), QVector<QPointF>(), 0.0, -1);
+        if (m_currentTab) m_currentTab->trackSeeds.clear();
     }
 }
 
@@ -7141,9 +7548,55 @@ void MainWindow::createMenuBar()
     dataLayout->addStretch();
     ribbonTab->addTab(dataPage, QString::fromUtf8("数据处理"));
 
-    // --- Tab: 数据解译(占位) ---
+    // --- Tab: 数据解译 (v1.0.108 按 数据解译-追踪异常.html: 追踪/标注/导出 三组) ---
     {
         QWidget *interpPage = new QWidget();
+        QHBoxLayout *interpLayout = new QHBoxLayout(interpPage);
+        interpLayout->setContentsMargins(8, 8, 8, 4);
+        interpLayout->setSpacing(0);
+
+        // 组1: 层位/目标追踪 (自动/手动 互斥)
+        QHBoxLayout *trackRow = addRibbonGroup(interpLayout, QString::fromUtf8("层位/目标追踪"));
+        m_btnAutoTrack = displayBtn(QStringLiteral("magic_button"), QString::fromUtf8("自动追踪"), 88);
+        m_btnManualTrack = displayBtn(QStringLiteral("edit"), QString::fromUtf8("手动追踪"), 88);
+        trackRow->addWidget(m_btnAutoTrack);
+        trackRow->addWidget(m_btnManualTrack);
+        m_trackGroup = new QButtonGroup(interpPage);
+        m_trackGroup->setExclusive(true);
+        m_trackGroup->addButton(m_btnAutoTrack);
+        m_trackGroup->addButton(m_btnManualTrack);
+
+        // 组2: 异常标注工具 (圆/矩/多边形/文本 四选一互斥)
+        QHBoxLayout *annoRow = addRibbonGroup(interpLayout, QString::fromUtf8("异常标注工具"));
+        m_btnAnoCircle = displayBtn(QStringLiteral("radio_button_unchecked"), QString::fromUtf8("圆形"), 64);
+        m_btnAnoRect = displayBtn(QStringLiteral("check_box_outline_blank"), QString::fromUtf8("矩形"), 64);
+        m_btnAnoPoly = displayBtn(QStringLiteral("pentagon"), QString::fromUtf8("闭合多边形"), 100);
+        m_btnAnoText = displayBtn(QStringLiteral("title"), QString::fromUtf8("文本批注"), 88);
+        for (auto *b : { m_btnAnoCircle, m_btnAnoRect, m_btnAnoPoly, m_btnAnoText })
+            annoRow->addWidget(b);
+        m_annoGroup = new QButtonGroup(interpPage);
+        m_annoGroup->setExclusive(true);
+        for (auto *b : { m_btnAnoCircle, m_btnAnoRect, m_btnAnoPoly, m_btnAnoText })
+            m_annoGroup->addButton(b);
+
+        // 组3: 解译成果导出 (占位)
+        QHBoxLayout *expRow = addRibbonGroup(interpLayout, QString::fromUtf8("解译成果导出"), true);
+        QToolButton *btnExpData = displayBtn(QStringLiteral("download"), QString::fromUtf8("数据导出"), 88);
+        QToolButton *btnExpImg = displayBtn(QStringLiteral("image"), QString::fromUtf8("图像导出"), 88);
+        btnExpData->setCheckable(false);
+        btnExpImg->setCheckable(false);
+        expRow->addWidget(btnExpData);
+        expRow->addWidget(btnExpImg);
+        connect(btnExpData, &QToolButton::clicked, this, [this]() {
+            QMessageBox::information(this, QString::fromUtf8("数据导出"),
+                QString::fromUtf8("解译成果数据导出将在后续版本提供。"));
+        });
+        connect(btnExpImg, &QToolButton::clicked, this, [this]() {
+            QMessageBox::information(this, QString::fromUtf8("图像导出"),
+                QString::fromUtf8("解译成果图像导出将在后续版本提供。"));
+        });
+
+        interpLayout->addStretch(1);
         ribbonTab->addTab(interpPage, QString::fromUtf8("数据解译"));
     }
 

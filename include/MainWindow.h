@@ -21,6 +21,7 @@
 #include <QValueAxis>
 #include <QTreeWidget>
 #include <QTableWidget>
+#include <QListWidget>
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QTabWidget>
@@ -393,6 +394,13 @@ private:
     void setHZoom(float zoom);                // 横向缩放(保持视口中心道)
     void syncRightRail();                     // 编辑面板与文件头右栏互斥
     void syncEditUiState();                   // 编辑模块状态总闸(面板显隐/页切换/控件回填)
+    void createInterpPanel();                 // v1.0.108 右侧320px解译与管理面板
+    void syncInterpUiState();                 // 数据解译状态总闸(面板显隐/按钮复位/列表刷新)
+    void refreshHorizonList();                // 层位列表刷新
+    void refreshAnomalyList();                // 异常列表刷新
+    void syncInterpOverlays();                // tab解译数据 → 主图叠加
+    int selectedHorizon() const;              // 层位列表当前选中层索引
+    double interpMPerSample() const;          // 采样点→米(深度标签/自动追踪)
     void createMarkerPanel();                 // 底部标记面板(标记表+缩略图, 编辑标记开关)
     void refreshMarkerPanel();                // 标记表/主图覆盖层/缩略图 刷新
     void updateMarkerThumb();                 // 缩略图重建(带缓存) + 视口框
@@ -483,6 +491,23 @@ private:
     bool m_fillingMarkers = false;            // 表格填充防 itemChanged 环
     QImage m_thumbCache;                      // 缩略图缓存
     QString m_thumbKey;                       // 缓存键(tab/rev/尺寸/调色板/变换)
+
+    // ---- v1.0.108 数据解译 ----
+    QToolButton *m_btnAutoTrack = nullptr;    // 自动追踪
+    QToolButton *m_btnManualTrack = nullptr;  // 手动追踪
+    QToolButton *m_btnAnoCircle = nullptr;    // 圆形
+    QToolButton *m_btnAnoRect = nullptr;      // 矩形
+    QToolButton *m_btnAnoPoly = nullptr;      // 闭合多边形
+    QToolButton *m_btnAnoText = nullptr;      // 文本批注
+    QWidget *m_interpPanel = nullptr;         // 右侧320px解译与管理面板
+    QTreeWidget *m_horizonTree = nullptr;     // 层位列表(2层)
+    QListWidget *m_anomalyList = nullptr;     // 异常标注列表
+    QPushButton *m_btnPickSeed = nullptr;     // 拾取参考点
+    QPushButton *m_btnTrackStart = nullptr;   // 开始
+    QPushButton *m_btnTrackStop = nullptr;    // 停止
+    QButtonGroup *m_trackGroup = nullptr;     // 追踪模式互斥组(自动/手动)
+    QButtonGroup *m_annoGroup = nullptr;      // 标注工具互斥组(圆/矩/多边形/文本)
+    int m_selectedAnomaly = -1;               // 异常列表选中索引
 
     // Tab group management (splitter)
     QSplitter *m_docSplitter = nullptr;
