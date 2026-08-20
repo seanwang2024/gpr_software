@@ -2623,6 +2623,10 @@ void MainWindow::switchToTab(int index)
     }
     if (!tab) return;
 
+    // RADAN规律: 切换文件时把上一个文件的标记一次性写入 DZX
+    if (m_currentTab && m_currentTab != tab)
+        flushMarkersToDzx(m_currentTab);
+
     m_currentTab = tab;
 
     // Update group styles: active group has bold selected tab
@@ -2702,6 +2706,9 @@ void MainWindow::closeTab(int index)
         if (t->page == page) { tab = t; break; }
     }
     if (!tab) return;
+
+    // RADAN规律: 关闭文件时把标记一次性写入 DZX
+    flushMarkersToDzx(tab);
 
     m_tabs.removeOne(tab);
     srcGroup->removeTab(index);
@@ -3272,6 +3279,10 @@ void MainWindow::showUpgrade()
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    // RADAN规律: 关闭程序时把所有文件的标记一次性写入 DZX
+    for (auto *t : m_tabs)
+        flushMarkersToDzx(t);
+
     // 若有"下次启动再用"的待应用升级:启动"等退出→覆盖(不重启)→自删"批处理,
     // 本程序退出后自动替换 exe,无后台常驻进程。
     if (!m_pendingUpgradeNewPath.isEmpty()) {
@@ -4525,7 +4536,7 @@ void MainWindow::createMarkerPanel()
     // 插入/删除
     connect(btnIns, &QPushButton::clicked, this, [this]() { insertMarkerRow(); });
     connect(btnDel, &QPushButton::clicked, this, [this]() { deleteMarkerRow(); });
-    // 道号列编辑(双击)
+    // 道号列编辑(双击) — RADAN规律: 仅更新内存, 关闭/切换时才写 DZX
     connect(m_markerTable, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *it) {
         if (m_fillingMarkers || !it || it->column() != 1 || !m_currentTab) return;
         bool ok = false;
@@ -4535,7 +4546,7 @@ void MainWindow::createMarkerPanel()
         const int row = it->row();
         if (row >= 0 && row < m_currentTab->markers.size())
             m_currentTab->markers[row] = clamped;
-        commitMarkers();
+        commitMarkers();   // 排序+刷新显示(不写DZX)
     });
 
     m_markerPanel->hide();
@@ -4624,14 +4635,10 @@ void MainWindow::insertMarkerRow()
     }
     tab->markers.insert(qBound(0, (row >= 0 ? row : tab->markers.size()), tab->markers.size()),
                         newTrace);
-    // 仅刷新显示, 延迟写入 DZX — 给用户编辑道号的窗口(编辑时 itemChanged 立即写正确值)
+    // RADAN规律: 操作全在内存, 关闭/切换文件时才写 DZX; 此处仅刷新显示
     std::sort(tab->markers.begin(), tab->markers.end());
     refreshMarkerPanel();
     updateMarkerThumb();
-    QTimer::singleShot(2000, this, [this, tab]() {
-        if (m_currentTab == tab)
-            commitMarkers();   // 2秒后仍在本tab且未编辑 → 写入自动值
-    });
 }
 
 // 删除标记: 删除选中行(无选中删最后一行)
@@ -4642,22 +4649,31 @@ void MainWindow::deleteMarkerRow()
     const int idx = (row >= 0 && row < m_currentTab->markers.size())
                         ? row : m_currentTab->markers.size() - 1;
     m_currentTab->markers.remove(idx);
-    commitMarkers();
+    // RADAN规律: 仅内存操作+显示刷新
+    refreshMarkerPanel();
+    updateMarkerThumb();
 }
 
-// 标记提交: 排序 + 持久化到 DZX <MarkGroup> + 面板/覆盖层/缩略图刷新
+// RADAN规律: 关闭/切换文件时一次性把标记写入 DZX(WayPt格式)
+void MainWindow::flushMarkersToDzx(TabData *tab)
+{
+    if (!tab || tab->filePath.isEmpty()) return;
+    std::sort(tab->markers.begin(), tab->markers.end());
+    if (!writeDzxMarkers(tab->filePath, tab->markers)) {
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            QMessageBox::warning(nullptr, QString::fromUtf8("标记保存"),
+                QString::fromUtf8("标记写入 DZX 失败(文件可能被占用/只读), 本次修改仅在内存中生效。"));
+        }
+    }
+}
+
+// 标记提交: 排序+显示刷新(纯内存, 不写DZX)
 void MainWindow::commitMarkers()
 {
     if (!m_currentTab) return;
     std::sort(m_currentTab->markers.begin(), m_currentTab->markers.end());
-    if (!writeDzxMarkers(m_currentTab->filePath, m_currentTab->markers)) {
-        static bool warned = false;
-        if (!warned) {
-            warned = true;
-            QMessageBox::warning(this, QString::fromUtf8("标记保存"),
-                QString::fromUtf8("标记写入 DZX 失败(文件可能被占用/只读), 本次修改仅在内存中生效。"));
-        }
-    }
     refreshMarkerPanel();
     updateMarkerThumb();
 }

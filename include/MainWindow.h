@@ -415,6 +415,7 @@ private:
     static QVector<int> readDzxMarkers(const QString &dztPath);      // 读 DZX Profile/WayPt (RADAN原生)
     bool writeDzxMarkers(const QString &dztPath, const QVector<int> &markers);  // 写回 WayPt 格式
     static bool syncDzxMtimeToDzt(const QString &dztPath, const QString &dzxPath);
+    void flushMarkersToDzx(TabData *tab);   // RADAN规律: 关闭/切换文件时一次性写入
     // v1.0.108 InterpGroup(层位+异常) DZX 读写
     static bool readDzxInterp(const QString &dztPath,
                               QVector<HorizonLayer> &horizons, QVector<AnomalyMark> &anomalies);

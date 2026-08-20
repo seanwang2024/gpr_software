@@ -25,7 +25,7 @@
     <Setting>
       <name>RibbonCategory</name>
       <state>0</state>
-      <value>2</value>
+      <value>1</value>
     </Setting>
     <Setting>
       <name>DisplayViews</name>
@@ -35,107 +35,22 @@
     <Setting>
       <name>PickType</name>
       <state>0</state>
-      <value>0</value>
-    </Setting>
-    <Setting>
-      <name>AmpUnits</name>
-      <state>0</state>
-      <value>0</value>
-    </Setting>
-    <Setting>
-      <name>LayerFill</name>
-      <state>0</state>
-      <value>1</value>
-    </Setting>
-    <Setting>
-      <name>R3DXViewRotAngle</name>
-      <state>0</state>
-      <value>0</value>
-    </Setting>
-    <Setting>
-      <name>R3DYViewRotAngle</name>
-      <state>0</state>
-      <value>0</value>
-    </Setting>
-    <Setting>
-      <name>R3DZViewRotAngle</name>
-      <state>0</state>
-      <value>0</value>
-    </Setting>
-    <Setting>
-      <name>DisplayPicks</name>
-      <state>0</state>
-      <value>1</value>
-    </Setting>
-    <Setting>
-      <name>R3DShowPtTargs</name>
-      <state>0</state>
-      <value>1</value>
-    </Setting>
-    <Setting>
-      <name>R3DShowLinkedTargs</name>
-      <state>0</state>
       <value>1</value>
     </Setting>
   </GlobalProperties>
-  <ChannelProperties>
-    <channel>0</channel>
-    <centerFreqMHz>0</centerFreqMHz>
-    <inLineOffset>0.0000000</inLineOffset>
-    <crossLineOffset>0.0000000</crossLineOffset>
-    <displayGain>0.0000000</displayGain>
-    <antBaseGainAdj>0.0000000</antBaseGainAdj>
-    <bistaticSep>0.0000000</bistaticSep>
-    <antennaModelID>0</antennaModelID>
-  </ChannelProperties>
-  <WayPtNameProperties>
-    <name></name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
-    <name>MARK01</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
-    <name>MARK02</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
   <File>
     <scanRange>0,1732</scanRange>
-    <name>PRV01__072 P_1.DZT</name>
+    <name>PRV01__072 P_H.DZT</name>
     <Profile>
       <scanRange>0,1732</scanRange>
-      <Comment>
-        <scan>0</scan>
-        <description>Data Collection Notes: </description>
-      </Comment>
       <WayPt>
         <scan>0</scan>
         <distance>0.0000000</distance>
+        <localCoords>0.0000000,0.0000000,0.0000000</localCoords>
       </WayPt>
       <WayPt>
-        <scan>141</scan>
-        <mark>Combo</mark>
-        <name>MARK01</name>
-      </WayPt>
-      <WayPt>
-        <scan>150</scan>
-        <mark>Combo</mark>
-        <name>MARK02</name>
-      </WayPt>
-      <WayPt>
-        <scan>247</scan>
-        <mark>Combo</mark>
-        <name>MARK03</name>
+        <scan>1731</scan>
+        <localCoords>10.0000000,0.0000000,0.0000000</localCoords>
       </WayPt>
       <WayPt>
         <scan>1732</scan>
@@ -249,38 +164,60 @@
     <defaultVelocity>0.1060000</defaultVelocity>
   </LayerGroup>
   <TargetGroup>
-    <groupName>钢筋</groupName>
+    <groupName>Dot 0</groupName>
     <display>1</display>
-    <color>13</color>
-    <sizePx>3</sizePx>
-    <outline>1</outline>
+    <color>9</color>
+    <sizePx>7</sizePx>
+    <outline>0</outline>
     <readOnly>0</readOnly>
-    <diameter>0.1200000</diameter>
-    <link>1</link>
+    <diameter>0.0666667</diameter>
+    <link>0</link>
     <pickType>1</pickType>
     <layerNum>7</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>0.1060000</defaultVelocity>
+    <defaultVelocity>0.1401000</defaultVelocity>
     <TargetWayPt>
-      <scanSampChanProp>187,179,0,0</scanSampChanProp>
-      <timeAmpDepVel>13.9843750,2202487.0000000,0.7372444,0.1060000</timeAmpDepVel>
+      <scanSampChanProp>1653,143,0,0</scanSampChanProp>
+      <timeAmpDepVel>11.1718750,7191.0000000,0.7788713,0.1401000</timeAmpDepVel>
     </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 1</groupName>
+    <display>1</display>
+    <color>18</color>
+    <sizePx>2</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>0.0666667</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>0.0500000</defaultVelocity>
     <TargetWayPt>
-      <scanSampChanProp>277,186,0,0</scanSampChanProp>
-      <timeAmpDepVel>14.5312500,3276320.0000000,0.7663773,0.1060000</timeAmpDepVel>
+      <scanSampChanProp>999,81,0,0</scanSampChanProp>
+      <timeAmpDepVel>6.3281250,7072.0000000,0.1386427,0.0500000</timeAmpDepVel>
     </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 2</groupName>
+    <display>1</display>
+    <color>9</color>
+    <sizePx>7</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>0.0666667</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>0.0708000</defaultVelocity>
     <TargetWayPt>
-      <scanSampChanProp>441,174,0,0</scanSampChanProp>
-      <timeAmpDepVel>13.5937500,1594182.0000000,0.7164278,0.1060000</timeAmpDepVel>
-    </TargetWayPt>
-    <TargetWayPt>
-      <scanSampChanProp>225,165,0,0</scanSampChanProp>
-      <timeAmpDepVel>12.8906250,1217686.0000000,0.6789404,0.1060000</timeAmpDepVel>
-    </TargetWayPt>
-    <TargetWayPt>
-      <scanSampChanProp>386,286,0,0</scanSampChanProp>
-      <timeAmpDepVel>22.3437500,2547648.0000000,1.1817646,0.1060000</timeAmpDepVel>
+      <scanSampChanProp>497,98,0,0</scanSampChanProp>
+      <timeAmpDepVel>7.6562500,21634.0000000,0.2600990,0.0708000</timeAmpDepVel>
     </TargetWayPt>
   </TargetGroup>
   <DataCollection>
