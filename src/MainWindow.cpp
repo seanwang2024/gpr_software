@@ -2433,9 +2433,15 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
         if (m_currentTab == tab && ribbonTab && ribbonTab->currentIndex() == 3) {
             const int skip = tab->zeroApplied ? tab->zeroSkipRows : 0;
             const int drawRows = tab->pixelsPerRow - skip;
-            if (m_btnPickSeed && m_btnPickSeed->isChecked()) {
+            // RADAN式自动追踪: 开始状态下点击=放参考点; ≥2个参考点时自动估算层点
+            if (m_btnTrackStart && m_btnTrackStart->isChecked()) {
                 tab->trackSeeds.append(QPointF(pos.x(), pos.y()));
-                syncInterpOverlays();
+                std::sort(tab->trackSeeds.begin(), tab->trackSeeds.end(),
+                          [](const QPointF &a, const QPointF &b) { return a.x() < b.x(); });
+                if (tab->trackSeeds.size() >= 2)
+                    autoTrackHorizon(selectedHorizon());   // 每放一个点自动追踪两参考点间
+                else
+                    syncInterpOverlays();   // 只有1个点先显示种子
                 return;
             }
             if (m_btnManualTrack && m_btnManualTrack->isChecked()) {
@@ -5130,8 +5136,8 @@ void MainWindow::createInterpPanel()
     m_horizonTree->setRootIsDecorated(false);
     m_horizonTree->setStyleSheet(
         "QTreeWidget { border: none; background: #ffffff; font-size: 12px; }"
-        "QTreeWidget::item { padding: 2px 4px; }"
-        "QTreeWidget::item:selected { background: #dee9fc; color: #121c2a; }");
+        "QTreeWidget::item { padding: 2px 4px; border: none; }"
+        "QTreeWidget::item:selected { background: #1a1a1a; border-left: 3px solid #0048af; }");
     hzL->addWidget(m_horizonTree);
     bl->addWidget(hzBox);
 
@@ -5156,41 +5162,32 @@ void MainWindow::createInterpPanel()
     tkGrid->setContentsMargins(8, 8, 8, 8);
     tkGrid->setSpacing(6);
 
-    m_btnPickSeed = new QPushButton(QString::fromUtf8(" 拾取参考点"), tkBody);
-    if (MatIcon::ready())
-        m_btnPickSeed->setIcon(MatIcon::icon(QStringLiteral("ads_click"), QColor(0x12, 0x1c, 0x2a)));
-    m_btnPickSeed->setCheckable(true);
-    m_btnPickSeed->setCursor(Qt::PointingHandCursor);
-    m_btnPickSeed->setStyleSheet(
-        "QPushButton { background: #dee9fc; color: #121c2a; border: 1px solid #c3c6d6;"
-        " border-radius: 3px; padding: 5px; font-size: 13px; }"
-        "QPushButton:hover { background: #d9e3f6; }"
-        "QPushButton:checked { background: #0048af; color: #ffffff; border-color: #0048af; }");
-    tkGrid->addWidget(m_btnPickSeed, 0, 0, 1, 2);
-
+    // RADAN式: 开始(checkable)=进入追踪模式→图上点击放参考点→算法自动估算两参考点间层点
     m_btnTrackStart = new QPushButton(QString::fromUtf8("开始"), tkBody);
+    m_btnTrackStart->setCheckable(true);
     m_btnTrackStart->setCursor(Qt::PointingHandCursor);
     m_btnTrackStart->setStyleSheet(
-        "QPushButton { background: #0048af; color: #ffffff; border: none; border-radius: 3px;"
-        " padding: 5px; font-size: 13px; font-weight: bold; }"
-        "QPushButton:hover { background: #1e60d5; }");
-    tkGrid->addWidget(m_btnTrackStart, 1, 0);
+        "QPushButton { background: #dee9fc; color: #424654; border: 1px solid #c3c6d6;"
+        " border-radius: 3px; padding: 6px; font-size: 13px; }"
+        "QPushButton:hover { background: #d9e3f6; }"
+        "QPushButton:checked { background: #0048af; color: #ffffff; border-color: #0048af; font-weight: bold; }");
+    tkGrid->addWidget(m_btnTrackStart, 0, 0);
 
     QPushButton *btnTrackPause = new QPushButton(QString::fromUtf8("暂停"), tkBody);
     btnTrackPause->setEnabled(false);
-    btnTrackPause->setToolTip(QStringLiteral("同步算法瞬时完成, 无需暂停"));
+    btnTrackPause->setToolTip(QStringLiteral("等客户确认"));
     btnTrackPause->setStyleSheet(
-        "QPushButton { background: #dee9fc; color: #121c2a; border: 1px solid #c3c6d6;"
-        " border-radius: 3px; padding: 5px; font-size: 13px; }");
-    tkGrid->addWidget(btnTrackPause, 1, 1);
+        "QPushButton { background: #dee9fc; color: #424654; border: 1px solid #c3c6d6;"
+        " border-radius: 3px; padding: 6px; font-size: 13px; }");
+    tkGrid->addWidget(btnTrackPause, 0, 1);
 
     m_btnTrackStop = new QPushButton(QString::fromUtf8("停止"), tkBody);
     m_btnTrackStop->setCursor(Qt::PointingHandCursor);
     m_btnTrackStop->setStyleSheet(
         "QPushButton { background: #ffffff; color: #ba1a1a; border: 1px solid #ba1a1a;"
-        " border-radius: 3px; padding: 5px; font-size: 13px; }"
+        " border-radius: 3px; padding: 6px; font-size: 13px; }"
         "QPushButton:hover { background: rgba(186,26,26,0.08); }");
-    tkGrid->addWidget(m_btnTrackStop, 2, 0, 1, 2);
+    tkGrid->addWidget(m_btnTrackStop, 1, 0, 1, 2);
     tkL->addWidget(tkBody);
     bl->addWidget(tkBox);
 
@@ -5232,21 +5229,34 @@ void MainWindow::createInterpPanel()
     outer->addWidget(scroll, 1);
     shell->addWidget(inner, 1);
 
-    // 层位列表行选中 → 图上叠加刷新(S3 追踪目标)
+    // 层位列表行选中 → 图上叠加刷新 + 选中行高亮(黑底+蓝色左边条, 穿透嵌入widget)
     connect(m_horizonTree, &QTreeWidget::currentItemChanged, this,
-            [this](QTreeWidgetItem *, QTreeWidgetItem *) { syncInterpOverlays(); });
-    // 追踪控制: 开始=对选中层跑峰值跟随; 停止=清种子
-    connect(m_btnTrackStart, &QPushButton::clicked, this, [this]() {
-        if (!requireOpenFile()) return;
-        const int hIdx = selectedHorizon();
-        if (m_currentTab->trackSeeds.isEmpty()) {
-            QMessageBox::information(this, QString::fromUtf8("自动追踪"),
-                QString::fromUtf8("请先点击[拾取参考点]并在图像上点选至少一个参考点。"));
+            [this](QTreeWidgetItem *cur, QTreeWidgetItem *) {
+        // 刷新所有行: 选中的黑底, 未选中透明
+        for (int i = 0; i < m_horizonTree->topLevelItemCount(); ++i) {
+            QWidget *w = m_horizonTree->itemWidget(m_horizonTree->topLevelItem(i), 0);
+            if (w) {
+                w->setStyleSheet(
+                    i == m_horizonTree->indexOfTopLevelItem(cur)
+                        ? "background: #1a1a1a; border-left: 3px solid #0048af; border-radius: 0;"
+                        : "background: transparent; border: none;");
+            }
+        }
+        syncInterpOverlays();
+    });
+    // RADAN式追踪: 开始(checkable)=进入追踪模式; 停止=退出+清种子+恢复原始
+    connect(m_btnTrackStart, &QPushButton::toggled, this, [this](bool checked) {
+        if (checked && !requireOpenFile()) {
+            m_btnTrackStart->setChecked(false);
             return;
         }
-        autoTrackHorizon(hIdx);
+        if (!checked && m_currentTab)
+            clearTrackSeeds();   // 取消开始 = 结束本次追踪
     });
-    connect(m_btnTrackStop, &QPushButton::clicked, this, [this]() { clearTrackSeeds(); });
+    connect(m_btnTrackStop, &QPushButton::clicked, this, [this]() {
+        if (m_btnTrackStart) m_btnTrackStart->setChecked(false);   // 恢复灰
+        if (m_currentTab) clearTrackSeeds();
+    });
     // 删除选中异常
     connect(anDel, &QToolButton::clicked, this, [this]() {
         if (!m_currentTab || m_selectedAnomaly < 0
@@ -5465,7 +5475,7 @@ void MainWindow::syncInterpUiState()
     if (!on) {
         // 离开数据解译页: 模式按钮复位 + 清叠加
         QAbstractButton *btns[] = { m_btnAutoTrack, m_btnManualTrack, m_btnAnoCircle,
-                                    m_btnAnoRect, m_btnAnoPoly, m_btnAnoText, m_btnPickSeed };
+                                    m_btnAnoRect, m_btnAnoPoly, m_btnAnoText };
         for (QAbstractButton *b : btns)
             if (b) b->setChecked(false);
         // 离开时闭合未完成的多边形
@@ -5485,16 +5495,15 @@ void MainWindow::syncInterpUiState()
     }
 }
 
-// 停止: 清参考点种子
+// 停止: 清参考点种子 + 开始按钮恢复灰
 void MainWindow::clearTrackSeeds()
 {
     if (!m_currentTab) return;
     m_currentTab->trackSeeds.clear();
-    if (m_btnPickSeed) m_btnPickSeed->setChecked(false);
     syncInterpOverlays();
 }
 
-// 峰值跟随自动追踪: 从每个种子向左右逐步(1道), 在上一采样点±W窗口内取|振幅|峰值
+// RADAN式峰值跟随: 两两参考点之间追踪 + 首末参考点向外延伸; ≥2个种子时每次放置新点后调用
 void MainWindow::autoTrackHorizon(int layerIdx)
 {
     if (!m_currentTab || layerIdx < 0 || layerIdx >= m_currentTab->radanLayers.size()) return;
@@ -5504,42 +5513,37 @@ void MainWindow::autoTrackHorizon(int layerIdx)
     if (drawRows <= 0) return;
 
     HorizonLayer &h = m_currentTab->radanLayers[layerIdx];
-    QVector<QPointF> tracked;   // 本次追踪产出的点
-    const int W = 10;           // 搜索窗口(±采样)
-    for (const QPointF &seed : m_currentTab->trackSeeds) {
-        const int s0 = qRound(seed.y());
-        // 向左
-        {
-            int prevS = qBound(0, s0, drawRows - 1);
-            QVector<QPointF> seg;
-            seg.append(QPointF(qRound(seed.x()), prevS));
-            for (int t = qRound(seed.x()) - 1; t >= 0; --t) {
-                int bestS = prevS, bestV = -1;
-                for (int ds = -W; ds <= W; ++ds) {
-                    const int s = qBound(0, prevS + ds, drawRows - 1);
-                    const qint32 v = qAbs(getPixelValue(t, s));
-                    if (v > bestV) { bestV = v; bestS = s; }
-                }
-                seg.append(QPointF(t, bestS));
-                prevS = bestS;
+    QVector<QPointF> seeds = m_currentTab->trackSeeds;   // 已按 trace 排序
+    if (seeds.size() < 2) return;
+
+    const int W = 10;   // 搜索窗口(±采样)
+    QVector<QPointF> tracked;
+
+    auto follow = [&](int fromT, int toT, int startS) {
+        // 从 fromT 向 toT 逐步追踪(支持正向/反向)
+        const int step = (toT >= fromT) ? 1 : -1;
+        int prevS = qBound(0, startS, drawRows - 1);
+        tracked.append(QPointF(fromT, prevS));
+        for (int t = fromT + step; (step > 0 ? t <= toT : t >= toT); t += step) {
+            int bestS = prevS, bestV = -1;
+            for (int ds = -W; ds <= W; ++ds) {
+                const int s = qBound(0, prevS + ds, drawRows - 1);
+                const qint32 v = qAbs(getPixelValue(t, s));
+                if (v > bestV) { bestV = v; bestS = s; }
             }
-            for (int i = seg.size() - 1; i >= 0; --i) tracked.append(seg[i]);   // 左段反序
+            tracked.append(QPointF(t, bestS));
+            prevS = bestS;
         }
-        // 向右
-        {
-            int prevS = qBound(0, s0, drawRows - 1);
-            for (int t = qRound(seed.x()) + 1; t < m_traceCount; ++t) {
-                int bestS = prevS, bestV = -1;
-                for (int ds = -W; ds <= W; ++ds) {
-                    const int s = qBound(0, prevS + ds, drawRows - 1);
-                    const qint32 v = qAbs(getPixelValue(t, s));
-                    if (v > bestV) { bestV = v; bestS = s; }
-                }
-                tracked.append(QPointF(t, bestS));
-                prevS = bestS;
-            }
-        }
-    }
+    };
+
+    // 1. 首参考点向左延伸到 trace 0
+    follow(qRound(seeds.first().x()), 0, qRound(seeds.first().y()));
+    // 2. 相邻参考点对之间追踪
+    for (int k = 0; k + 1 < seeds.size(); ++k)
+        follow(qRound(seeds[k].x()), qRound(seeds[k + 1].x()), qRound(seeds[k].y()));
+    // 3. 末参考点向右延伸到 traceCount-1
+    follow(qRound(seeds.last().x()), m_traceCount - 1, qRound(seeds.last().y()));
+
     // 合并: 追踪点 + 现有点 按 trace 排序去重(同道取后写)
     h.points += tracked;
     std::sort(h.points.begin(), h.points.end(),
@@ -5547,14 +5551,12 @@ void MainWindow::autoTrackHorizon(int layerIdx)
     QVector<QPointF> merged;
     for (const QPointF &p : h.points) {
         if (!merged.isEmpty() && qRound(merged.last().x()) == qRound(p.x()))
-            merged.last() = p;   // 同道覆盖
+            merged.last() = p;
         else
             merged.append(p);
     }
     h.points = merged;
-    clearTrackSeeds();
-    syncInterpOverlays();
-    commitInterp();   // 持久化
+    syncInterpOverlays();   // 显示追踪结果(种子保留供继续加点)
     m_thumbKey.clear();
     refreshImage();
 }
