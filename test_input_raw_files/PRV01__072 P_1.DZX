@@ -94,6 +94,25 @@
     <hide>0</hide>
     <onePerFile>0</onePerFile>
     <paired>0</paired>
+  </WayPtNameProperties>  <WayPtNameProperties>
+    <name>MARK04</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>  <WayPtNameProperties>
+    <name>MARK08</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
+  </WayPtNameProperties>
+  <WayPtNameProperties>
+    <name>MARK02</name>
+    <readOnly>0</readOnly>
+    <hide>0</hide>
+    <onePerFile>0</onePerFile>
+    <paired>0</paired>
   </WayPtNameProperties>
   <WayPtNameProperties>
     <name>MARK01</name>
@@ -109,63 +128,7 @@
     <onePerFile>0</onePerFile>
     <paired>0</paired>
   </WayPtNameProperties>
-  <WayPtNameProperties>
-    <name>MARK03</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
-    <name>MARK04</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
-    <name>MARK05</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
-    <name>MARK06</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
-    <name>MARK07</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
-    <name>MARK08</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
-    <name>MARK09</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
-    <name>MARK10</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <File>
+<File>
     <scanRange>0,1732</scanRange>
     <name>PRV01__072 P_1.DZT</name>
     <Profile>
@@ -179,15 +142,25 @@
         <distance>0.0000000</distance>
       </WayPt>
       <WayPt>
+        <scan>1732</scan>
+        <distance>34.6400000</distance>
+      </WayPt>
+      <WayPt>
+        <scan>142</scan>
+        <mark>Combo</mark>
+        <name>MARK02</name>
+      </WayPt>
+      <WayPt>
         <scan>141</scan>
         <mark>Combo</mark>
         <name>MARK01</name>
       </WayPt>
       <WayPt>
-        <scan>1732</scan>
-        <distance>34.6400000</distance>
+        <scan>150</scan>
+        <mark>Combo</mark>
+        <name>MARK02</name>
       </WayPt>
-    </Profile>
+</Profile>
   </File>
   <LayerGroup>
     <groupName>第 1 层</groupName>

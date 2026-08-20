@@ -4624,7 +4624,14 @@ void MainWindow::insertMarkerRow()
     }
     tab->markers.insert(qBound(0, (row >= 0 ? row : tab->markers.size()), tab->markers.size()),
                         newTrace);
-    commitMarkers();
+    // 仅刷新显示, 延迟写入 DZX — 给用户编辑道号的窗口(编辑时 itemChanged 立即写正确值)
+    std::sort(tab->markers.begin(), tab->markers.end());
+    refreshMarkerPanel();
+    updateMarkerThumb();
+    QTimer::singleShot(2000, this, [this, tab]() {
+        if (m_currentTab == tab)
+            commitMarkers();   // 2秒后仍在本tab且未编辑 → 写入自动值
+    });
 }
 
 // 删除标记: 删除选中行(无选中删最后一行)
