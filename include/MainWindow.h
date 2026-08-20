@@ -176,6 +176,7 @@ public:
                            const QVector<AnomalyMark> &anomalies,
                            const QVector<QPointF> &seeds,
                            double mPerSample, int selectedAnomaly = -1);
+    void setRadanLayers(const QVector<HorizonLayer> &layers);   // RADAN原生层位点(彩色圆点)
     bool hasInterpOverlay() const;
 
 protected:
@@ -246,6 +247,7 @@ private:
     QVector<HorizonLayer> m_horizons;
     QVector<AnomalyMark> m_anomalies;
     QVector<QPointF> m_seeds;         // 追踪参考点(选中层)
+    QVector<HorizonLayer> m_radanLayers;   // RADAN原生层位点(彩色圆点)
     double m_interpMPerSample = 0.0;  // 深度标签换算
     int m_interpSelectedAnomaly = -1;
     void drawInterpOverlay();
@@ -316,6 +318,7 @@ struct TabData {
     QVector<HorizonLayer> horizons;   // 层位曲线(默认2层, 持久化到 DZX <InterpGroup>)
     QVector<AnomalyMark> anomalies;   // 异常标注
     QVector<QPointF> trackSeeds;      // 追踪参考点(会话内)
+    QVector<HorizonLayer> radanLayers;  // RADAN原生LayerGroup层位点(只读展示, 不进面板)
 
     QWidget *page = nullptr;
     QScrollArea *scrollArea = nullptr;
@@ -419,6 +422,7 @@ private:
     // v1.0.108 InterpGroup(层位+异常) DZX 读写
     static bool readDzxInterp(const QString &dztPath,
                               QVector<HorizonLayer> &horizons, QVector<AnomalyMark> &anomalies);
+    static bool readDzxDLayers(const QString &dztPath, QVector<HorizonLayer> &radanLayers);
     bool writeDzxInterp(const QString &dztPath,
                         const QVector<HorizonLayer> &horizons,
                         const QVector<AnomalyMark> &anomalies);

@@ -2578,6 +2578,8 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
         tab->horizons.append(makeDefaultHorizon(0));
         tab->horizons.append(makeDefaultHorizon(1));
     }
+    // v1.0.113: 读 RADAN 原生 LayerGroup/LayerWayPt 层位点(彩色圆点展示)
+    readDzxDLayers(filePath, tab->radanLayers);
     m_currentTab = tab;
     updateWindowTitle();
 
@@ -4405,6 +4407,79 @@ void MainWindow::flushInterpToDzx(TabData *tab)
     writeDzxInterp(tab->filePath, tab->horizons, tab->anomalies);
 }
 
+// 读取 DZX <LayerGroup>/<LayerWayPt> — RADAN 原生层位点(scanSampChanProp="scan,samp,chan,prop")
+// 颜色固定映射: 0黄 1红 2绿 3蓝 4棕 5黑 6白 (≥7灰兜底); 只读展示不进面板
+bool MainWindow::readDzxDLayers(const QString &dztPath, QVector<HorizonLayer> &radanLayers)
+{
+    radanLayers.clear();
+    QFileInfo fi(dztPath);
+    QFile f(fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX");
+    if (!f.open(QIODevice::ReadOnly)) return false;
+
+    static const QColor layerColors[] = {
+        QColor(0xff, 0xff, 0x00),   // 0 黄
+        QColor(0xff, 0x00, 0x00),   // 1 红
+        QColor(0x00, 0xff, 0x00),   // 2 绿
+        QColor(0x00, 0x00, 0xff),   // 3 蓝
+        QColor(0xa0, 0x52, 0x2d),   // 4 棕
+        QColor(0x00, 0x00, 0x00),   // 5 黑
+        QColor(0xff, 0xff, 0xff),   // 6 白
+        QColor(0x80, 0x80, 0x80),   // ≥7 灰
+    };
+
+    QXmlStreamReader r(&f);
+    bool inGroup = false;
+    HorizonLayer cur;
+    int layerIdx = 0;
+    QString curElem;
+    while (!r.atEnd()) {
+        const QXmlStreamReader::TokenType tok = r.readNext();
+        const QString name = r.name().toString();
+        if (tok == QXmlStreamReader::StartElement) {
+            if (name == QStringLiteral("LayerGroup")) {
+                inGroup = true;
+                cur = HorizonLayer();
+                cur.name = QStringLiteral("第 %1 层").arg(radanLayers.size() + 1);
+                cur.visible = true;
+                cur.lineWidth = 5;
+            } else if (inGroup && name == QStringLiteral("LayerWayPt")) {
+                // 读子元素 scanSampChanProp
+                while (!r.atEnd()) {
+                    const auto t2 = r.readNext();
+                    if (t2 == QXmlStreamReader::StartElement
+                        && r.name() == QStringLiteral("scanSampChanProp")) {
+                        const QStringList parts = r.readElementText().split(',');
+                        if (parts.size() >= 2)
+                            cur.points.append(QPointF(parts[0].toDouble(), parts[1].toDouble()));
+                    } else if (t2 == QXmlStreamReader::EndElement
+                               && r.name() == QStringLiteral("LayerWayPt")) {
+                        break;
+                    }
+                }
+            } else {
+                curElem = name;
+            }
+        } else if (tok == QXmlStreamReader::Characters && inGroup && !r.text().toString().trimmed().isEmpty()) {
+            const QString txt = r.text().toString().trimmed();
+            if (curElem == QStringLiteral("groupName")) {
+                cur.name = txt;
+            } else if (curElem == QStringLiteral("layerNum")) {
+                layerIdx = txt.toInt();
+            } else if (curElem == QStringLiteral("display")) {
+                cur.visible = txt.toInt() != 0;
+            } else if (curElem == QStringLiteral("sizePx")) {
+                cur.lineWidth = qBound(3, txt.toInt(), 10);
+            }
+        } else if (tok == QXmlStreamReader::EndElement && name == QStringLiteral("LayerGroup") && inGroup) {
+            const int ci = qBound(0, layerIdx, 7);
+            cur.color = layerColors[ci];
+            radanLayers.append(cur);
+            inGroup = false;
+        }
+    }
+    return true;
+}
+
 // 米/道: DZT spm>0 → 1/spm; 否则 DZX unitsPerScan; 都无 → 0
 double MainWindow::markerSpacingM()
 {
@@ -4705,8 +4780,16 @@ void ImageLabel::setInterpOverlays(const QVector<HorizonLayer> &horizons,
     update();
 }
 
+void ImageLabel::setRadanLayers(const QVector<HorizonLayer> &layers)
+{
+    m_radanLayers = layers;
+    update();
+}
+
 bool ImageLabel::hasInterpOverlay() const
 {
+    for (const HorizonLayer &h : m_radanLayers)
+        if (h.visible && !h.points.isEmpty()) return true;
     for (const HorizonLayer &h : m_horizons)
         if (h.visible && !h.points.isEmpty()) return true;
     if (!m_anomalies.isEmpty()) return true;
@@ -4718,6 +4801,20 @@ bool ImageLabel::hasInterpOverlay() const
 void ImageLabel::drawInterpOverlay()
 {
     QPainter p(this);
+
+    // RADAN 原生层位点(彩色实心小圆点, 只读, 不画连线/chip)
+    for (const HorizonLayer &rl : m_radanLayers) {
+        if (!rl.visible || rl.points.isEmpty()) continue;
+        p.setPen(Qt::NoPen);
+        p.setBrush(rl.color);
+        const int r = qMax(2, rl.lineWidth / 2);   // 半径 = sizePx/2
+        for (const QPointF &pt : rl.points) {
+            const int x = traceToWidgetX(qRound(pt.x()));
+            const int y = sampleToWidgetY(qRound(pt.y()));
+            p.drawEllipse(QPoint(x, y), r, r);
+        }
+        p.setBrush(Qt::NoBrush);
+    }
 
     // 层位曲线 + 左缘名称 chip
     for (const HorizonLayer &h : m_horizons) {
@@ -4871,10 +4968,11 @@ int MainWindow::selectedHorizon() const
     return (idx >= 0 && idx < m_currentTab->horizons.size()) ? idx : 0;
 }
 
-// tab 解译数据 → 主图叠加
+// tab 解译数据 → 主图叠加(含 RADAN 原生层位点)
 void MainWindow::syncInterpOverlays()
 {
     if (!m_currentTab || !m_currentTab->imageLabel) return;
+    m_currentTab->imageLabel->setRadanLayers(m_currentTab->radanLayers);
     m_currentTab->imageLabel->setInterpOverlays(
         m_currentTab->horizons, m_currentTab->anomalies, m_currentTab->trackSeeds,
         interpMPerSample(), m_selectedAnomaly);
