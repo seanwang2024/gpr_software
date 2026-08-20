@@ -4020,7 +4020,8 @@ double MainWindow::readDzxUnitsPerScan(const QString &dztPath)
     return 0.0;
 }
 
-// 读同名 DZX 的 <MarkGroup> 标记(仅 MarkGroup 内的 <scan>, 不碰 WayPt 的 scan; 失败返回空表)
+// 读 DZX Profile/WayPt(RADAN原生): 仅取有 name 子元素的条目(用户标记, 排除边界 distance 点);
+// 按 scan 排序, 序号 1/2/3... 由显示层分配
 QVector<int> MainWindow::readDzxMarkers(const QString &dztPath)
 {
     QVector<int> markers;
@@ -4028,35 +4029,42 @@ QVector<int> MainWindow::readDzxMarkers(const QString &dztPath)
     QFile f(fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX");
     if (!f.open(QIODevice::ReadOnly)) return markers;
     QXmlStreamReader r(&f);
-    bool inGroup = false, inScan = false;
+    bool inProfile = false, inWayPt = false, hasName = false;
+    int curScan = -1;
+    bool hasScan = false;
     while (!r.atEnd()) {
         const QXmlStreamReader::TokenType tok = r.readNext();
+        const QString name = r.name().toString();
         if (tok == QXmlStreamReader::StartElement) {
-            if (r.name() == QStringLiteral("MarkGroup")) inGroup = true;
-            else if (inGroup && r.name() == QStringLiteral("scan")) inScan = true;
-        } else if (tok == QXmlStreamReader::Characters && inScan) {
-            bool ok = false;
-            const int v = r.text().toInt(&ok);
-            if (ok && v >= 0) markers.append(v);
+            if (name == QStringLiteral("Profile")) inProfile = true;
+            else if (inProfile && name == QStringLiteral("WayPt")) {
+                inWayPt = true; hasName = false; hasScan = false; curScan = -1;
+            } else if (inWayPt && name == QStringLiteral("scan")) {
+                // 读完 scan 文本
+                if (r.readNext() == QXmlStreamReader::Characters) {
+                    bool ok = false;
+                    const int v = r.text().toInt(&ok);
+                    if (ok && v >= 0) { curScan = v; hasScan = true; }
+                }
+            } else if (inWayPt && name == QStringLiteral("name")) {
+                hasName = true;   // 有 name 子元素 = 用户标记(非边界点)
+            }
         } else if (tok == QXmlStreamReader::EndElement) {
-            if (r.name() == QStringLiteral("scan")) inScan = false;
-            else if (r.name() == QStringLiteral("MarkGroup")) inGroup = false;
+            if (name == QStringLiteral("WayPt") && inWayPt) {
+                if (hasName && hasScan) markers.append(curScan);
+                inWayPt = false;
+            } else if (name == QStringLiteral("Profile")) inProfile = false;
         }
     }
     std::sort(markers.begin(), markers.end());
     return markers;
 }
 
-// 标记写回同名 DZX: 文本级手术(RADAN 原字节不动); 无 DZX 则新建最小文件; 空表也写(显式清空)
+// 标记写回 DZX: RADAN原生 WayPt 格式(在 Profile 内插入, 同时补 WayPtNameProperties)
 bool MainWindow::writeDzxMarkers(const QString &dztPath, const QVector<int> &markers)
 {
     QFileInfo fi(dztPath);
     const QString dzxPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX";
-
-    QString block = QStringLiteral("  <MarkGroup>\r\n    <display>1</display>\r\n");
-    for (int t : markers)
-        block += QStringLiteral("    <Mark>\r\n      <scan>%1</scan>\r\n    </Mark>\r\n").arg(t);
-    block += QStringLiteral("  </MarkGroup>\r\n");
 
     QByteArray content;
     QFile f(dzxPath);
@@ -4064,32 +4072,124 @@ bool MainWindow::writeDzxMarkers(const QString &dztPath, const QVector<int> &mar
         content = f.readAll();
         f.close();
     }
-    if (!content.isEmpty()) {
-        const QByteArray blockUtf8 = block.toUtf8();
-        const int s = content.indexOf("<MarkGroup>");
-        if (s >= 0) {
-            const int e = content.indexOf("</MarkGroup>", s);
-            if (e < 0) return false;
-            content.replace(s, e + 12 - s, blockUtf8);   // 替换既有 MarkGroup 区段
-        } else {
-            const int e = content.lastIndexOf("</DZX>");
-            if (e < 0) return false;
-            content.insert(e, blockUtf8);                // 插到 </DZX> 之前
-        }
-        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
-        f.write(content);
-        f.close();
-    } else {
+    if (content.isEmpty()) {
+        // 新建最小 DZX(含 Profile 容器)
         if (!f.open(QIODevice::WriteOnly)) return false;
         QByteArray xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
-                         "<DZX xmlns=\"www.geophysical.com/DZX/1.02\">\r\n";
-        xml += block.toUtf8();
-        xml += "</DZX>\r\n";
+                         "<DZX xmlns=\"www.geophysical.com/DZX/1.02\">\r\n"
+                         "  <WayPtNameProperties>\r\n    <name></name>\r\n"
+                         "    <readOnly>0</readOnly><hide>0</hide><onePerFile>0</onePerFile><paired>0</paired>\r\n"
+                         "  </WayPtNameProperties>\r\n"
+                         "  <File>\r\n    <Profile>\r\n";
+        for (int i = 0; i < markers.size(); ++i) {
+            xml += QStringLiteral("      <WayPt>\r\n        <scan>%1</scan>\r\n"
+                                  "        <mark>Combo</mark>\r\n"
+                                  "        <name>MARK%2</name>\r\n      </WayPt>\r\n")
+                       .arg(markers[i])
+                       .arg(i + 1, 2, 10, QChar('0'))
+                       .toUtf8();
+            xml += QStringLiteral("  <WayPtNameProperties>\r\n    <name>MARK%1</name>\r\n"
+                                  "    <readOnly>0</readOnly><hide>0</hide>"
+                                  "<onePerFile>0</onePerFile><paired>0</paired>\r\n"
+                                  "  </WayPtNameProperties>\r\n")
+                       .arg(i + 1, 2, 10, QChar('0'))
+                       .toUtf8();
+        }
+        xml += "    </Profile>\r\n  </File>\r\n</DZX>\r\n";
         f.write(xml);
         f.close();
+        syncDzxMtimeToDzt(dztPath, dzxPath);
+        return true;
     }
 
-    // mtime 同步 DZT: 仅当 DZX 不含 BinaryData(含则改时间会触发打开时自动处理链重复生成 _P_ 对)
+    // ===== 已有 DZX: 文本级手术 =====
+    // 1. 删 Profile 内所有有 name 的 WayPt(用户标记), 保留边界点(只有 scan+distance)
+    {
+        // 逐个找 <WayPt>...</WayPt> 区段, 有 <name> 的删除
+        int s = 0;
+        while ((s = content.indexOf("<WayPt>", s)) >= 0) {
+            const int e = content.indexOf("</WayPt>", s);
+            if (e < 0) break;
+            const QByteArray seg = content.mid(s, e - s + 8);
+            if (seg.contains("<name>")) {
+                // 含换行回车的完整 WayPt 块(含前导空白)
+                int ls = s;
+                while (ls > 0 && (content[ls-1] == ' ' || content[ls-1] == '\t')) ls--;
+                if (ls > 0 && content[ls-1] == '\n') ls--;
+                if (ls > 0 && content[ls-1] == '\r') ls--;
+                const int le = e + 8;
+                if (le < content.size() && content[le] == '\r') {
+                    content.remove(ls, le + 1 - ls);
+                } else if (le < content.size() && content[le] == '\n') {
+                    content.remove(ls, le + 1 - ls);
+                } else {
+                    content.remove(ls, le - ls);
+                }
+                // 不推进 s(删了可能紧跟下一块)
+            } else {
+                s = e + 8;
+            }
+        }
+    }
+
+    // 2. 删已有 MARK 命名的 WayPtNameProperties(重建)
+    {
+        int s = 0;
+        while ((s = content.indexOf("<WayPtNameProperties>", s)) >= 0) {
+            const int e = content.indexOf("</WayPtNameProperties>", s);
+            if (e < 0) break;
+            const QByteArray seg = content.mid(s, e - s + 22);
+            if (seg.contains("MARK")) {
+                int ls = s;
+                while (ls > 0 && (content[ls-1] == ' ' || content[ls-1] == '\t')) ls--;
+                if (ls > 0 && content[ls-1] == '\n') ls--;
+                if (ls > 0 && content[ls-1] == '\r') ls--;
+                const int le = e + 22;
+                if (le < content.size() && content[le] == '\r') {
+                    content.remove(ls, le + 1 - ls);
+                } else if (le < content.size() && content[le] == '\n') {
+                    content.remove(ls, le + 1 - ls);
+                } else {
+                    content.remove(ls, le - ls);
+                }
+            } else {
+                s = e + 22;
+            }
+        }
+    }
+
+    // 3. 在 </Profile> 前插入新 WayPt 块
+    {
+        QString wpts;
+        for (int i = 0; i < markers.size(); ++i) {
+            wpts += QStringLiteral("      <WayPt>\r\n        <scan>%1</scan>\r\n"
+                                   "        <mark>Combo</mark>\r\n"
+                                   "        <name>MARK%2</name>\r\n      </WayPt>\r\n")
+                        .arg(markers[i])
+                        .arg(i + 1, 2, 10, QChar('0'));
+        }
+        const int e = content.lastIndexOf("</Profile>");
+        if (e >= 0) content.insert(e, wpts.toUtf8());
+    }
+
+    // 4. 在 <File> 前插入 WayPtNameProperties 块(与 Profile 中标记一一对应)
+    {
+        QString props;
+        for (int i = 0; i < markers.size(); ++i) {
+            props += QStringLiteral("  <WayPtNameProperties>\r\n    <name>MARK%1</name>\r\n"
+                                    "    <readOnly>0</readOnly>\r\n    <hide>0</hide>\r\n"
+                                    "    <onePerFile>0</onePerFile>\r\n    <paired>0</paired>\r\n"
+                                    "  </WayPtNameProperties>\r\n")
+                         .arg(i + 1, 2, 10, QChar('0'));
+        }
+        const int e = content.indexOf("<File>");
+        if (e >= 0) content.insert(e, props.toUtf8());
+    }
+
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    f.write(content);
+    f.close();
+
     if (!content.contains("<BinaryData"))
         syncDzxMtimeToDzt(dztPath, dzxPath);
     return true;
