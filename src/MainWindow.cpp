@@ -2087,7 +2087,15 @@ MainWindow::MainWindow(QWidget *parent)
                 grab().save(QCoreApplication::applicationDirPath() + "/editpage_render.png");   // 含底部标记面板+缩略图
                 if (m_markerPanel && m_markerPanel->isVisible())
                     m_markerPanel->grab().save(QCoreApplication::applicationDirPath() + "/markerpanel_render.png");
-                ribbonTab->setCurrentIndex(cur);
+                // 数据解译页渲染
+                ribbonTab->setCurrentIndex(3);
+                QTimer::singleShot(300, this, [this, cur]() {
+                    grab().save(QCoreApplication::applicationDirPath() + "/interppage_render.png");
+                    if (m_interpPanel && m_interpPanel->isVisible())
+                        m_interpPanel->grab().save(QCoreApplication::applicationDirPath()
+                                                  + "/interppanel_render.png");
+                    ribbonTab->setCurrentIndex(cur);
+                });
             });
         }
     });
@@ -2144,10 +2152,12 @@ MainWindow::MainWindow(QWidget *parent)
             "3. 色彩渲染: 主页-色彩渲染组, 彩虹色调色板与线性变换表叠加生效(RADAN规律)\n"
             "4. 文件头: 主页\"文件头\"按钮 在右侧栏查看当前文件元数据\n"
             "5. 编辑: \"编辑\"标签 — 编辑标记(底部标记表+缩略图, 标记存入DZX文件, 重开仍在);\n"
-            "          编辑数据块(矩形框拖动/调整大小, 保留=裁剪为选区); 横向缩放(右侧缩放条1-10x)\n"
-            "6. 数据处理: \"数据处理\"标签提供 零点调节/滤波/增益/一键处理/批处理\n"
-            "7. 多文件: 可同时打开多个文件, 文档区标签页切换, 右上角三角按钮快速切换\n"
-            "8. 关于与升级: 顶栏右上角齿轮菜单"));
+            "          编辑数据块(多矩形框+保留标记, 确认裁剪为选区); 横向缩放(右侧缩放条1-10x)\n"
+            "6. 数据解译: \"数据解译\"标签 — 手动追踪(选层后图上点击连线)/自动追踪(拾取参考点+开始,\n"
+            "          峰值跟随); 异常标注(圆形/矩形/闭合多边形/文本批注); 层位与异常存入DZX文件\n"
+            "7. 数据处理: \"数据处理\"标签提供 零点调节/滤波/增益/一键处理/批处理\n"
+            "8. 多文件: 可同时打开多个文件, 文档区标签页切换, 右上角三角按钮快速切换\n"
+            "9. 关于与升级: 顶栏右上角齿轮菜单"));
     });
     // 账号: 账号信息
     connect(m_topBar, &TopBar::accountRequested, this, [this]() {
