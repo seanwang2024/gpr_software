@@ -401,6 +401,8 @@ private:
     void syncInterpOverlays();                // tab解译数据 → 主图叠加
     int selectedHorizon() const;              // 层位列表当前选中层索引
     double interpMPerSample() const;          // 采样点→米(深度标签/自动追踪)
+    void autoTrackHorizon(int layerIdx);      // 峰值跟随自动追踪(从种子向两侧)
+    void clearTrackSeeds();                   // 停止: 清参考点
     void createMarkerPanel();                 // 底部标记面板(标记表+缩略图, 编辑标记开关)
     void refreshMarkerPanel();                // 标记表/主图覆盖层/缩略图 刷新
     void updateMarkerThumb();                 // 缩略图重建(带缓存) + 视口框

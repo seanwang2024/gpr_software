@@ -2415,6 +2415,28 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
         }
         // Always update group styles: clicking this window makes it active
         if (ownerGroup) updateGroupStyles(ownerGroup, m_tabGroups);
+        // v1.0.108: 数据解译模式 — 拾取参考点/手动追踪/标注绘制(S4)
+        if (m_currentTab == tab && ribbonTab && ribbonTab->currentIndex() == 3) {
+            const int skip = tab->zeroApplied ? tab->zeroSkipRows : 0;
+            const int drawRows = tab->pixelsPerRow - skip;
+            if (m_btnPickSeed && m_btnPickSeed->isChecked()) {
+                tab->trackSeeds.append(QPointF(pos.x(), pos.y()));
+                syncInterpOverlays();
+                return;
+            }
+            if (m_btnManualTrack && m_btnManualTrack->isChecked()) {
+                const int hIdx = selectedHorizon();
+                if (hIdx >= 0 && hIdx < tab->horizons.size()) {
+                    HorizonLayer &h = tab->horizons[hIdx];
+                    h.points.append(QPointF(pos.x(), pos.y()));
+                    std::sort(h.points.begin(), h.points.end(),
+                              [](const QPointF &a, const QPointF &b) { return a.x() < b.x(); });
+                    syncInterpOverlays();
+                }
+                return;
+            }
+            Q_UNUSED(drawRows);
+        }
         onImageClicked(pos);
     });
 
@@ -4677,11 +4699,18 @@ void MainWindow::createInterpPanel()
     // 层位列表行选中 → 图上叠加刷新(S3 追踪目标)
     connect(m_horizonTree, &QTreeWidget::currentItemChanged, this,
             [this](QTreeWidgetItem *, QTreeWidgetItem *) { syncInterpOverlays(); });
-    // 异常列表选中 → 图上高亮
-    connect(m_anomalyList, &QListWidget::currentRowChanged, this, [this](int row) {
-        m_selectedAnomaly = row;
-        syncInterpOverlays();
+    // 追踪控制: 开始=对选中层跑峰值跟随; 停止=清种子
+    connect(m_btnTrackStart, &QPushButton::clicked, this, [this]() {
+        if (!requireOpenFile()) return;
+        const int hIdx = selectedHorizon();
+        if (m_currentTab->trackSeeds.isEmpty()) {
+            QMessageBox::information(this, QString::fromUtf8("自动追踪"),
+                QString::fromUtf8("请先点击[拾取参考点]并在图像上点选至少一个参考点。"));
+            return;
+        }
+        autoTrackHorizon(hIdx);
     });
+    connect(m_btnTrackStop, &QPushButton::clicked, this, [this]() { clearTrackSeeds(); });
     // 删除选中异常
     connect(anDel, &QToolButton::clicked, this, [this]() {
         if (!m_currentTab || m_selectedAnomaly < 0
@@ -4843,6 +4872,79 @@ void MainWindow::syncInterpUiState()
                 QVector<HorizonLayer>(), QVector<AnomalyMark>(), QVector<QPointF>(), 0.0, -1);
         if (m_currentTab) m_currentTab->trackSeeds.clear();
     }
+}
+
+// 停止: 清参考点种子
+void MainWindow::clearTrackSeeds()
+{
+    if (!m_currentTab) return;
+    m_currentTab->trackSeeds.clear();
+    if (m_btnPickSeed) m_btnPickSeed->setChecked(false);
+    syncInterpOverlays();
+}
+
+// 峰值跟随自动追踪: 从每个种子向左右逐步(1道), 在上一采样点±W窗口内取|振幅|峰值
+void MainWindow::autoTrackHorizon(int layerIdx)
+{
+    if (!m_currentTab || layerIdx < 0 || layerIdx >= m_currentTab->horizons.size()) return;
+    if (m_rawData.isEmpty() || m_pixelsPerRow <= 0) return;
+    const int skip = m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0;
+    const int drawRows = m_pixelsPerRow - skip;
+    if (drawRows <= 0) return;
+
+    HorizonLayer &h = m_currentTab->horizons[layerIdx];
+    QVector<QPointF> tracked;   // 本次追踪产出的点
+    const int W = 10;           // 搜索窗口(±采样)
+    for (const QPointF &seed : m_currentTab->trackSeeds) {
+        const int s0 = qRound(seed.y());
+        // 向左
+        {
+            int prevS = qBound(0, s0, drawRows - 1);
+            QVector<QPointF> seg;
+            seg.append(QPointF(qRound(seed.x()), prevS));
+            for (int t = qRound(seed.x()) - 1; t >= 0; --t) {
+                int bestS = prevS, bestV = -1;
+                for (int ds = -W; ds <= W; ++ds) {
+                    const int s = qBound(0, prevS + ds, drawRows - 1);
+                    const qint32 v = qAbs(getPixelValue(t, s));
+                    if (v > bestV) { bestV = v; bestS = s; }
+                }
+                seg.append(QPointF(t, bestS));
+                prevS = bestS;
+            }
+            for (int i = seg.size() - 1; i >= 0; --i) tracked.append(seg[i]);   // 左段反序
+        }
+        // 向右
+        {
+            int prevS = qBound(0, s0, drawRows - 1);
+            for (int t = qRound(seed.x()) + 1; t < m_traceCount; ++t) {
+                int bestS = prevS, bestV = -1;
+                for (int ds = -W; ds <= W; ++ds) {
+                    const int s = qBound(0, prevS + ds, drawRows - 1);
+                    const qint32 v = qAbs(getPixelValue(t, s));
+                    if (v > bestV) { bestV = v; bestS = s; }
+                }
+                tracked.append(QPointF(t, bestS));
+                prevS = bestS;
+            }
+        }
+    }
+    // 合并: 追踪点 + 现有点 按 trace 排序去重(同道取后写)
+    h.points += tracked;
+    std::sort(h.points.begin(), h.points.end(),
+              [](const QPointF &a, const QPointF &b) { return a.x() < b.x(); });
+    QVector<QPointF> merged;
+    for (const QPointF &p : h.points) {
+        if (!merged.isEmpty() && qRound(merged.last().x()) == qRound(p.x()))
+            merged.last() = p;   // 同道覆盖
+        else
+            merged.append(p);
+    }
+    h.points = merged;
+    clearTrackSeeds();
+    syncInterpOverlays();
+    m_thumbKey.clear();
+    refreshImage();
 }
 
 // 天线型号(DZT 头 offset 0x62/98)→ 中心频率(MHz)对照表(GSSI)。仅内部使用,不显示。
