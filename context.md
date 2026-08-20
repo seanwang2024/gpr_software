@@ -1,26 +1,33 @@
-# 项目上下文 (2026-08-19)
+# 项目上下文 (2026-08-20)
 
 ## 项目概述
-劳雷GPR(探地雷达)数据处理软件,Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, 当前版本 v1.0.98
+劳雷GPR(探地雷达)数据处理软件,Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, 当前版本 v1.0.109
 
-## 当前工作: 编辑模块(已完成 v1.0.98, 待用户验收)
-按 specs/编辑菜单.md + 编辑-编辑标记/编辑数据块.html 实现:
-- **编辑Ribbon**: 组"标记与数据块"(编辑标记bookmark/编辑数据块grid_view) + 组"视口缩放"(横向缩放zoom_in_map)
-- **编辑标记**(独立开关底部面板, 35%高): 标记表(序号/道号可编辑/距离m=s道号×1/spm或DZX unitsPerScan) +
-  插删(两行间取均值)/缩略图MarkerThumbWidget(底图+红线+蓝视口框+点击跳转)/主图红虚线+道号标签
-- **MarkGroup持久化**: 标记写入同名DZX顶层 `<MarkGroup><Mark><scan>N</scan></Mark></MarkGroup>`
-  - readDzxMarkers/writeDzxMarkers 文本级手术保留RADAN原字节; 挂点createTab尾
-  - syncDzxMtimeToDzt(Win32 SetFileTime, 仅DZX无BinaryData时) — 防触发自动处理链
-  - ⚠ 待用户用RADAN实测含MarkGroup的DZX兼容性
-- **编辑数据块**(右侧256px面板): +新建矩形框(视口中心20%道×50%采样)/8手柄拖拽调整/
-  选区几何4字段/框上[保留][删除]/重置选区/确认裁剪
-- **裁剪** performCropSelection: 内存数据手术(逐道拷贝+originalRawData同步)+头字段
-  (nsamp@4/ntraces@20/range@26比例)+全字段同步+markers平移写DZX+chart/增益手柄同步+
-  patchDztHeaderForTab补saveProcessedFile/saveProcessedWithDzx(防旧头新数据)
-- **横向缩放**: setHZoom(1-10x, 保持视口中心道), slider+spinbox, 复用hZoom机制
-- ImageLabel扩展: trace/sample域状态(抗缩放)+映射setGeometryForMapping(resizeImageLabel注入)
-  +交互优先级: 框按钮>8手柄>框内>十字线; wiggle模式禁矩形框
-- 切走编辑ribbon页自动收起三工具; syncEditUiState状态总闸
+## 当前工作: 数据解译模块(已完成 v1.0.108-109, 待用户验收)
+按 specs/软件需求20260817/.../数据解译-追踪异常.html 实现:
+- **Ribbon 3组**: 层位/目标追踪(自动追踪magic_button/手动追踪edit, 互斥) |
+  异常标注工具(圆形/矩形/闭合多边形/文本批注, 四选一互斥) | 解译成果导出(数据导出/图像导出, 占位)
+- **右侧320px管理面板**: 层位列表(默认2层: 路基顶面#00ffff虚线/基底原土层#ff00ff实线;
+  眼睛开关/色块/名称可编辑/粗细滑条1-5; add禁用占位) | 追踪控制(拾取参考点checkable/开始/暂停禁用/停止) |
+  异常标注列表(形状图标+名称+色点+备注; 选中高亮; 删除按钮)
+- **层位追踪**: 手动=选中层后在图上点击连线; 自动=拾取参考点(黄十字种子)→开始→峰值跟随(±10窗)向两侧延伸
+- **异常标注**: 圆/矩形(点击放置默认尺寸)/多边形(逐点+切换工具闭合)/文本(弹输入框); 深度标签气泡
+- **InterpGroup持久化**: 层位曲线+异常写入同名DZX `<InterpGroup><Horizon name/color/width/visible/dashed><Pt>scan/samp;
+  <Anomaly shape/name/color/font/fontSize><Rect>或<Pt>` 文本级手术(同MarkGroup模式); createTab尾挂读取
+- ImageLabel drawInterpOverlay: 层位折线(虚/实线+左缘名称chip)+异常形状(圆/矩/多边形/文本)+深度气泡+种子十字
+- syncInterpUiState: 进出数据解译页(ribbon idx=3)面板显隐+按钮复位+多边形闭合
+- 数据解译页交互在 imageClicked lambda 内分发(仅 ribbonTab idx=3 时拦截)
+
+## 已完成模块
+- 主页(v1.0.87-97): TopBar+Ribbon 4组+文件头右栏+状态栏+色彩叠加(RADAN规律: 调色板[变换表(灰度)])
+- 编辑(v1.0.98-107): 编辑标记(MarkGroup DZX)+数据块(多矩形框+防重叠+保留唯一+裁剪)+横向缩放
+- 数据解译(v1.0.108-109): 追踪+异常标注+InterpGroup DZX
+
+## 待做
+- AI分析模块(第5标签, 占位)
+- 数据解译: 数据导出/图像导出(占位→实现)
+- 编辑数据块: 用户回测(多块交互/裁剪链路)
+- MarkGroup/InterpGroup RADAN兼容性实测
 
 ### 已完成(v1.0.87 头部彻底重构):
 - **图标系统**: 内嵌 Material Symbols Outlined 矢量字体(设计稿同款) + JetBrains Mono
