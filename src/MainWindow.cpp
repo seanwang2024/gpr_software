@@ -5116,9 +5116,12 @@ void MainWindow::createInterpPanel()
     hzHL->addStretch(1);
     QToolButton *hzAdd = new QToolButton(hzHead);
     if (MatIcon::ready())
-        hzAdd->setIcon(MatIcon::icon(QStringLiteral("add"), QColor(0xb0, 0xb4, 0xc0)));
-    hzAdd->setToolTip(QStringLiteral("后续版本提供"));
-    hzAdd->setEnabled(false);
+        hzAdd->setIcon(MatIcon::icon(QStringLiteral("add"), QColor(0x00, 0x48, 0xaf)));
+    hzAdd->setToolTip(QString::fromUtf8("新增层位"));
+    hzAdd->setCursor(Qt::PointingHandCursor);
+    hzAdd->setStyleSheet("QToolButton { border: none; border-radius: 2px; }"
+                         "QToolButton:hover { background: #dee9fc; }");
+    connect(hzAdd, &QToolButton::clicked, this, [this]() { addHorizonLayer(); });
     hzHL->addWidget(hzAdd);
     hzL->addWidget(hzHead);
 
@@ -5256,7 +5259,41 @@ void MainWindow::createInterpPanel()
     });
 }
 
-// 层位列表刷新: 数据源=radanLayers(DZX LayerGroup); 眼睛(黑=显/灰=隐)/色块/名称可编辑/粗细滑条1-10
+// 新增层位: 编号递增或补缺(找第一个空缺 layerNum); 名"第N层"; 颜色=7色映射[N%7]循环
+void MainWindow::addHorizonLayer()
+{
+    if (!m_currentTab) return;
+    static const QColor cls[7] = {
+        QColor(0xff,0xff,0x00), QColor(0xff,0x00,0x00), QColor(0x00,0xff,0x00),
+        QColor(0x00,0x00,0xff), QColor(0xa0,0x52,0x2d), QColor(0x00,0x00,0x00),
+        QColor(0xff,0xff,0xff) };
+
+    // 找第一个空缺编号
+    int newNum = m_currentTab->radanLayers.size();
+    {
+        QSet<int> used;
+        for (const HorizonLayer &h : m_currentTab->radanLayers)
+            used.insert(h.layerNum);
+        for (int n = 0; n <= m_currentTab->radanLayers.size(); ++n) {
+            if (!used.contains(n)) { newNum = n; break; }
+        }
+    }
+
+    HorizonLayer h;
+    h.layerNum = newNum;
+    h.name = QStringLiteral("第%1层").arg(newNum + 1);
+    h.color = cls[newNum % 7];
+    h.visible = true;
+    h.lineWidth = 5;
+    m_currentTab->radanLayers.append(h);
+    // 排序: 按 layerNum 升序排列(补缺的插到正确位置)
+    std::sort(m_currentTab->radanLayers.begin(), m_currentTab->radanLayers.end(),
+              [](const HorizonLayer &a, const HorizonLayer &b) { return a.layerNum < b.layerNum; });
+    refreshHorizonList();
+    syncInterpOverlays();
+}
+
+// 层位列表刷新: 数据源=radanLayers(DZX LayerGroup); 眼睛(黑=显/灰=隐)/色块/名称可编辑/粗细滑条1-10/垃圾桶删除
 void MainWindow::refreshHorizonList()
 {
     if (!m_horizonTree || !m_currentTab) return;
@@ -5326,6 +5363,23 @@ void MainWindow::refreshHorizonList()
             syncInterpOverlays();
         });
         rl->addWidget(wSlider);
+
+        // 垃圾桶: 删除该层(关闭/切换文件时写入DZX, 下次读入无此层)
+        QToolButton *del = new QToolButton(row);
+        if (MatIcon::ready())
+            del->setIcon(MatIcon::icon(QStringLiteral("delete"), QColor(0xba, 0x1a, 0x1a)));
+        del->setToolTip(QString::fromUtf8("删除该层"));
+        del->setCursor(Qt::PointingHandCursor);
+        del->setStyleSheet("QToolButton { border: none; border-radius: 2px; }"
+                           "QToolButton:hover { background: rgba(186,26,26,0.1); }");
+        connect(del, &QToolButton::clicked, this, [this, i]() {
+            if (!m_currentTab || i >= m_currentTab->radanLayers.size()) return;
+            m_currentTab->radanLayers.remove(i);
+            refreshHorizonList();
+            syncInterpOverlays();
+        });
+        rl->addWidget(del);
+
         m_horizonTree->setItemWidget(item, 0, row);
     }
     m_horizonTree->blockSignals(false);

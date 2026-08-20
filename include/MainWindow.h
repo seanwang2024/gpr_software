@@ -430,6 +430,7 @@ private:
                         const QVector<AnomalyMark> &anomalies);
     void commitInterp();                                             // 解译数据内存提交(排序+刷新, 不写DZX)
     void flushInterpToDzx(TabData *tab);                             // RADAN规律: 关闭/切换文件时一次性写 DZX
+    void addHorizonLayer();                                           // 新增层位(编号递增或补缺, 7色循环)
     void refreshSelectionInfo();            // 选区几何4字段刷新(道号/时间/尺寸)
     void clearEditBlocks();                 // 删除/重置: 清空全部数据块
     void createNewEditBlock();              // 新建数据块(自动找不重叠位置; 进块模式默认建一个)
