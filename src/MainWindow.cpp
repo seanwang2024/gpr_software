@@ -2623,9 +2623,11 @@ void MainWindow::switchToTab(int index)
     }
     if (!tab) return;
 
-    // RADAN规律: 切换文件时把上一个文件的标记一次性写入 DZX
-    if (m_currentTab && m_currentTab != tab)
+    // RADAN规律: 切换文件时把上一个文件的标记+解译数据一次性写入 DZX
+    if (m_currentTab && m_currentTab != tab) {
         flushMarkersToDzx(m_currentTab);
+        flushInterpToDzx(m_currentTab);
+    }
 
     m_currentTab = tab;
 
@@ -2707,8 +2709,9 @@ void MainWindow::closeTab(int index)
     }
     if (!tab) return;
 
-    // RADAN规律: 关闭文件时把标记一次性写入 DZX
+    // RADAN规律: 关闭文件时把标记+解译数据一次性写入 DZX
     flushMarkersToDzx(tab);
+    flushInterpToDzx(tab);
 
     m_tabs.removeOne(tab);
     srcGroup->removeTab(index);
@@ -3279,9 +3282,11 @@ void MainWindow::showUpgrade()
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    // RADAN规律: 关闭程序时把所有文件的标记一次性写入 DZX
-    for (auto *t : m_tabs)
+    // RADAN规律: 关闭程序时把所有文件的标记+解译数据一次性写入 DZX
+    for (auto *t : m_tabs) {
         flushMarkersToDzx(t);
+        flushInterpToDzx(t);
+    }
 
     // 若有"下次启动再用"的待应用升级:启动"等退出→覆盖(不重启)→自删"批处理,
     // 本程序退出后自动替换 exe,无后台常驻进程。
@@ -4386,11 +4391,18 @@ bool MainWindow::writeDzxInterp(const QString &dztPath,
     return true;
 }
 
-// 解译数据变更即写 DZX(层位点/异常增删/属性)
+// 解译数据内存提交(仅刷新显示, 不写 DZX — RADAN规律)
 void MainWindow::commitInterp()
 {
     if (!m_currentTab) return;
-    writeDzxInterp(m_currentTab->filePath, m_currentTab->horizons, m_currentTab->anomalies);
+    syncInterpOverlays();
+}
+
+// RADAN规律: 关闭/切换文件时一次性把层位/异常写入 DZX(InterpGroup)
+void MainWindow::flushInterpToDzx(TabData *tab)
+{
+    if (!tab || tab->filePath.isEmpty()) return;
+    writeDzxInterp(tab->filePath, tab->horizons, tab->anomalies);
 }
 
 // 米/道: DZT spm>0 → 1/spm; 否则 DZX unitsPerScan; 都无 → 0
