@@ -10,6 +10,7 @@ extern void diagPrint(const QString &msg);
 #include <QTimer>
 #include <QFileDialog>
 #include <QGraphicsDropShadowEffect>
+#include <QInputDialog>
 #include <QXmlStreamReader>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -2436,6 +2437,51 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
                 return;
             }
             Q_UNUSED(drawRows);
+            // S4: 异常标注绘制 — 圆/矩(点击拖拽大小由固定默认) / 多边形(逐点) / 文本(弹输入)
+            const int shapeSel = m_annoGroup ? m_annoGroup->checkedId() : -1;
+            if (shapeSel >= 0) {
+                // 默认尺寸: 圆60道×40采样 矩80道×40采样; 多边形加点; 文本弹输入
+                static const QColor shapeColors[4] = {
+                    QColor(0xff, 0xff, 0x00), QColor(0xff, 0x00, 0x00),
+                    QColor(0xff, 0xa5, 0x00), QColor(0x00, 0xd4, 0xff) };
+                AnomalyMark a;
+                a.shape = shapeSel;
+                a.color = shapeColors[shapeSel];
+                const int t = pos.x(), s = pos.y();
+                if (shapeSel == 0 || shapeSel == 1) {
+                    const int wT = (shapeSel == 0) ? 60 : 80, wS = 40;
+                    a.rect = QRectF(t - wT / 2, s - wS / 2, wT, wS);
+                    a.name = QString::fromUtf8("异常%1").arg(tab->anomalies.size() + 1, 2, 10, QChar('0'));
+                    tab->anomalies.append(a);
+                } else if (shapeSel == 2) {
+                    // 多边形: 逐点追加到一个"进行中"的标注(以 name=="__poly_pending__" 标记)
+                    const int pendIdx = [tab]() {
+                        for (int k = tab->anomalies.size() - 1; k >= 0; --k)
+                            if (tab->anomalies[k].name == QStringLiteral("__poly_pending__")) return k;
+                        return -1;
+                    }();
+                    if (pendIdx >= 0) {
+                        tab->anomalies[pendIdx].poly.append(QPointF(t, s));
+                    } else {
+                        a.poly.append(QPointF(t, s));
+                        a.name = QStringLiteral("__poly_pending__");
+                        tab->anomalies.append(a);
+                    }
+                } else if (shapeSel == 3) {
+                    bool ok = false;
+                    const QString txt = QInputDialog::getText(this, QString::fromUtf8("文本批注"),
+                        QString::fromUtf8("批注文字:"), QLineEdit::Normal,
+                        QString::fromUtf8("批注%1").arg(tab->anomalies.size() + 1), &ok);
+                    if (ok && !txt.trimmed().isEmpty()) {
+                        a.name = txt.trimmed();
+                        a.rect = QRectF(t - 60, s - 10, 120, 24);
+                        tab->anomalies.append(a);
+                    }
+                }
+                refreshAnomalyList();
+                syncInterpOverlays();
+                return;
+            }
         }
         onImageClicked(pos);
     });
@@ -4867,6 +4913,16 @@ void MainWindow::syncInterpUiState()
                                     m_btnAnoRect, m_btnAnoPoly, m_btnAnoText, m_btnPickSeed };
         for (QAbstractButton *b : btns)
             if (b) b->setChecked(false);
+        // 离开时闭合未完成的多边形
+        for (int k = 0; m_currentTab && k < m_currentTab->anomalies.size(); ++k) {
+            if (m_currentTab->anomalies[k].name == QStringLiteral("__poly_pending__")) {
+                if (m_currentTab->anomalies[k].poly.size() >= 3)
+                    m_currentTab->anomalies[k].name = QString::fromUtf8("异常%1")
+                        .arg(m_currentTab->anomalies.size(), 2, 10, QChar('0'));
+                else
+                    m_currentTab->anomalies.remove(k--);
+            }
+        }
         if (m_currentTab && m_currentTab->imageLabel)
             m_currentTab->imageLabel->setInterpOverlays(
                 QVector<HorizonLayer>(), QVector<AnomalyMark>(), QVector<QPointF>(), 0.0, -1);
@@ -7680,6 +7736,31 @@ void MainWindow::createMenuBar()
         m_annoGroup->setExclusive(true);
         for (auto *b : { m_btnAnoCircle, m_btnAnoRect, m_btnAnoPoly, m_btnAnoText })
             m_annoGroup->addButton(b);
+        m_annoGroup->setId(m_btnAnoCircle, 0);
+        m_annoGroup->setId(m_btnAnoRect, 1);
+        m_annoGroup->setId(m_btnAnoPoly, 2);
+        m_annoGroup->setId(m_btnAnoText, 3);
+        // 多边形双击闭合: 切换工具时也自动闭合进行中的多边形
+        const auto closePendingPoly = [this]() {
+            if (!m_currentTab) return;
+            for (int k = m_currentTab->anomalies.size() - 1; k >= 0; --k) {
+                if (m_currentTab->anomalies[k].name == QStringLiteral("__poly_pending__")) {
+                    AnomalyMark &a = m_currentTab->anomalies[k];
+                    if (a.poly.size() >= 3) {
+                        a.name = QString::fromUtf8("异常%1")
+                                     .arg(m_currentTab->anomalies.size(), 2, 10, QChar('0'));
+                    } else {
+                        m_currentTab->anomalies.remove(k);   // 不足3点丢弃
+                    }
+                    refreshAnomalyList();
+                    syncInterpOverlays();
+                }
+            }
+        };
+        connect(m_annoGroup, &QButtonGroup::idToggled, this,
+                [this, closePendingPoly](int, bool checked) {
+                    if (!checked) closePendingPoly();
+                });
 
         // 组3: 解译成果导出 (占位)
         QHBoxLayout *expRow = addRibbonGroup(interpLayout, QString::fromUtf8("解译成果导出"), true);
