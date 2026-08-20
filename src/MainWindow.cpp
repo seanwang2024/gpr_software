@@ -6,6 +6,9 @@
 // 诊断终端输出(定义在 main.cpp,直接写 UTF-8 到控制台 stderr)
 extern void diagPrint(const QString &msg);
 
+// 前置声明(定义在后文): 数据解译默认两层位
+static HorizonLayer makeDefaultHorizon(int idx);
+
 #include <QButtonGroup>
 #include <QTimer>
 #include <QFileDialog>
@@ -2433,6 +2436,7 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
                     std::sort(h.points.begin(), h.points.end(),
                               [](const QPointF &a, const QPointF &b) { return a.x() < b.x(); });
                     syncInterpOverlays();
+                    commitInterp();
                 }
                 return;
             }
@@ -2480,6 +2484,7 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
                 }
                 refreshAnomalyList();
                 syncInterpOverlays();
+                if (shapeSel != 2) commitInterp();   // 多边形在闭合时写
                 return;
             }
         }
@@ -2557,6 +2562,12 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
 
     // 新建 tab 立即成为当前 tab → 同步标题（防止 currentChanged 信号未触发的边界情况）
     tab->markers = readDzxMarkers(filePath);   // v1.0.98: 同名 DZX <MarkGroup> 标记
+    // v1.0.108: 读 InterpGroup(层位/异常), 失败或无数据时建默认两层
+    if (!readDzxInterp(filePath, tab->horizons, tab->anomalies)
+        || tab->horizons.isEmpty()) {
+        tab->horizons.append(makeDefaultHorizon(0));
+        tab->horizons.append(makeDefaultHorizon(1));
+    }
     m_currentTab = tab;
     updateWindowTitle();
 
@@ -4100,6 +4111,167 @@ bool MainWindow::syncDzxMtimeToDzt(const QString &dztPath, const QString &dzxPat
 #endif
 }
 
+// ---- v1.0.108 InterpGroup(层位曲线+异常标注) DZX 读写 ----
+
+// 读 DZX <InterpGroup>: Horizon(name/color/width/visible/dashed)+Pt(scan,samp);
+//                       Anomaly(shape/name/remark/color/font/fontSize)+Rect(t0,s0,t1,s1)或Pt多边形
+bool MainWindow::readDzxInterp(const QString &dztPath,
+                               QVector<HorizonLayer> &horizons, QVector<AnomalyMark> &anomalies)
+{
+    horizons.clear();
+    anomalies.clear();
+    QFileInfo fi(dztPath);
+    QFile f(fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX");
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    QXmlStreamReader r(&f);
+    enum { None, InGroup, InHorizon, InAnomaly } zone = None;
+    QString curElem;
+    HorizonLayer h;
+    AnomalyMark a;
+    bool haveH = false, haveA = false;
+    while (!r.atEnd()) {
+        const QXmlStreamReader::TokenType tok = r.readNext();
+        const QString name = r.name().toString();
+        if (tok == QXmlStreamReader::StartElement) {
+            curElem = name;
+            if (name == QStringLiteral("InterpGroup")) zone = InGroup;
+            else if (zone == InGroup && name == QStringLiteral("Horizon")) {
+                h = HorizonLayer();
+                h.name = r.attributes().value(QStringLiteral("name")).toString();
+                h.color.setNamedColor(r.attributes().value(QStringLiteral("color")).toString());
+                h.lineWidth = r.attributes().value(QStringLiteral("width")).toInt();
+                if (h.lineWidth < 1 || h.lineWidth > 5) h.lineWidth = 2;
+                h.visible = r.attributes().value(QStringLiteral("visible")).toInt() != 0;
+                h.dashed = r.attributes().value(QStringLiteral("dashed")).toInt() != 0;
+                zone = InHorizon; haveH = true;
+            } else if (zone == InGroup && name == QStringLiteral("Anomaly")) {
+                a = AnomalyMark();
+                a.shape = r.attributes().value(QStringLiteral("shape")).toInt();
+                a.name = r.attributes().value(QStringLiteral("name")).toString();
+                a.remark = r.attributes().value(QStringLiteral("remark")).toString();
+                a.color.setNamedColor(r.attributes().value(QStringLiteral("color")).toString());
+                a.fontFamily = r.attributes().value(QStringLiteral("font")).toString();
+                a.fontSize = r.attributes().value(QStringLiteral("fontSize")).toInt();
+                if (a.fontSize <= 0) a.fontSize = 12;
+                zone = InAnomaly; haveA = true;
+            } else if (zone == InHorizon && name == QStringLiteral("Pt")) {
+                h.points.append(QPointF(-1, -1));   // 占位, scan/samp 文本填充
+            } else if (zone == InAnomaly && name == QStringLiteral("Rect")) {
+                const QStringList p = r.readElementText().split(',');
+                if (p.size() == 4)
+                    a.rect = QRectF(p[0].toDouble(), p[1].toDouble(),
+                                    p[2].toDouble() - p[0].toDouble(),
+                                    p[3].toDouble() - p[1].toDouble());
+            } else if (zone == InAnomaly && name == QStringLiteral("Pt")) {
+                a.poly.append(QPointF(-1, -1));
+            }
+        } else if (tok == QXmlStreamReader::Characters
+                   && !r.text().toString().trimmed().isEmpty()) {
+            const double v = r.text().toString().trimmed().toDouble();
+            if (curElem == QStringLiteral("scan") || curElem == QStringLiteral("samp")) {
+                const bool isScan = (curElem == QStringLiteral("scan"));
+                if (zone == InHorizon && !h.points.isEmpty())
+                    h.points.last().rx() = isScan ? v : h.points.last().x(),
+                    h.points.last() = QPointF(isScan ? v : h.points.last().x(),
+                                              !isScan ? v : h.points.last().y());
+                else if (zone == InAnomaly && !a.poly.isEmpty())
+                    a.poly.last() = QPointF(isScan ? v : a.poly.last().x(),
+                                            !isScan ? v : a.poly.last().y());
+            }
+        } else if (tok == QXmlStreamReader::EndElement) {
+            if (name == QStringLiteral("Horizon") && zone == InHorizon) {
+                horizons.append(h); haveH = false; zone = InGroup;
+            } else if (name == QStringLiteral("Anomaly") && zone == InAnomaly) {
+                if (a.name != QStringLiteral("__poly_pending__")) anomalies.append(a);
+                haveA = false; zone = InGroup;
+            } else if (name == QStringLiteral("InterpGroup")) {
+                zone = None;
+            }
+        }
+    }
+    return true;
+}
+
+// 写 DZX <InterpGroup> (文本级手术, 同 MarkGroup 模式)
+bool MainWindow::writeDzxInterp(const QString &dztPath,
+                                const QVector<HorizonLayer> &horizons,
+                                const QVector<AnomalyMark> &anomalies)
+{
+    QFileInfo fi(dztPath);
+    const QString dzxPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX";
+
+    QString block = QStringLiteral("  <InterpGroup>\r\n");
+    for (const HorizonLayer &h : horizons) {
+        block += QStringLiteral("    <Horizon name=\"%1\" color=\"%2\" width=\"%3\" visible=\"%4\" dashed=\"%5\">\r\n")
+                     .arg(h.name.toHtmlEscaped(), h.color.name())
+                     .arg(h.lineWidth).arg(h.visible ? 1 : 0).arg(h.dashed ? 1 : 0);
+        for (const QPointF &p : h.points)
+            block += QStringLiteral("      <Pt><scan>%1</scan><samp>%2</samp></Pt>\r\n")
+                         .arg(qRound(p.x())).arg(qRound(p.y()));
+        block += QStringLiteral("    </Horizon>\r\n");
+    }
+    for (const AnomalyMark &a : anomalies) {
+        if (a.name == QStringLiteral("__poly_pending__")) continue;
+        block += QStringLiteral("    <Anomaly shape=\"%1\" name=\"%2\" remark=\"%3\" color=\"%4\" font=\"%5\" fontSize=\"%6\">\r\n")
+                     .arg(a.shape).arg(a.name.toHtmlEscaped(), a.remark.toHtmlEscaped(),
+                                       a.color.name(), a.fontFamily.toHtmlEscaped())
+                     .arg(a.fontSize);
+        if (a.shape == 2) {
+            for (const QPointF &p : a.poly)
+                block += QStringLiteral("      <Pt><scan>%1</scan><samp>%2</samp></Pt>\r\n")
+                             .arg(qRound(p.x())).arg(qRound(p.y()));
+        } else {
+            const QRectF rn = a.rect.normalized();
+            block += QStringLiteral("      <Rect>%1,%2,%3,%4</Rect>\r\n")
+                         .arg(qRound(rn.left())).arg(qRound(rn.top()))
+                         .arg(qRound(rn.right())).arg(qRound(rn.bottom()));
+        }
+        block += QStringLiteral("    </Anomaly>\r\n");
+    }
+    block += QStringLiteral("  </InterpGroup>\r\n");
+
+    QByteArray content;
+    QFile f(dzxPath);
+    if (f.exists() && f.open(QIODevice::ReadOnly)) {
+        content = f.readAll();
+        f.close();
+    }
+    if (!content.isEmpty()) {
+        const QByteArray blockUtf8 = block.toUtf8();
+        const int s = content.indexOf("<InterpGroup>");
+        if (s >= 0) {
+            const int e = content.indexOf("</InterpGroup>", s);
+            if (e < 0) return false;
+            content.replace(s, e + 14 - s, blockUtf8);
+        } else {
+            const int e = content.lastIndexOf("</DZX>");
+            if (e < 0) return false;
+            content.insert(e, blockUtf8);
+        }
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+        f.write(content);
+        f.close();
+    } else {
+        if (!f.open(QIODevice::WriteOnly)) return false;
+        QByteArray xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
+                         "<DZX xmlns=\"www.geophysical.com/DZX/1.02\">\r\n";
+        xml += block.toUtf8();
+        xml += "</DZX>\r\n";
+        f.write(xml);
+        f.close();
+    }
+    if (!content.contains("<BinaryData"))
+        syncDzxMtimeToDzt(dztPath, dzxPath);
+    return true;
+}
+
+// 解译数据变更即写 DZX(层位点/异常增删/属性)
+void MainWindow::commitInterp()
+{
+    if (!m_currentTab) return;
+    writeDzxInterp(m_currentTab->filePath, m_currentTab->horizons, m_currentTab->anomalies);
+}
+
 // 米/道: DZT spm>0 → 1/spm; 否则 DZX unitsPerScan; 都无 → 0
 double MainWindow::markerSpacingM()
 {
@@ -4765,6 +4937,7 @@ void MainWindow::createInterpPanel()
         m_selectedAnomaly = -1;
         refreshAnomalyList();
         syncInterpOverlays();
+        commitInterp();
     });
 }
 
@@ -4999,6 +5172,7 @@ void MainWindow::autoTrackHorizon(int layerIdx)
     h.points = merged;
     clearTrackSeeds();
     syncInterpOverlays();
+    commitInterp();   // 持久化
     m_thumbKey.clear();
     refreshImage();
 }
@@ -7749,6 +7923,7 @@ void MainWindow::createMenuBar()
                     if (a.poly.size() >= 3) {
                         a.name = QString::fromUtf8("异常%1")
                                      .arg(m_currentTab->anomalies.size(), 2, 10, QChar('0'));
+                        commitInterp();   // 多边形闭合时持久化
                     } else {
                         m_currentTab->anomalies.remove(k);   // 不足3点丢弃
                     }

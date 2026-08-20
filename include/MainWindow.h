@@ -415,6 +415,13 @@ private:
     static QVector<int> readDzxMarkers(const QString &dztPath);      // 读 DZX <MarkGroup>
     bool writeDzxMarkers(const QString &dztPath, const QVector<int> &markers);  // 写回(文本级手术)
     static bool syncDzxMtimeToDzt(const QString &dztPath, const QString &dzxPath);
+    // v1.0.108 InterpGroup(层位+异常) DZX 读写
+    static bool readDzxInterp(const QString &dztPath,
+                              QVector<HorizonLayer> &horizons, QVector<AnomalyMark> &anomalies);
+    bool writeDzxInterp(const QString &dztPath,
+                        const QVector<HorizonLayer> &horizons,
+                        const QVector<AnomalyMark> &anomalies);
+    void commitInterp();                                             // 解译数据变更即写 DZX
     void refreshSelectionInfo();            // 选区几何4字段刷新(道号/时间/尺寸)
     void clearEditBlocks();                 // 删除/重置: 清空全部数据块
     void createNewEditBlock();              // 新建数据块(自动找不重叠位置; 进块模式默认建一个)
