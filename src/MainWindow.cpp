@@ -1268,11 +1268,11 @@ void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
             menu.addAction(QString::fromUtf8("取消"));
             QAction *sel = menu.exec(event->globalPos());
             if (sel == editAct) {
-                m_anomalies[i].editing = true;   // 进入编辑态(dotline+手柄)
-                setFocus();                       // 让 keyPressEvent 能收到回车
-                update();
+                // 通知 MainWindow: 选中该项+进入编辑态(列表自动高亮)
+                emit anomalyEditRequested(i);
+                setFocus();
             }
-            return;   // 屏蔽原右键菜单
+            return;
         }
     }
 
@@ -2672,6 +2672,18 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
             QAbstractButton *btn = m_annoGroup->checkedButton();
             if (btn) btn->setChecked(false);
         }
+        syncInterpOverlays();
+    });
+    // v1.0.125: 右键"编辑" → 列表自动选中该项 + 进入编辑态
+    connect(tab->imageLabel, &ImageLabel::anomalyEditRequested, this,
+            [this, tab](int idx) {
+        if (m_currentTab != tab || idx < 0 || idx >= tab->anomalies.size()) return;
+        // 确认其他编辑态
+        for (int k = 0; k < tab->anomalies.size(); ++k)
+            if (k != idx) tab->anomalies[k].editing = false;
+        tab->anomalies[idx].editing = true;
+        m_selectedAnomaly = idx;   // 列表自动切换到当前异常
+        refreshAnomalyList();
         syncInterpOverlays();
     });
 
@@ -5560,21 +5572,12 @@ void MainWindow::createInterpPanel()
     m_anomalyList->setMinimumHeight(120);
     anL->addWidget(m_anomalyList);
 
-    // v1.0.116: 列表选中变化 → 前一个自动确认(实线) + 形状按钮取消 + 高亮刷新
+    // v1.0.125: 列表选中 = 仅视觉高亮(不改变编辑状态, 不影响形状按钮)
+    // 编辑必须通过右键→编辑; 列表选中仅供查看
     connect(m_anomalyList, &QListWidget::currentRowChanged, this, [this](int row) {
         if (!m_currentTab) return;
-        // 前一个自动确认
-        if (m_selectedAnomaly >= 0 && m_selectedAnomaly != row
-            && m_selectedAnomaly < m_currentTab->anomalies.size())
-            m_currentTab->anomalies[m_selectedAnomaly].editing = false;
-        // 形状按钮取消选中
-        if (m_annoGroup) {
-            QAbstractButton *btn = m_annoGroup->checkedButton();
-            if (btn) btn->setChecked(false);
-        }
         m_selectedAnomaly = row;
-        refreshAnomalyList();
-        syncInterpOverlays();
+        refreshAnomalyList();   // 刷新高亮
     });
     bl->addWidget(anBox, 1);
 
@@ -5964,6 +5967,9 @@ void MainWindow::refreshAnomalyList()
         m_anomalyList->setItemWidget(it, row);
     }
     m_anomalyList->blockSignals(false);
+    // 选中当前项(视觉高亮)
+    if (m_selectedAnomaly >= 0 && m_selectedAnomaly < m_anomalyList->count())
+        m_anomalyList->setCurrentRow(m_selectedAnomaly);
 }
 
 // 数据解译状态总闸: 进出数据解译页/切tab; 面板显隐+按钮复位+列表刷新
@@ -8820,13 +8826,15 @@ void MainWindow::createMenuBar()
         m_annoGroup->setId(m_btnAnoRect, 1);
         m_annoGroup->setId(m_btnAnoPoly, 2);
         m_annoGroup->setId(m_btnAnoText, 3);
-        // v1.0.124: 形状按钮 — 用 clicked 信号直接连接(绕过 exclusive group 的 idToggled 时序问题)
-        // 编辑状态切换形状(位置保留); 按钮保持选中直到确认(回车/点击外部)
+        // v1.0.125: 形状按钮 — 编辑状态或新项(shape=-1)时可用; 实线需右键→编辑
         auto shapeBtnHandler = [this](int shapeId) {
             if (!m_currentTab) return;
             if (m_selectedAnomaly >= 0
                 && m_selectedAnomaly < m_currentTab->anomalies.size()) {
-                anomalySetShape(m_selectedAnomaly, shapeId);
+                auto &a = m_currentTab->anomalies[m_selectedAnomaly];
+                if (a.editing || a.shape < 0) {
+                    anomalySetShape(m_selectedAnomaly, shapeId);
+                }
             }
         };
         connect(m_btnAnoCircle, &QToolButton::clicked, this,

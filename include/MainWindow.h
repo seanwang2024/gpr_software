@@ -208,6 +208,7 @@ signals:
     void anomalyPolyDone(int idx, const QVector<QPointF> &poly);   // 多边形闭合
     void anomalyPolyAborted();                                     // 多边形未闭合被取消
     void anomalyConfirmed(int idx);                                // v1.0.122 Enter/点击外部确认(实线)
+    void anomalyEditRequested(int idx);                            // v1.0.125 右键"编辑"→MainWindow选中列表+进入编辑
 
 private:
     QImage m_image;
