@@ -9,6 +9,45 @@ extern void diagPrint(const QString &msg);
 // 前置声明(定义在后文): 数据解译默认两层位
 static HorizonLayer makeDefaultHorizon(int idx);
 
+// v1.0.118: QLineEdit 只读→双击解锁编辑(无需Q_OBJECT, 仅虚函数)
+#include <QLineEdit>
+class ReadOnlyEditFilter : public QObject {
+public:
+    explicit ReadOnlyEditFilter(QObject *parent = nullptr) : QObject(parent) {}
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (event->type() == QEvent::MouseButtonDblClick) {
+            auto *ed = qobject_cast<QLineEdit *>(watched);
+            if (ed && ed->isReadOnly()) {
+                ed->setReadOnly(false);
+                ed->setFocus(Qt::OtherFocusReason);
+                ed->selectAll();
+                return true;
+            }
+        }
+        return QObject::eventFilter(watched, event);
+    }
+};
+
+// v1.0.118: 按钮仅双击触发(屏蔽单击)
+class DblClickOnlyFilter : public QObject {
+public:
+    std::function<void()> action;
+    explicit DblClickOnlyFilter(std::function<void()> act, QObject *parent = nullptr)
+        : QObject(parent), action(std::move(act)) {}
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (event->type() == QEvent::MouseButtonDblClick) {
+            if (action) action();
+            return true;
+        }
+        if (event->type() == QEvent::MouseButtonPress
+            || event->type() == QEvent::MouseButtonRelease)
+            return true;   // 屏蔽单击
+        return QObject::eventFilter(watched, event);
+    }
+};
+
 #include <QButtonGroup>
 #include <QTimer>
 #include <QFileDialog>
@@ -5300,17 +5339,16 @@ void MainWindow::createInterpPanel()
     outer->addWidget(scroll, 1);
     shell->addWidget(inner, 1);
 
-    // 层位列表行选中 → 图上叠加刷新 + 选中行高亮(黑底+蓝色左边条, 穿透嵌入widget)
+    // 层位列表行选中 → 图上叠加刷新 + 选中浅蓝/未选白色
     connect(m_horizonTree, &QTreeWidget::currentItemChanged, this,
             [this](QTreeWidgetItem *cur, QTreeWidgetItem *) {
-        // 刷新所有行: 选中的黑底, 未选中透明
         for (int i = 0; i < m_horizonTree->topLevelItemCount(); ++i) {
             QWidget *w = m_horizonTree->itemWidget(m_horizonTree->topLevelItem(i), 0);
             if (w) {
                 w->setStyleSheet(
-                    i == m_horizonTree->indexOfTopLevelItem(cur)
-                        ? "background: #1a1a1a; border-left: 3px solid #0048af; border-radius: 0;"
-                        : "background: transparent; border: none;");
+                    m_horizonTree->topLevelItem(i) == cur
+                        ? "background: #dee9fc; border-left: 3px solid #0048af;"
+                        : "background: #ffffff; border: none;");
             }
         }
         syncInterpOverlays();
@@ -5409,6 +5447,9 @@ void MainWindow::refreshHorizonList()
                               " color: #121c2a; padding: 0; }"
                               "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
         nameEd->setFixedWidth(110);
+        nameEd->setReadOnly(true);          // 单击不编辑
+        nameEd->setFocusPolicy(Qt::NoFocus);
+        nameEd->installEventFilter(new ReadOnlyEditFilter(nameEd));   // 双击解锁
         connect(nameEd, &QLineEdit::editingFinished, this, [this, i, nameEd]() {
             if (!m_currentTab || i >= m_currentTab->radanLayers.size()) return;
             const QString t = nameEd->text().trimmed();
@@ -5416,6 +5457,8 @@ void MainWindow::refreshHorizonList()
                 m_currentTab->radanLayers[i].name = t;
                 syncInterpOverlays();
             }
+            nameEd->setReadOnly(true);      // 恢复只读
+            nameEd->clearFocus();
         });
         rl->addWidget(nameEd, 1);
 
@@ -5435,20 +5478,20 @@ void MainWindow::refreshHorizonList()
         });
         rl->addWidget(wSlider);
 
-        // 垃圾桶: 删除该层(关闭/切换文件时写入DZX, 下次读入无此层)
+        // 垃圾桶: 双击删除该层
         QToolButton *del = new QToolButton(row);
         if (MatIcon::ready())
             del->setIcon(MatIcon::icon(QStringLiteral("delete"), QColor(0xba, 0x1a, 0x1a)));
-        del->setToolTip(QString::fromUtf8("删除该层"));
+        del->setToolTip(QString::fromUtf8("双击删除该层"));
         del->setCursor(Qt::PointingHandCursor);
         del->setStyleSheet("QToolButton { border: none; border-radius: 2px; }"
                            "QToolButton:hover { background: rgba(186,26,26,0.1); }");
-        connect(del, &QToolButton::clicked, this, [this, i]() {
+        del->installEventFilter(new DblClickOnlyFilter([this, i]() {
             if (!m_currentTab || i >= m_currentTab->radanLayers.size()) return;
             m_currentTab->radanLayers.remove(i);
             refreshHorizonList();
             syncInterpOverlays();
-        });
+        }, del));
         rl->addWidget(del);
 
         m_horizonTree->setItemWidget(item, 0, row);
@@ -5530,8 +5573,8 @@ void MainWindow::refreshAnomalyList()
         AnomalyMark &a = m_currentTab->anomalies[i];
         QWidget *row = new QWidget(m_anomalyList);
         row->setStyleSheet(i == m_selectedAnomaly
-                               ? "background: #dee9fc; border-radius: 2px;"
-                               : "background: transparent;");
+                               ? "background: #dee9fc; border-left: 3px solid #0048af;"
+                               : "background: #ffffff; border: none;");
         QHBoxLayout *rl = new QHBoxLayout(row);
         rl->setContentsMargins(4, 3, 2, 3);
         rl->setSpacing(4);
@@ -5545,12 +5588,15 @@ void MainWindow::refreshAnomalyList()
         icon->setFixedSize(16, 16);
         rl->addWidget(icon);
 
-        // 名称(可编辑)
+        // 名称(双击编辑)
         QLineEdit *nameEd = new QLineEdit(a.name, row);
         nameEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 12px;"
                               " font-weight: bold; color: #121c2a; padding: 0; }"
                               "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
         nameEd->setFixedWidth(90);
+        nameEd->setReadOnly(true);
+        nameEd->setFocusPolicy(Qt::NoFocus);
+        nameEd->installEventFilter(new ReadOnlyEditFilter(nameEd));
         connect(nameEd, &QLineEdit::editingFinished, this, [this, i, nameEd]() {
             if (!m_currentTab || i >= m_currentTab->anomalies.size()) return;
             const QString t = nameEd->text().trimmed();
@@ -5558,6 +5604,8 @@ void MainWindow::refreshAnomalyList()
                 m_currentTab->anomalies[i].name = t;
                 syncInterpOverlays();
             }
+            nameEd->setReadOnly(true);
+            nameEd->clearFocus();
         });
         rl->addWidget(nameEd);
 
@@ -5568,33 +5616,38 @@ void MainWindow::refreshAnomalyList()
                                .arg(a.color.name()));
         rl->addWidget(dot);
 
-        // 备注(可编辑)
+        // 备注(双击编辑)
         QLineEdit *remEd = new QLineEdit(a.remark, row);
         remEd->setPlaceholderText(QString::fromUtf8("备注..."));
         remEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 11px;"
                              " color: #424654; padding: 0; }"
                              "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
+        remEd->setReadOnly(true);
+        remEd->setFocusPolicy(Qt::NoFocus);
+        remEd->installEventFilter(new ReadOnlyEditFilter(remEd));
         connect(remEd, &QLineEdit::editingFinished, this, [this, i, remEd]() {
             if (!m_currentTab || i >= m_currentTab->anomalies.size()) return;
             m_currentTab->anomalies[i].remark = remEd->text().trimmed();
+            remEd->setReadOnly(true);
+            remEd->clearFocus();
         });
         rl->addWidget(remEd, 1);
 
-        // 垃圾桶
+        // 垃圾桶(双击删除)
         QToolButton *del = new QToolButton(row);
         if (MatIcon::ready())
             del->setIcon(MatIcon::icon(QStringLiteral("delete"), QColor(0xba, 0x1a, 0x1a)));
-        del->setToolTip(QString::fromUtf8("删除"));
+        del->setToolTip(QString::fromUtf8("双击删除"));
         del->setCursor(Qt::PointingHandCursor);
         del->setStyleSheet("QToolButton { border: none; border-radius: 2px; }"
                            "QToolButton:hover { background: rgba(186,26,26,0.1); }");
-        connect(del, &QToolButton::clicked, this, [this, i]() {
+        del->installEventFilter(new DblClickOnlyFilter([this, i]() {
             if (!m_currentTab || i >= m_currentTab->anomalies.size()) return;
             m_currentTab->anomalies.remove(i);
             m_selectedAnomaly = -1;
             refreshAnomalyList();
             syncInterpOverlays();
-        });
+        }, del));
         rl->addWidget(del);
 
         QListWidgetItem *it = new QListWidgetItem;
