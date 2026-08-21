@@ -9,44 +9,48 @@ extern void diagPrint(const QString &msg);
 // 前置声明(定义在后文): 数据解译默认两层位
 static HorizonLayer makeDefaultHorizon(int idx);
 
-// v1.0.118: QLineEdit 只读→双击解锁编辑(无需Q_OBJECT, 仅虚函数)
+// v1.0.129: 列表行容器 — 几何命中判定(替代事件过滤器方案, 彻底可靠)
+// 所有子控件(QLineEdit/QToolButton/QLabel)一律 WA_TransparentForMouseEvents,
+// 鼠标事件全部落在行容器自身:
+//   单击行内任意位置 → clicked() 选中该项(名称/色点/图标/空白都能选)
+//   双击 → doubleClicked(pos), 由创建方按子控件 geometry() 分派编辑/删除
+// 编辑态的 QLineEdit 临时去掉穿透属性, editingFinished 后恢复。
 #include <QLineEdit>
-class ReadOnlyEditFilter : public QObject {
+#include <QMouseEvent>
+class ListRowWidget : public QWidget {
 public:
-    explicit ReadOnlyEditFilter(QObject *parent = nullptr) : QObject(parent) {}
+    std::function<void()> clicked;
+    std::function<void(const QPoint &)> doubleClicked;   // pos = 行内坐标
+    explicit ListRowWidget(QWidget *parent = nullptr) : QWidget(parent) {
+        setAttribute(Qt::WA_StyledBackground, true);   // 样式表背景必定绘制
+    }
 protected:
-    bool eventFilter(QObject *watched, QEvent *event) override {
-        if (event->type() == QEvent::MouseButtonDblClick) {
-            auto *ed = qobject_cast<QLineEdit *>(watched);
-            if (ed && ed->isReadOnly()) {
-                ed->setReadOnly(false);
-                ed->setFocus(Qt::OtherFocusReason);
-                ed->selectAll();
-                return true;
-            }
-        }
-        return QObject::eventFilter(watched, event);
+    void mousePressEvent(QMouseEvent *e) override {
+        if (e->button() == Qt::LeftButton && clicked) clicked();
+        e->accept();
+    }
+    void mouseDoubleClickEvent(QMouseEvent *e) override {
+        if (e->button() == Qt::LeftButton && doubleClicked)
+            doubleClicked(e->pos());
+        e->accept();
     }
 };
 
-// v1.0.118: 按钮仅双击触发(屏蔽单击)
-class DblClickOnlyFilter : public QObject {
-public:
-    std::function<void()> action;
-    explicit DblClickOnlyFilter(std::function<void()> act, QObject *parent = nullptr)
-        : QObject(parent), action(std::move(act)) {}
-protected:
-    bool eventFilter(QObject *watched, QEvent *event) override {
-        if (event->type() == QEvent::MouseButtonDblClick) {
-            if (action) action();
-            return true;
-        }
-        if (event->type() == QEvent::MouseButtonPress
-            || event->type() == QEvent::MouseButtonRelease)
-            return true;   // 屏蔽单击
-        return QObject::eventFilter(watched, event);
-    }
-};
+// 双击解锁QLineEdit编辑; editingFinished中恢复: setReadOnly(true)+NoFocus+穿透
+static void unlockLineEditEdit(QLineEdit *ed)
+{
+    ed->setAttribute(Qt::WA_TransparentForMouseEvents, false);
+    ed->setReadOnly(false);
+    ed->setFocusPolicy(Qt::StrongFocus);
+    ed->setFocus();
+    ed->selectAll();
+}
+static void relockLineEditEdit(QLineEdit *ed)
+{
+    ed->setReadOnly(true);
+    ed->setFocusPolicy(Qt::NoFocus);
+    ed->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+}
 
 #include <QButtonGroup>
 #include <QTimer>
@@ -802,8 +806,26 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    // v1.0.122: 点击编辑态异常外部 → 确认(变实线)
-    if (event->button() == Qt::LeftButton) {
+    // v1.0.129: 点击图上任意异常(实线/编辑态) → 选中该项(三统一: 列表+菜单+属性)
+    if (event->button() == Qt::LeftButton && !m_polyDrawing) {
+        for (int i = 0; i < m_anomalies.size(); ++i) {
+            const AnomalyMark &a = m_anomalies[i];
+            if (a.shape < 0) continue;
+            bool hit = false;
+            if (a.shape == 2 && a.poly.size() >= 3)
+                hit = polyContains(a.poly, event->pos());
+            else if (a.shape >= 0 && a.shape <= 3 && a.shape != 2)
+                hit = rectFromRectT(a.rect.normalized()).contains(event->pos());
+            if (hit) {
+                emit anomalyClickedOnImage(i);
+                // 不return — 编辑态的仍走后续拖动逻辑
+                break;
+            }
+        }
+    }
+
+    // v1.0.122: 点击编辑态异常外部 → 确认(变实线) — 多边形绘制模式中不触发!
+    if (event->button() == Qt::LeftButton && !m_polyDrawing) {
         const int eIdx = editingAnomalyIndex();
         if (eIdx >= 0) {
             const AnomalyMark &ea = m_anomalies[eIdx];
@@ -849,6 +871,21 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
         if (aIdx >= 0) {
             const AnomalyMark &a = m_anomalies[aIdx];
             if (a.shape >= 0 && a.shape <= 3 && !(a.shape == 2 && a.poly.isEmpty())) {
+                // 多边形: 先检测顶点手柄(可拖动单个顶点)
+                if (a.shape == 2 && a.poly.size() >= 3) {
+                    static const int vtol = 8;
+                    for (int vi = 0; vi < a.poly.size(); ++vi) {
+                        const int vx = traceToWidgetX(qRound(a.poly[vi].x()));
+                        const int vy = sampleToWidgetY(qRound(a.poly[vi].y()));
+                        if (QRect(vx - vtol, vy - vtol, vtol * 2, vtol * 2).contains(event->pos())) {
+                            m_anomalyDragIdx = aIdx;
+                            m_anomalyDragMode = DragNone;
+                            m_anomalyVertexIdx = vi;   // 拖动此顶点
+                            grabMouse();
+                            return;
+                        }
+                    }
+                }
                 if (a.shape != 2) {
                     const QRect r = rectFromRectT(a.rect.normalized());
                     // 8手柄命中检测(±6px)
@@ -932,10 +969,17 @@ void ImageLabel::mouseMoveEvent(QMouseEvent *event)
         // 不return, 允许hover光标等继续处理
     }
 
-    // v1.0.120: 编辑态异常 — 拖动移动 / 手柄调整大小
+    // v1.0.120: 编辑态异常 — 顶点拖动 / 整体移动 / 手柄调整大小
     if (m_anomalyDragIdx >= 0 && m_anomalyDragIdx < m_anomalies.size()
         && (event->buttons() & Qt::LeftButton)) {
         AnomalyMark &a = m_anomalies[m_anomalyDragIdx];
+        if (m_anomalyVertexIdx >= 0 && m_anomalyVertexIdx < a.poly.size()) {
+            // 多边形顶点拖动: 更新单个顶点位置
+            a.poly[m_anomalyVertexIdx] = QPointF(widgetXToTrace(event->pos().x()),
+                                                  widgetYToSample(event->pos().y()));
+            update();
+            return;
+        }
         if (m_anomalyDragMode == DragMove) {
             const double dTrace = widgetXToTrace(event->pos().x())
                                 - widgetXToTrace(qRound(m_dragAnchor.x()));
@@ -1050,7 +1094,8 @@ void ImageLabel::mouseReleaseEvent(QMouseEvent *event)
             const int idx = m_anomalyDragIdx;
             m_anomalyDragIdx = -1;
             m_anomalyDragMode = DragNone;
-            // 同步回 MainWindow(tab->anomalies) — BUG1 修复
+            m_anomalyVertexIdx = -1;
+            // 同步回 MainWindow(tab->anomalies)
             emit anomalyMoved(idx, a.rect, a.poly);
             update();
             QLabel::mouseReleaseEvent(event);
@@ -2673,6 +2718,24 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
             if (btn) btn->setChecked(false);
         }
         syncInterpOverlays();
+    });
+    // v1.0.129: 点击图上异常 → 列表自动选中 + 菜单同步 + ImageLabel选中更新
+    connect(tab->imageLabel, &ImageLabel::anomalyClickedOnImage, this,
+            [this, tab](int idx) {
+        if (m_currentTab != tab || idx < 0 || idx >= tab->anomalies.size()) return;
+        m_selectedAnomaly = idx;
+        refreshAnomalyList();
+        syncInterpOverlays();   // 关键: 更新ImageLabel选中(半透明+粗边框)
+        if (m_annoGroup) {
+            const int sh = tab->anomalies[idx].shape;
+            if (sh >= 0) {
+                QAbstractButton *btn = m_annoGroup->button(sh);
+                if (btn) btn->setChecked(true);
+            } else {
+                QAbstractButton *btn = m_annoGroup->checkedButton();
+                if (btn) btn->setChecked(false);
+            }
+        }
     });
     // v1.0.125: 右键"编辑" → 列表自动选中该项 + 进入编辑态
     connect(tab->imageLabel, &ImageLabel::anomalyEditRequested, this,
@@ -5248,20 +5311,27 @@ void ImageLabel::drawInterpOverlay()
         }
     }
 
-    // 异常标注(编辑态=流动虚线+手柄+半透明填充; 确认态=实线)
+    // 异常标注: 平时=实线+透明; 选中=实线+半透明填充; 编辑=虚线+手柄
     for (int i = 0; i < m_anomalies.size(); ++i) {
         const AnomalyMark &a = m_anomalies[i];
         if (a.shape < 0) continue;   // 未选形状
-        if (a.editing && a.shape == 2 && a.poly.isEmpty()) continue;   // 多边形空=绘制中, 由上方绘制
+        if (a.editing && a.shape == 2 && a.poly.isEmpty()) continue;   // 多边形空=绘制中
         const bool editing = a.editing;
-        QPen pen(a.color, 2, Qt::SolidLine);
+        const bool selected = (i == m_interpSelectedAnomaly);
+        QPen pen(a.color, selected ? 3 : 2, Qt::SolidLine);   // 选中=粗边框
         if (editing) {
             pen.setStyle(Qt::DashLine);
-            pen.setDashOffset(m_dashOffset);   // 流动虚线
+            pen.setDashOffset(m_dashOffset);
         }
         p.setPen(pen);
-        p.setBrush(editing ? QColor(a.color.red(), a.color.green(), a.color.blue(), 30)
-                           : Qt::NoBrush);
+        // 选中=半透明填充(提高alpha确保可见); 未选中=无填充
+        if (selected) {
+            QColor fc = a.color;
+            fc.setAlpha(100);   // ~39%不透明度 — 明显可见但图像仍穿透
+            p.setBrush(fc);
+        } else {
+            p.setBrush(Qt::NoBrush);
+        }
         QString depthLbl;
         if (m_interpMPerSample > 0) {
             const double s0 = (a.shape == 2 && !a.poly.isEmpty())
@@ -5572,16 +5642,26 @@ void MainWindow::createInterpPanel()
     m_anomalyList->setMinimumHeight(120);
     anL->addWidget(m_anomalyList);
 
-    // v1.0.128: 列表选中 → 菜单按钮同步到该异常的形状(三统一)
+    // v1.0.130: 列表选中 → 更新行背景(不rebuild, 保留双击编辑状态) + 菜单同步 + ImageLabel选中
     connect(m_anomalyList, &QListWidget::currentRowChanged, this, [this](int row) {
         if (!m_currentTab) return;
         m_selectedAnomaly = row;
-        refreshAnomalyList();
-        // 菜单按钮自动选中对应形状
+        // 直接更新行背景色(不调用refreshAnomalyList, 避免销毁正在编辑的QLineEdit)
+        for (int i = 0; i < m_anomalyList->count(); ++i) {
+            QWidget *w = m_anomalyList->itemWidget(m_anomalyList->item(i));
+            if (w)
+                w->setStyleSheet(i == row ? "background: #dee9fc;" : "background: #ffffff;");
+        }
+        syncInterpOverlays();
         if (m_annoGroup && row >= 0 && row < m_currentTab->anomalies.size()) {
             const int sh = m_currentTab->anomalies[row].shape;
-            QAbstractButton *btn = m_annoGroup->button(sh);
-            if (btn) btn->setChecked(true);
+            if (sh >= 0) {
+                QAbstractButton *btn = m_annoGroup->button(sh);
+                if (btn) btn->setChecked(true);
+            } else {
+                QAbstractButton *btn = m_annoGroup->checkedButton();
+                if (btn) btn->setChecked(false);
+            }
         }
     });
     bl->addWidget(anBox, 1);
@@ -5665,46 +5745,34 @@ void MainWindow::refreshHorizonList()
         item->setData(0, Qt::UserRole, i);
         m_horizonTree->addTopLevelItem(item);
 
-        QWidget *row = new QWidget(m_horizonTree);
-        row->setAttribute(Qt::WA_TransparentForMouseEvents);   // 整行点击穿透到树项(切换选中)
+        // 几何命中判定: 所有子控件鼠标穿透, 单击=选中该层, 双击=按位置分派(眼睛=显隐/名称=编辑/垃圾桶=删除)
+        ListRowWidget *row = new ListRowWidget(m_horizonTree);
         QHBoxLayout *rl = new QHBoxLayout(row);
         rl->setContentsMargins(4, 2, 4, 2);
         rl->setSpacing(6);
 
         QToolButton *eye = new QToolButton(row);
-        eye->setAttribute(Qt::WA_TransparentForMouseEvents, false);   // 按钮自身可点击
+        eye->setAttribute(Qt::WA_TransparentForMouseEvents);
         if (MatIcon::ready())
             eye->setIcon(MatIcon::icon(h.visible ? QStringLiteral("visibility")
                                                  : QStringLiteral("visibility_off"),
                                        h.visible ? QColor(0x1a, 0x1a, 0x1a)
                                                  : QColor(0xb0, 0xb4, 0xc0)));
         eye->setToolTip(QString::fromUtf8("双击显示/隐藏"));
-        eye->setCursor(Qt::PointingHandCursor);
-        eye->setStyleSheet("QToolButton { border: none; } QToolButton:hover { background: #dee9fc; border-radius: 2px; }");
-        eye->installEventFilter(new DblClickOnlyFilter([this, i]() {
-            if (!m_currentTab || i >= m_currentTab->radanLayers.size()) return;
-            m_currentTab->radanLayers[i].visible = !m_currentTab->radanLayers[i].visible;
-            refreshHorizonList();
-            syncInterpOverlays();
-        }, eye));
         rl->addWidget(eye);
 
         QLabel *swatch = new QLabel(row);
-        swatch->setAttribute(Qt::WA_TransparentForMouseEvents);
         swatch->setFixedSize(14, 14);
         swatch->setStyleSheet(QString("background: %1; border: 1px solid #c3c6d6; border-radius: 2px;")
                                   .arg(h.color.name()));
         rl->addWidget(swatch);
 
         QLineEdit *nameEd = new QLineEdit(h.name, row);
-        nameEd->setAttribute(Qt::WA_TransparentForMouseEvents, false);   // 可交互
         nameEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 12px;"
                               " color: #121c2a; padding: 0; }"
                               "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
         nameEd->setFixedWidth(110);
-        nameEd->setReadOnly(true);          // 单击不编辑
-        nameEd->setFocusPolicy(Qt::NoFocus);
-        nameEd->installEventFilter(new ReadOnlyEditFilter(nameEd));   // 双击解锁
+        relockLineEditEdit(nameEd);          // 只读+穿透(单击可选中该行)
         connect(nameEd, &QLineEdit::editingFinished, this, [this, i, nameEd]() {
             if (!m_currentTab || i >= m_currentTab->radanLayers.size()) return;
             const QString t = nameEd->text().trimmed();
@@ -5712,13 +5780,12 @@ void MainWindow::refreshHorizonList()
                 m_currentTab->radanLayers[i].name = t;
                 syncInterpOverlays();
             }
-            nameEd->setReadOnly(true);      // 恢复只读
-            nameEd->clearFocus();
+            relockLineEditEdit(nameEd);      // 恢复只读+穿透
         });
         rl->addWidget(nameEd, 1);
 
+        // 滑条保持可交互(拖动改粗细); 按下时同步选中该行
         QSlider *wSlider = new QSlider(Qt::Horizontal, row);
-        wSlider->setAttribute(Qt::WA_TransparentForMouseEvents, false);   // 可交互
         wSlider->setRange(1, 10);
         wSlider->setValue(h.lineWidth);
         wSlider->setFixedWidth(60);
@@ -5727,6 +5794,9 @@ void MainWindow::refreshHorizonList()
             "QSlider::groove:horizontal { height: 3px; background: #c3c6d6; border-radius: 1px; }"
             "QSlider::handle:horizontal { width: 10px; height: 10px; margin: -4px 0;"
             " border-radius: 5px; background: #0048af; }");
+        connect(wSlider, &QSlider::sliderPressed, this, [this, item]() {
+            m_horizonTree->setCurrentItem(item);   // 操作滑条=选中该层
+        });
         connect(wSlider, &QSlider::valueChanged, this, [this, i](int v) {
             if (!m_currentTab || i >= m_currentTab->radanLayers.size()) return;
             m_currentTab->radanLayers[i].lineWidth = v;
@@ -5736,20 +5806,31 @@ void MainWindow::refreshHorizonList()
 
         // 垃圾桶: 双击删除该层
         QToolButton *del = new QToolButton(row);
-        del->setAttribute(Qt::WA_TransparentForMouseEvents, false);   // 可交互
+        del->setAttribute(Qt::WA_TransparentForMouseEvents);
         if (MatIcon::ready())
             del->setIcon(MatIcon::icon(QStringLiteral("delete"), QColor(0xba, 0x1a, 0x1a)));
         del->setToolTip(QString::fromUtf8("双击删除该层"));
-        del->setCursor(Qt::PointingHandCursor);
-        del->setStyleSheet("QToolButton { border: none; border-radius: 2px; }"
-                           "QToolButton:hover { background: rgba(186,26,26,0.1); }");
-        del->installEventFilter(new DblClickOnlyFilter([this, i]() {
-            if (!m_currentTab || i >= m_currentTab->radanLayers.size()) return;
-            m_currentTab->radanLayers.remove(i);
-            refreshHorizonList();
-            syncInterpOverlays();
-        }, del));
         rl->addWidget(del);
+
+        // 单击任意位置=选中该层(触发 currentItemChanged → 全链路同步)
+        row->clicked = [this, item]() {
+            m_horizonTree->setCurrentItem(item);
+        };
+        // 双击: 按子控件几何分派(名称/空白=改名, 眼睛=显隐, 垃圾桶=删除)
+        row->doubleClicked = [this, i, eye, nameEd, del](const QPoint &pos) {
+            if (!m_currentTab || i >= m_currentTab->radanLayers.size()) return;
+            if (del->geometry().contains(pos)) {
+                m_currentTab->radanLayers.remove(i);
+                refreshHorizonList();
+                syncInterpOverlays();
+            } else if (eye->geometry().contains(pos)) {
+                m_currentTab->radanLayers[i].visible = !m_currentTab->radanLayers[i].visible;
+                refreshHorizonList();
+                syncInterpOverlays();
+            } else {
+                unlockLineEditEdit(nameEd);
+            }
+        };
 
         m_horizonTree->setItemWidget(item, 0, row);
     }
@@ -5773,23 +5854,22 @@ void MainWindow::addAnomalyItem()
     while (used.contains(newN)) ++newN;
 
     AnomalyMark a;
-    a.shape = 0;   // 默认圆形
+    a.shape = -1;   // 无默认形状 — 用户点形状按钮后才赋形
     a.name = QStringLiteral("异常标注%1").arg(newN);
     a.color = QColor(0xff, 0xff, 0x00);
-    // 默认位置: 视口中心 60×40
-    const int centerT = m_currentTab->traceCount / 2;
-    const int centerS = (m_currentTab->nsamp
-                         - (m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0)) / 2;
-    a.rect = QRectF(centerT - 30, centerS - 20, 60, 40);
-    m_currentTab->anomalies.append(a);
-    m_selectedAnomaly = m_currentTab->anomalies.size() - 1;
+    // 补缺编号插入到顺序位置(第一个编号>newN的项之前), 保持列表按编号有序
+    int insertIdx = m_currentTab->anomalies.size();
+    for (int k = 0; k < m_currentTab->anomalies.size(); ++k) {
+        const AnomalyMark &cur = m_currentTab->anomalies[k];
+        if (cur.name.startsWith(QStringLiteral("异常标注"))) {
+            const int m = cur.name.mid(QString::fromUtf8("异常标注").length()).toInt();
+            if (m > newN) { insertIdx = k; break; }
+        }
+    }
+    m_currentTab->anomalies.insert(insertIdx, a);
+    m_selectedAnomaly = insertIdx;
     refreshAnomalyList();
     syncInterpOverlays();
-    // 菜单自动选中圆形(三统一: 列表选中+菜单选中+属性)
-    if (m_annoGroup) {
-        QAbstractButton *btn = m_annoGroup->button(0);
-        if (btn) btn->setChecked(true);
-    }
 }
 
 // 选中异常设形状+进入编辑态(虚线+手柄)
@@ -5815,46 +5895,42 @@ void MainWindow::anomalySetShape(int idx, int shapeId)
     a.editing = true;
 
     if (shapeId == 2) {
-        // → 多边形
+        // → 多边形: 之前有多边形顶点则恢复原形状; 否则启动绘制模式
         if (oldPoly.size() >= 3) {
-            a.poly = oldPoly;   // 已有多边形: 保留顶点
+            a.poly = oldPoly;   // 恢复原多边形(往返切换不丢失)
             a.rect = QRectF();
-        } else if (!oldRect.isNull()) {
-            // 从圆/矩/文本转来: 用 rect 四角生成多边形(当前位置)
-            const QRectF r = oldRect.normalized();
-            a.poly = { QPointF(r.left(), r.top()), QPointF(r.right(), r.top()),
-                       QPointF(r.right(), r.bottom()), QPointF(r.left(), r.bottom()) };
-            a.rect = QRectF();
+            if (m_currentTab->imageLabel)
+                m_currentTab->imageLabel->stopPolyDrawing();
         } else {
-            // 全新多边形: 启动绘制模式
             a.poly.clear();
+            a.rect = QRectF();
             if (m_currentTab->imageLabel)
                 m_currentTab->imageLabel->startPolyDrawing();
         }
-        if (oldPoly.size() >= 3 || !oldRect.isNull()) {
-            if (m_currentTab->imageLabel)
-                m_currentTab->imageLabel->stopPolyDrawing();
-        }
     } else {
-        // → 圆/矩/文本
+        // → 圆/矩/文本: 用当前位置; 不清空poly(切回多边形恢复)
         if (m_currentTab->imageLabel)
             m_currentTab->imageLabel->stopPolyDrawing();
-        if (!oldRect.isNull()) {
-            a.rect = oldRect;   // 已有rect: 保留位置
+        if (!oldRect.isNull() && oldRect.width() >= 5 && oldRect.height() >= 5) {
+            a.rect = oldRect;   // 已有有效rect: 保留
         } else if (oldPoly.size() >= 3) {
-            // 从多边形转来: 取外接矩形
+            // 从多边形转来: 用多边形中心+外接尺寸(确保新形状可见)
+            double cx = 0, cy = 0;
             QRectF br = QRectF(oldPoly.first(), oldPoly.first());
-            for (const QPointF &p : oldPoly)
+            for (const QPointF &p : oldPoly) {
+                cx += p.x(); cy += p.y();
                 br = br.united(QRectF(p, p));
-            a.rect = br;
+            }
+            cx /= oldPoly.size(); cy /= oldPoly.size();
+            const double w = qMax(br.width(), 30.0);    // 最小宽度30道
+            const double h = qMax(br.height(), 20.0);   // 最小高度20采样
+            a.rect = QRectF(cx - w / 2, cy - h / 2, w, h);
         } else {
-            // 全新: 默认位置
             TabData *tab = m_currentTab;
             const int centerT = tab->traceCount / 2;
             const int centerS = (tab->nsamp - (tab->zeroApplied ? tab->zeroSkipRows : 0)) / 2;
             a.rect = QRectF(centerT - 30, centerS - 20, 60, 40);
         }
-        a.poly.clear();   // 非多边形清空顶点
     }
     syncInterpOverlays();
     refreshAnomalyList();
@@ -5890,8 +5966,8 @@ void MainWindow::refreshAnomalyList()
     static const char *shapeEmpty = "help";   // 未选形状
     for (int i = 0; i < m_currentTab->anomalies.size(); ++i) {
         AnomalyMark &a = m_currentTab->anomalies[i];
-        QWidget *row = new QWidget(m_anomalyList);
-        row->setAttribute(Qt::WA_TransparentForMouseEvents);   // 整行点击穿透(切换选中)
+        // 几何命中判定: 所有子控件鼠标穿透, 单击=选中该异常, 双击=按位置分派(名称/备注/空白=编辑, 垃圾桶=删除)
+        ListRowWidget *row = new ListRowWidget(m_anomalyList);
         row->setStyleSheet(i == m_selectedAnomaly
                                ? "background: #dee9fc;"
                                : "background: #ffffff;");
@@ -5901,7 +5977,6 @@ void MainWindow::refreshAnomalyList()
 
         // 形状图标
         QLabel *icon = new QLabel;
-        icon->setAttribute(Qt::WA_TransparentForMouseEvents);
         if (MatIcon::ready())
             icon->setPixmap(MatIcon::pixmap(
                 QString::fromLatin1(a.shape >= 0 && a.shape <= 3 ? shapeGlyph[a.shape] : shapeEmpty),
@@ -5911,14 +5986,11 @@ void MainWindow::refreshAnomalyList()
 
         // 名称(双击编辑)
         QLineEdit *nameEd = new QLineEdit(a.name, row);
-        nameEd->setAttribute(Qt::WA_TransparentForMouseEvents, false);
         nameEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 12px;"
                               " font-weight: bold; color: #121c2a; padding: 0; }"
                               "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
         nameEd->setFixedWidth(90);
-        nameEd->setReadOnly(true);
-        nameEd->setFocusPolicy(Qt::NoFocus);
-        nameEd->installEventFilter(new ReadOnlyEditFilter(nameEd));
+        relockLineEditEdit(nameEd);          // 只读+穿透(单击可选中该行)
         connect(nameEd, &QLineEdit::editingFinished, this, [this, i, nameEd]() {
             if (!m_currentTab || i >= m_currentTab->anomalies.size()) return;
             const QString t = nameEd->text().trimmed();
@@ -5926,14 +5998,12 @@ void MainWindow::refreshAnomalyList()
                 m_currentTab->anomalies[i].name = t;
                 syncInterpOverlays();
             }
-            nameEd->setReadOnly(true);
-            nameEd->clearFocus();
+            relockLineEditEdit(nameEd);      // 恢复只读+穿透
         });
         rl->addWidget(nameEd);
 
         // 色点
         QLabel *dot = new QLabel;
-        dot->setAttribute(Qt::WA_TransparentForMouseEvents);
         dot->setFixedSize(10, 10);
         dot->setStyleSheet(QString("background: %1; border: 1px solid #c3c6d6; border-radius: 5px;")
                                .arg(a.color.name()));
@@ -5941,39 +6011,45 @@ void MainWindow::refreshAnomalyList()
 
         // 备注(双击编辑)
         QLineEdit *remEd = new QLineEdit(a.remark, row);
-        remEd->setAttribute(Qt::WA_TransparentForMouseEvents, false);
         remEd->setPlaceholderText(QString::fromUtf8("备注..."));
         remEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 11px;"
                              " color: #424654; padding: 0; }"
                              "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
-        remEd->setReadOnly(true);
-        remEd->setFocusPolicy(Qt::NoFocus);
-        remEd->installEventFilter(new ReadOnlyEditFilter(remEd));
+        relockLineEditEdit(remEd);
         connect(remEd, &QLineEdit::editingFinished, this, [this, i, remEd]() {
             if (!m_currentTab || i >= m_currentTab->anomalies.size()) return;
             m_currentTab->anomalies[i].remark = remEd->text().trimmed();
-            remEd->setReadOnly(true);
-            remEd->clearFocus();
+            relockLineEditEdit(remEd);
         });
         rl->addWidget(remEd, 1);
 
         // 垃圾桶(双击删除)
         QToolButton *del = new QToolButton(row);
-        del->setAttribute(Qt::WA_TransparentForMouseEvents, false);
+        del->setAttribute(Qt::WA_TransparentForMouseEvents);
         if (MatIcon::ready())
             del->setIcon(MatIcon::icon(QStringLiteral("delete"), QColor(0xba, 0x1a, 0x1a)));
         del->setToolTip(QString::fromUtf8("双击删除"));
-        del->setCursor(Qt::PointingHandCursor);
-        del->setStyleSheet("QToolButton { border: none; border-radius: 2px; }"
-                           "QToolButton:hover { background: rgba(186,26,26,0.1); }");
-        del->installEventFilter(new DblClickOnlyFilter([this, i]() {
-            if (!m_currentTab || i >= m_currentTab->anomalies.size()) return;
-            m_currentTab->anomalies.remove(i);
-            m_selectedAnomaly = -1;
-            refreshAnomalyList();
-            syncInterpOverlays();
-        }, del));
         rl->addWidget(del);
+
+        // 单击任意位置=选中该异常(触发 currentRowChanged → 背景/菜单/ImageLabel全链路同步)
+        row->clicked = [this, i]() {
+            if (m_anomalyList->currentRow() != i)
+                m_anomalyList->setCurrentRow(i);
+        };
+        // 双击: 按子控件几何分派(备注区=编辑备注, 垃圾桶=删除, 其余=编辑名称)
+        row->doubleClicked = [this, i, nameEd, remEd, del](const QPoint &pos) {
+            if (!m_currentTab || i >= m_currentTab->anomalies.size()) return;
+            if (del->geometry().contains(pos)) {
+                m_currentTab->anomalies.remove(i);
+                m_selectedAnomaly = -1;
+                refreshAnomalyList();
+                syncInterpOverlays();
+            } else if (remEd->geometry().contains(pos)) {
+                unlockLineEditEdit(remEd);
+            } else {
+                unlockLineEditEdit(nameEd);
+            }
+        };
 
         QListWidgetItem *it = new QListWidgetItem;
         it->setSizeHint(QSize(0, 32));
@@ -6012,16 +6088,6 @@ void MainWindow::syncInterpUiState()
             refreshHorizonList();
             refreshAnomalyList();
             syncInterpOverlays();
-            // v1.0.128: 启动/进入页 默认选中第一个异常 + 菜单同步其形状
-            if (!m_currentTab->anomalies.isEmpty() && m_selectedAnomaly < 0) {
-                m_selectedAnomaly = 0;
-                refreshAnomalyList();
-                if (m_annoGroup) {
-                    const int sh = m_currentTab->anomalies[0].shape;
-                    QAbstractButton *btn = m_annoGroup->button(sh >= 0 ? sh : 0);
-                    if (btn) btn->setChecked(true);
-                }
-            }
         }
     }
     if (!on) {
@@ -8850,12 +8916,15 @@ void MainWindow::createMenuBar()
         m_annoGroup->setId(m_btnAnoRect, 1);
         m_annoGroup->setId(m_btnAnoPoly, 2);
         m_annoGroup->setId(m_btnAnoText, 3);
-        // v1.0.128: 形状按钮 — 改变选中异常的形状(位置保留, 三统一)
+        // v1.0.129: 形状按钮 — 仅编辑状态或新项(shape=-1)时可用; 选中≠编辑
         auto shapeBtnHandler = [this](int shapeId) {
             if (!m_currentTab) return;
             if (m_selectedAnomaly >= 0
                 && m_selectedAnomaly < m_currentTab->anomalies.size()) {
-                anomalySetShape(m_selectedAnomaly, shapeId);
+                auto &a = m_currentTab->anomalies[m_selectedAnomaly];
+                if (a.editing || a.shape < 0) {
+                    anomalySetShape(m_selectedAnomaly, shapeId);
+                }
             }
         };
         connect(m_btnAnoCircle, &QToolButton::clicked, this,

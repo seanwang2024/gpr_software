@@ -209,6 +209,7 @@ signals:
     void anomalyPolyAborted();                                     // 多边形未闭合被取消
     void anomalyConfirmed(int idx);                                // v1.0.122 Enter/点击外部确认(实线)
     void anomalyEditRequested(int idx);                            // v1.0.125 右键"编辑"→MainWindow选中列表+进入编辑
+    void anomalyClickedOnImage(int idx);                           // v1.0.129 点击图上异常→选中该项(三统一)
 
 private:
     QImage m_image;
@@ -273,6 +274,7 @@ private:
     QPointF m_polyCursor;                  // 当前光标位置
     // v1.0.120 异常调整手柄拖动
     DragMode m_anomalyDragMode = DragNone;
+    int m_anomalyVertexIdx = -1;          // 正在拖动的多边形顶点索引
     bool polyContains(const QVector<QPointF> &poly, const QPoint &pos) const;
     double m_interpMPerSample = 0.0;  // 深度标签换算
     int m_interpSelectedAnomaly = -1;
