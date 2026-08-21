@@ -8820,17 +8820,23 @@ void MainWindow::createMenuBar()
         m_annoGroup->setId(m_btnAnoRect, 1);
         m_annoGroup->setId(m_btnAnoPoly, 2);
         m_annoGroup->setId(m_btnAnoText, 3);
-        // v1.0.123: 形状按钮 — 编辑状态切换形状(位置保留); 按钮保持选中直到确认
-        connect(m_annoGroup, &QButtonGroup::idToggled, this,
-                [this](int shapeId, bool checked) {
-                    if (!m_currentTab) return;
-                    if (checked) {
-                        if (m_selectedAnomaly >= 0
-                            && m_selectedAnomaly < m_currentTab->anomalies.size())
-                            anomalySetShape(m_selectedAnomaly, shapeId);
-                        // 按钮保持选中(编辑中); 确认(回车/外部点击)时弹回
-                    }
-                });
+        // v1.0.124: 形状按钮 — 用 clicked 信号直接连接(绕过 exclusive group 的 idToggled 时序问题)
+        // 编辑状态切换形状(位置保留); 按钮保持选中直到确认(回车/点击外部)
+        auto shapeBtnHandler = [this](int shapeId) {
+            if (!m_currentTab) return;
+            if (m_selectedAnomaly >= 0
+                && m_selectedAnomaly < m_currentTab->anomalies.size()) {
+                anomalySetShape(m_selectedAnomaly, shapeId);
+            }
+        };
+        connect(m_btnAnoCircle, &QToolButton::clicked, this,
+                [shapeBtnHandler]() { shapeBtnHandler(0); });
+        connect(m_btnAnoRect, &QToolButton::clicked, this,
+                [shapeBtnHandler]() { shapeBtnHandler(1); });
+        connect(m_btnAnoPoly, &QToolButton::clicked, this,
+                [shapeBtnHandler]() { shapeBtnHandler(2); });
+        connect(m_btnAnoText, &QToolButton::clicked, this,
+                [shapeBtnHandler]() { shapeBtnHandler(3); });
 
         // 组3: 解译成果导出 (占位)
         QHBoxLayout *expRow = addRibbonGroup(interpLayout, QString::fromUtf8("解译成果导出"), true);
