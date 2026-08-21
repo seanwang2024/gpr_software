@@ -5337,7 +5337,7 @@ void ImageLabel::drawInterpOverlay()
             QRect box(QPoint(qBound(1, r.left(), qMax(1, width() - lw - 2)), ly),
                       QSize(lw, 17));
             p.setPen(QPen(a.color, 1));
-            p.setBrush(QColor(0, 0, 0, 170));
+            p.setBrush(QColor(255, 255, 255, 200));   // 白色半透明标签(替代黑色)
             p.drawRoundedRect(box, 2, 2);
             p.setPen(a.color);
             p.drawText(box, Qt::AlignCenter, lbl);
@@ -5572,12 +5572,17 @@ void MainWindow::createInterpPanel()
     m_anomalyList->setMinimumHeight(120);
     anL->addWidget(m_anomalyList);
 
-    // v1.0.125: 列表选中 = 仅视觉高亮(不改变编辑状态, 不影响形状按钮)
-    // 编辑必须通过右键→编辑; 列表选中仅供查看
+    // v1.0.128: 列表选中 → 菜单按钮同步到该异常的形状(三统一)
     connect(m_anomalyList, &QListWidget::currentRowChanged, this, [this](int row) {
         if (!m_currentTab) return;
         m_selectedAnomaly = row;
-        refreshAnomalyList();   // 刷新高亮
+        refreshAnomalyList();
+        // 菜单按钮自动选中对应形状
+        if (m_annoGroup && row >= 0 && row < m_currentTab->anomalies.size()) {
+            const int sh = m_currentTab->anomalies[row].shape;
+            QAbstractButton *btn = m_annoGroup->button(sh);
+            if (btn) btn->setChecked(true);
+        }
     });
     bl->addWidget(anBox, 1);
 
@@ -5753,11 +5758,10 @@ void MainWindow::refreshHorizonList()
         m_horizonTree->setCurrentItem(m_horizonTree->topLevelItem(selectedHorizon()));
 }
 
-// 新增异常标注: 名"异常标注N"(N=补缺编号, 从已有name提取最大N, 找空缺)
+// 新增异常标注: 默认圆形, 自动选中; 名"异常标注N"(N=补缺编号)
 void MainWindow::addAnomalyItem()
 {
     if (!m_currentTab) return;
-    // 找空缺编号: 从已有 name 提取"异常标注N"的 N, 从1起找第一个空缺
     QSet<int> used;
     for (const AnomalyMark &a : m_currentTab->anomalies) {
         if (a.name.startsWith(QStringLiteral("异常标注"))) {
@@ -5769,13 +5773,23 @@ void MainWindow::addAnomalyItem()
     while (used.contains(newN)) ++newN;
 
     AnomalyMark a;
-    a.shape = -1;   // 尚未选形状
+    a.shape = 0;   // 默认圆形
     a.name = QStringLiteral("异常标注%1").arg(newN);
-    a.color = QColor(0xff, 0xff, 0x00);   // 默认黄色
+    a.color = QColor(0xff, 0xff, 0x00);
+    // 默认位置: 视口中心 60×40
+    const int centerT = m_currentTab->traceCount / 2;
+    const int centerS = (m_currentTab->nsamp
+                         - (m_currentTab->zeroApplied ? m_currentTab->zeroSkipRows : 0)) / 2;
+    a.rect = QRectF(centerT - 30, centerS - 20, 60, 40);
     m_currentTab->anomalies.append(a);
     m_selectedAnomaly = m_currentTab->anomalies.size() - 1;
     refreshAnomalyList();
     syncInterpOverlays();
+    // 菜单自动选中圆形(三统一: 列表选中+菜单选中+属性)
+    if (m_annoGroup) {
+        QAbstractButton *btn = m_annoGroup->button(0);
+        if (btn) btn->setChecked(true);
+    }
 }
 
 // 选中异常设形状+进入编辑态(虚线+手柄)
@@ -5998,6 +6012,16 @@ void MainWindow::syncInterpUiState()
             refreshHorizonList();
             refreshAnomalyList();
             syncInterpOverlays();
+            // v1.0.128: 启动/进入页 默认选中第一个异常 + 菜单同步其形状
+            if (!m_currentTab->anomalies.isEmpty() && m_selectedAnomaly < 0) {
+                m_selectedAnomaly = 0;
+                refreshAnomalyList();
+                if (m_annoGroup) {
+                    const int sh = m_currentTab->anomalies[0].shape;
+                    QAbstractButton *btn = m_annoGroup->button(sh >= 0 ? sh : 0);
+                    if (btn) btn->setChecked(true);
+                }
+            }
         }
     }
     if (!on) {
@@ -8826,15 +8850,12 @@ void MainWindow::createMenuBar()
         m_annoGroup->setId(m_btnAnoRect, 1);
         m_annoGroup->setId(m_btnAnoPoly, 2);
         m_annoGroup->setId(m_btnAnoText, 3);
-        // v1.0.125: 形状按钮 — 编辑状态或新项(shape=-1)时可用; 实线需右键→编辑
+        // v1.0.128: 形状按钮 — 改变选中异常的形状(位置保留, 三统一)
         auto shapeBtnHandler = [this](int shapeId) {
             if (!m_currentTab) return;
             if (m_selectedAnomaly >= 0
                 && m_selectedAnomaly < m_currentTab->anomalies.size()) {
-                auto &a = m_currentTab->anomalies[m_selectedAnomaly];
-                if (a.editing || a.shape < 0) {
-                    anomalySetShape(m_selectedAnomaly, shapeId);
-                }
+                anomalySetShape(m_selectedAnomaly, shapeId);
             }
         };
         connect(m_btnAnoCircle, &QToolButton::clicked, this,
