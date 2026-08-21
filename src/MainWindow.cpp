@@ -5966,10 +5966,10 @@ void MainWindow::refreshAnomalyList()
         m_anomalyList->addItem(it);
         m_anomalyList->setItemWidget(it, row);
     }
-    m_anomalyList->blockSignals(false);
-    // 选中当前项(视觉高亮)
+    // 选中当前项(视觉高亮) — 保持在 blockSignals 内, 防止 currentRowChanged→refreshAnomalyList 无限递归崩溃
     if (m_selectedAnomaly >= 0 && m_selectedAnomaly < m_anomalyList->count())
         m_anomalyList->setCurrentRow(m_selectedAnomaly);
+    m_anomalyList->blockSignals(false);
 }
 
 // 数据解译状态总闸: 进出数据解译页/切tab; 面板显隐+按钮复位+列表刷新
