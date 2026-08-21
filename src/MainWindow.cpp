@@ -5229,8 +5229,7 @@ void MainWindow::createInterpPanel()
     m_horizonTree->setRootIsDecorated(false);
     m_horizonTree->setStyleSheet(
         "QTreeWidget { border: none; background: #ffffff; font-size: 12px; }"
-        "QTreeWidget::item { padding: 2px 4px; border: none; }"
-        "QTreeWidget::item:selected { background: #1a1a1a; border-left: 3px solid #0048af; }");
+        "QTreeWidget::item { padding: 2px 4px; border: none; }");
     hzL->addWidget(m_horizonTree);
     bl->addWidget(hzBox);
 
@@ -5347,8 +5346,8 @@ void MainWindow::createInterpPanel()
             if (w) {
                 w->setStyleSheet(
                     m_horizonTree->topLevelItem(i) == cur
-                        ? "background: #dee9fc; border-left: 3px solid #0048af;"
-                        : "background: #ffffff; border: none;");
+                        ? "background: #dee9fc;"
+                        : "background: #ffffff;");
             }
         }
         syncInterpOverlays();
@@ -5415,34 +5414,38 @@ void MainWindow::refreshHorizonList()
         m_horizonTree->addTopLevelItem(item);
 
         QWidget *row = new QWidget(m_horizonTree);
+        row->setAttribute(Qt::WA_TransparentForMouseEvents);   // 整行点击穿透到树项(切换选中)
         QHBoxLayout *rl = new QHBoxLayout(row);
         rl->setContentsMargins(4, 2, 4, 2);
         rl->setSpacing(6);
 
         QToolButton *eye = new QToolButton(row);
+        eye->setAttribute(Qt::WA_TransparentForMouseEvents, false);   // 按钮自身可点击
         if (MatIcon::ready())
             eye->setIcon(MatIcon::icon(h.visible ? QStringLiteral("visibility")
                                                  : QStringLiteral("visibility_off"),
-                                       h.visible ? QColor(0x1a, 0x1a, 0x1a)   // 黑=显示
-                                                 : QColor(0xb0, 0xb4, 0xc0)));  // 灰=隐藏
-        eye->setToolTip(QString::fromUtf8("显示/隐藏"));
+                                       h.visible ? QColor(0x1a, 0x1a, 0x1a)
+                                                 : QColor(0xb0, 0xb4, 0xc0)));
+        eye->setToolTip(QString::fromUtf8("双击显示/隐藏"));
         eye->setCursor(Qt::PointingHandCursor);
         eye->setStyleSheet("QToolButton { border: none; } QToolButton:hover { background: #dee9fc; border-radius: 2px; }");
-        connect(eye, &QToolButton::clicked, this, [this, i]() {
+        eye->installEventFilter(new DblClickOnlyFilter([this, i]() {
             if (!m_currentTab || i >= m_currentTab->radanLayers.size()) return;
             m_currentTab->radanLayers[i].visible = !m_currentTab->radanLayers[i].visible;
             refreshHorizonList();
             syncInterpOverlays();
-        });
+        }, eye));
         rl->addWidget(eye);
 
         QLabel *swatch = new QLabel(row);
+        swatch->setAttribute(Qt::WA_TransparentForMouseEvents);
         swatch->setFixedSize(14, 14);
         swatch->setStyleSheet(QString("background: %1; border: 1px solid #c3c6d6; border-radius: 2px;")
                                   .arg(h.color.name()));
         rl->addWidget(swatch);
 
         QLineEdit *nameEd = new QLineEdit(h.name, row);
+        nameEd->setAttribute(Qt::WA_TransparentForMouseEvents, false);   // 可交互
         nameEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 12px;"
                               " color: #121c2a; padding: 0; }"
                               "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
@@ -5463,6 +5466,7 @@ void MainWindow::refreshHorizonList()
         rl->addWidget(nameEd, 1);
 
         QSlider *wSlider = new QSlider(Qt::Horizontal, row);
+        wSlider->setAttribute(Qt::WA_TransparentForMouseEvents, false);   // 可交互
         wSlider->setRange(1, 10);
         wSlider->setValue(h.lineWidth);
         wSlider->setFixedWidth(60);
@@ -5480,6 +5484,7 @@ void MainWindow::refreshHorizonList()
 
         // 垃圾桶: 双击删除该层
         QToolButton *del = new QToolButton(row);
+        del->setAttribute(Qt::WA_TransparentForMouseEvents, false);   // 可交互
         if (MatIcon::ready())
             del->setIcon(MatIcon::icon(QStringLiteral("delete"), QColor(0xba, 0x1a, 0x1a)));
         del->setToolTip(QString::fromUtf8("双击删除该层"));
@@ -5572,15 +5577,17 @@ void MainWindow::refreshAnomalyList()
     for (int i = 0; i < m_currentTab->anomalies.size(); ++i) {
         AnomalyMark &a = m_currentTab->anomalies[i];
         QWidget *row = new QWidget(m_anomalyList);
+        row->setAttribute(Qt::WA_TransparentForMouseEvents);   // 整行点击穿透(切换选中)
         row->setStyleSheet(i == m_selectedAnomaly
-                               ? "background: #dee9fc; border-left: 3px solid #0048af;"
-                               : "background: #ffffff; border: none;");
+                               ? "background: #dee9fc;"
+                               : "background: #ffffff;");
         QHBoxLayout *rl = new QHBoxLayout(row);
         rl->setContentsMargins(4, 3, 2, 3);
         rl->setSpacing(4);
 
         // 形状图标
         QLabel *icon = new QLabel;
+        icon->setAttribute(Qt::WA_TransparentForMouseEvents);
         if (MatIcon::ready())
             icon->setPixmap(MatIcon::pixmap(
                 QString::fromLatin1(a.shape >= 0 && a.shape <= 3 ? shapeGlyph[a.shape] : shapeEmpty),
@@ -5590,6 +5597,7 @@ void MainWindow::refreshAnomalyList()
 
         // 名称(双击编辑)
         QLineEdit *nameEd = new QLineEdit(a.name, row);
+        nameEd->setAttribute(Qt::WA_TransparentForMouseEvents, false);
         nameEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 12px;"
                               " font-weight: bold; color: #121c2a; padding: 0; }"
                               "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
@@ -5611,6 +5619,7 @@ void MainWindow::refreshAnomalyList()
 
         // 色点
         QLabel *dot = new QLabel;
+        dot->setAttribute(Qt::WA_TransparentForMouseEvents);
         dot->setFixedSize(10, 10);
         dot->setStyleSheet(QString("background: %1; border: 1px solid #c3c6d6; border-radius: 5px;")
                                .arg(a.color.name()));
@@ -5618,6 +5627,7 @@ void MainWindow::refreshAnomalyList()
 
         // 备注(双击编辑)
         QLineEdit *remEd = new QLineEdit(a.remark, row);
+        remEd->setAttribute(Qt::WA_TransparentForMouseEvents, false);
         remEd->setPlaceholderText(QString::fromUtf8("备注..."));
         remEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 11px;"
                              " color: #424654; padding: 0; }"
@@ -5635,6 +5645,7 @@ void MainWindow::refreshAnomalyList()
 
         // 垃圾桶(双击删除)
         QToolButton *del = new QToolButton(row);
+        del->setAttribute(Qt::WA_TransparentForMouseEvents, false);
         if (MatIcon::ready())
             del->setIcon(MatIcon::icon(QStringLiteral("delete"), QColor(0xba, 0x1a, 0x1a)));
         del->setToolTip(QString::fromUtf8("双击删除"));
