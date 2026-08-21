@@ -193,6 +193,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     void contextMenuEvent(QContextMenuEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;   // v1.0.122 Enter确认异常
 
 signals:
     void imageClicked(const QPoint &pos);
@@ -206,6 +207,7 @@ signals:
     void anomalyMoved(int idx, const QRectF &rect, const QVector<QPointF> &poly);   // 拖动结束同步回tab
     void anomalyPolyDone(int idx, const QVector<QPointF> &poly);   // 多边形闭合
     void anomalyPolyAborted();                                     // 多边形未闭合被取消
+    void anomalyConfirmed(int idx);                                // v1.0.122 Enter/点击外部确认(实线)
 
 private:
     QImage m_image;

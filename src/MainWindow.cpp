@@ -53,6 +53,7 @@ protected:
 #include <QFileDialog>
 #include <QGraphicsDropShadowEffect>
 #include <QInputDialog>
+#include <QKeyEvent>
 #include <QXmlStreamReader>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -584,6 +585,7 @@ ImageLabel::ImageLabel(QWidget *parent)
     setMinimumSize(100, 50);
     setText("No image loaded");
     setStyleSheet("border: 1px solid gray;");
+    setFocusPolicy(Qt::ClickFocus);   // v1.0.122 让 keyPressEvent(回车确认)生效
     // v1.0.120: 流动虚线动画(编辑态异常+多边形绘制时运行)
     m_dashTimer = new QTimer(this);
     m_dashTimer->setInterval(80);
@@ -798,6 +800,25 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
     if (m_image.isNull()) {
         QLabel::mousePressEvent(event);
         return;
+    }
+
+    // v1.0.122: 点击编辑态异常外部 → 确认(变实线)
+    if (event->button() == Qt::LeftButton) {
+        const int eIdx = editingAnomalyIndex();
+        if (eIdx >= 0) {
+            const AnomalyMark &ea = m_anomalies[eIdx];
+            bool inside = false;
+            if (ea.shape == 2 && ea.poly.size() >= 3)
+                inside = polyContains(ea.poly, event->pos());
+            else if (ea.shape >= 0 && ea.shape <= 3 && ea.shape != 2)
+                inside = rectFromRectT(ea.rect.normalized()).contains(event->pos());
+            if (!inside) {
+                m_anomalies[eIdx].editing = false;
+                emit anomalyConfirmed(eIdx);
+                update();
+                // 不 return, 继续处理(可能是选其他目标/十字线)
+            }
+        }
     }
 
     // v1.0.120: 多边形绘制模式 — 点击加顶点; 靠近首顶点闭合
@@ -1208,8 +1229,54 @@ void ImageLabel::drawEditOverlay()
     }
 }
 
+// v1.0.122: 回车确认编辑态异常(变实线)
+void ImageLabel::keyPressEvent(QKeyEvent *event)
+{
+    if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+        const int idx = editingAnomalyIndex();
+        if (idx >= 0) {
+            m_anomalies[idx].editing = false;
+            emit anomalyConfirmed(idx);
+            update();
+            return;
+        }
+    }
+    QLabel::keyPressEvent(event);
+}
+
 void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
 {
+    // v1.0.122: 右键优先检测异常 — 命中实线异常弹"编辑/取消"菜单(屏蔽原右键)
+    for (int i = 0; i < m_anomalies.size(); ++i) {
+        const AnomalyMark &a = m_anomalies[i];
+        if (a.shape < 0 || a.editing) continue;   // 只检实线(非编辑态)
+        const QPoint pos = event->pos();
+        bool hit = false;
+        if (a.shape == 2 && a.poly.size() >= 3) {
+            hit = polyContains(a.poly, pos);
+        } else if (a.shape >= 0 && a.shape <= 3 && a.shape != 2) {
+            hit = rectFromRectT(a.rect.normalized()).contains(pos);
+        }
+        if (hit) {
+            QMenu menu(this);
+            menu.setStyleSheet(
+                "QMenu { background: #ffffff; border: 1px solid #c3c6d6; border-radius: 4px; padding: 4px 0; }"
+                "QMenu::item { padding: 6px 24px 6px 16px; color: #121c2a; font-size: 13px; }"
+                "QMenu::item:selected { background: #dee9fc; }");
+            QAction *editAct = menu.addAction(QString::fromUtf8("编辑"));
+            menu.addSeparator();
+            menu.addAction(QString::fromUtf8("取消"));
+            QAction *sel = menu.exec(event->globalPos());
+            if (sel == editAct) {
+                m_anomalies[i].editing = true;   // 进入编辑态(dotline+手柄)
+                setFocus();                       // 让 keyPressEvent 能收到回车
+                update();
+            }
+            return;   // 屏蔽原右键菜单
+        }
+    }
+
+    // 原有右键菜单(增益/变换)
     QMenu menu(this);
 
     QMenu *gainMenu = menu.addMenu("1 增益");
@@ -2594,6 +2661,13 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
         }
         syncInterpOverlays();
         refreshAnomalyList();
+    });
+    // v1.0.122: Enter/点击外部 确认异常(实线) — 同步editing=false到tab
+    connect(tab->imageLabel, &ImageLabel::anomalyConfirmed, this,
+            [this, tab](int idx) {
+        if (m_currentTab != tab || idx < 0 || idx >= tab->anomalies.size()) return;
+        tab->anomalies[idx].editing = false;
+        syncInterpOverlays();
     });
 
     // Page layout: imageGrid + chartView
@@ -5696,7 +5770,8 @@ void MainWindow::addAnomalyItem()
     syncInterpOverlays();
 }
 
-// 选中异常设形状+进入编辑态(虚线+手柄); 多边形=启动绘制模式
+// 选中异常设形状+进入编辑态(虚线+手柄)
+// 编辑状态切换形状: 保留当前位置参数, 几何自动转换(rect↔poly)
 void MainWindow::anomalySetShape(int idx, int shapeId)
 {
     if (!m_currentTab || idx < 0 || idx >= m_currentTab->anomalies.size()) return;
@@ -5704,24 +5779,60 @@ void MainWindow::anomalySetShape(int idx, int shapeId)
     static const QColor shapeColors[4] = {
         QColor(0xff, 0xff, 0x00), QColor(0xff, 0x00, 0x00),
         QColor(0xff, 0xa5, 0x00), QColor(0x00, 0xd4, 0xff) };
+
+    // 同一时间只允许一个编辑态: 其他异常全部确认(变实线)
+    for (int k = 0; k < m_currentTab->anomalies.size(); ++k)
+        if (k != idx) m_currentTab->anomalies[k].editing = false;
+
+    // 保存现有几何
+    const QRectF oldRect = a.rect;
+    const QVector<QPointF> oldPoly = a.poly;
+
     a.shape = shapeId;
     a.color = shapeColors[shapeId];
     a.editing = true;
+
     if (shapeId == 2) {
-        // 多边形: 清空已有顶点, 启动绘制模式(ImageLabel 小圆圈光标)
-        a.poly.clear();
-        a.rect = QRectF();
-        if (m_currentTab->imageLabel)
-            m_currentTab->imageLabel->startPolyDrawing();
+        // → 多边形
+        if (oldPoly.size() >= 3) {
+            a.poly = oldPoly;   // 已有多边形: 保留顶点
+            a.rect = QRectF();
+        } else if (!oldRect.isNull()) {
+            // 从圆/矩/文本转来: 用 rect 四角生成多边形(当前位置)
+            const QRectF r = oldRect.normalized();
+            a.poly = { QPointF(r.left(), r.top()), QPointF(r.right(), r.top()),
+                       QPointF(r.right(), r.bottom()), QPointF(r.left(), r.bottom()) };
+            a.rect = QRectF();
+        } else {
+            // 全新多边形: 启动绘制模式
+            a.poly.clear();
+            if (m_currentTab->imageLabel)
+                m_currentTab->imageLabel->startPolyDrawing();
+        }
+        if (oldPoly.size() >= 3 || !oldRect.isNull()) {
+            if (m_currentTab->imageLabel)
+                m_currentTab->imageLabel->stopPolyDrawing();
+        }
     } else {
+        // → 圆/矩/文本
         if (m_currentTab->imageLabel)
             m_currentTab->imageLabel->stopPolyDrawing();
-        if (a.rect.isNull()) {
+        if (!oldRect.isNull()) {
+            a.rect = oldRect;   // 已有rect: 保留位置
+        } else if (oldPoly.size() >= 3) {
+            // 从多边形转来: 取外接矩形
+            QRectF br = QRectF(oldPoly.first(), oldPoly.first());
+            for (const QPointF &p : oldPoly)
+                br = br.united(QRectF(p, p));
+            a.rect = br;
+        } else {
+            // 全新: 默认位置
             TabData *tab = m_currentTab;
             const int centerT = tab->traceCount / 2;
             const int centerS = (tab->nsamp - (tab->zeroApplied ? tab->zeroSkipRows : 0)) / 2;
             a.rect = QRectF(centerT - 30, centerS - 20, 60, 40);
         }
+        a.poly.clear();   // 非多边形清空顶点
     }
     syncInterpOverlays();
     refreshAnomalyList();
@@ -8704,25 +8815,20 @@ void MainWindow::createMenuBar()
         m_annoGroup->setId(m_btnAnoRect, 1);
         m_annoGroup->setId(m_btnAnoPoly, 2);
         m_annoGroup->setId(m_btnAnoText, 3);
-        // v1.0.116: 形状按钮 ↔ 选中异常联动
-        // checked → anomalySetShape(编辑态虚线+手柄); unchecked → anomalyConfirmShape(确认实线)
+        // v1.0.122: 形状按钮仅创建异常(dotline), 按钮立即弹回(不保持选中)
+        // 确认改由回车/点击外部触发; 重新编辑由右键菜单触发
         connect(m_annoGroup, &QButtonGroup::idToggled, this,
                 [this](int shapeId, bool checked) {
                     if (!m_currentTab) return;
                     if (checked) {
-                        if (m_selectedAnomaly < 0
-                            || m_selectedAnomaly >= m_currentTab->anomalies.size()) {
-                            // 无选中项: 按钮弹回
-                            QAbstractButton *btn = m_annoGroup->button(shapeId);
-                            if (btn) btn->setChecked(false);
-                            return;
-                        }
-                        anomalySetShape(m_selectedAnomaly, shapeId);
-                    } else {
                         if (m_selectedAnomaly >= 0
                             && m_selectedAnomaly < m_currentTab->anomalies.size())
-                            anomalyConfirmShape(m_selectedAnomaly);
+                            anomalySetShape(m_selectedAnomaly, shapeId);
+                        // 按钮立即弹回(创建后不再保持选中)
+                        QAbstractButton *btn = m_annoGroup->button(shapeId);
+                        if (btn) btn->setChecked(false);
                     }
+                    // unchecked 分支不再调用 anomalyConfirmShape(确认改由回车/外部点击)
                 });
 
         // 组3: 解译成果导出 (占位)
