@@ -2662,11 +2662,16 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
         syncInterpOverlays();
         refreshAnomalyList();
     });
-    // v1.0.122: Enter/点击外部 确认异常(实线) — 同步editing=false到tab
+    // v1.0.122: Enter/点击外部 确认异常(实线) — 同步editing=false到tab + 按钮弹回
     connect(tab->imageLabel, &ImageLabel::anomalyConfirmed, this,
             [this, tab](int idx) {
         if (m_currentTab != tab || idx < 0 || idx >= tab->anomalies.size()) return;
         tab->anomalies[idx].editing = false;
+        // 形状按钮弹回(确认后不再选中)
+        if (m_annoGroup) {
+            QAbstractButton *btn = m_annoGroup->checkedButton();
+            if (btn) btn->setChecked(false);
+        }
         syncInterpOverlays();
     });
 
@@ -8815,8 +8820,7 @@ void MainWindow::createMenuBar()
         m_annoGroup->setId(m_btnAnoRect, 1);
         m_annoGroup->setId(m_btnAnoPoly, 2);
         m_annoGroup->setId(m_btnAnoText, 3);
-        // v1.0.122: 形状按钮仅创建异常(dotline), 按钮立即弹回(不保持选中)
-        // 确认改由回车/点击外部触发; 重新编辑由右键菜单触发
+        // v1.0.123: 形状按钮 — 编辑状态切换形状(位置保留); 按钮保持选中直到确认
         connect(m_annoGroup, &QButtonGroup::idToggled, this,
                 [this](int shapeId, bool checked) {
                     if (!m_currentTab) return;
@@ -8824,11 +8828,8 @@ void MainWindow::createMenuBar()
                         if (m_selectedAnomaly >= 0
                             && m_selectedAnomaly < m_currentTab->anomalies.size())
                             anomalySetShape(m_selectedAnomaly, shapeId);
-                        // 按钮立即弹回(创建后不再保持选中)
-                        QAbstractButton *btn = m_annoGroup->button(shapeId);
-                        if (btn) btn->setChecked(false);
+                        // 按钮保持选中(编辑中); 确认(回车/外部点击)时弹回
                     }
-                    // unchecked 分支不再调用 anomalyConfirmShape(确认改由回车/外部点击)
                 });
 
         // 组3: 解译成果导出 (占位)
