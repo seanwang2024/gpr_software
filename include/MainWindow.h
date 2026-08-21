@@ -142,7 +142,7 @@ struct HorizonLayer {
 
 // v1.0.108 数据解译: 异常标注 (trace,sample) 域
 struct AnomalyMark {
-    int shape = 0;             // 0圆 1矩 2闭合多边形 3文本
+    int shape = -1;            // -1未选形状 0圆 1矩 2闭合多边形 3文本
     QString name;
     QString remark;
     QColor color;
@@ -150,6 +150,7 @@ struct AnomalyMark {
     int fontSize = 12;
     QRectF rect;               // 圆(外接框)/矩/文本框
     QVector<QPointF> poly;     // 多边形顶点
+    bool editing = false;      // 会话内编辑态(虚线+手柄), 不持久化
 };
 
 class ImageLabel : public QLabel
@@ -179,6 +180,8 @@ public:
                            double mPerSample, int selectedAnomaly = -1);
     void setRadanLayers(const QVector<HorizonLayer> &layers);   // RADAN原生层位点(彩色圆点)
     bool hasInterpOverlay() const;
+    // v1.0.116 异常编辑拖动: 返回编辑态异常索引(有编辑态异常时鼠标事件优先处理拖动)
+    int editingAnomalyIndex() const;
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
@@ -249,6 +252,8 @@ private:
     QVector<AnomalyMark> m_anomalies;
     QVector<QPointF> m_seeds;         // 追踪参考点(选中层)
     QVector<HorizonLayer> m_radanLayers;   // RADAN原生层位点(彩色圆点)
+    int m_anomalyDragIdx = -1;             // 正在拖动的编辑态异常索引
+    bool polyContains(const QVector<QPointF> &poly, const QPoint &pos) const;
     double m_interpMPerSample = 0.0;  // 深度标签换算
     int m_interpSelectedAnomaly = -1;
     void drawInterpOverlay();
@@ -431,6 +436,9 @@ private:
     void commitInterp();                                             // 解译数据内存提交(排序+刷新, 不写DZX)
     void flushInterpToDzx(TabData *tab);                             // RADAN规律: 关闭/切换文件时一次性写 DZX
     void addHorizonLayer();                                           // 新增层位(编号递增或补缺, 7色循环)
+    void addAnomalyItem();                                            // 新增异常标注(补缺编号)
+    void anomalySetShape(int idx, int shapeId);                       // 选中异常设形状+进入编辑态
+    void anomalyConfirmShape(int idx);                                // 异常确认(虚线→实线)
     void refreshSelectionInfo();            // 选区几何4字段刷新(道号/时间/尺寸)
     void clearEditBlocks();                 // 删除/重置: 清空全部数据块
     void createNewEditBlock();              // 新建数据块(自动找不重叠位置; 进块模式默认建一个)

@@ -754,6 +754,30 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
         return;
     }
 
+    // v1.0.116: 编辑态异常拖动(优先于数据块交互)
+    if (event->button() == Qt::LeftButton) {
+        const int aIdx = editingAnomalyIndex();
+        if (aIdx >= 0) {
+            const AnomalyMark &a = m_anomalies[aIdx];
+            if (a.shape >= 0 && a.shape <= 3) {
+                QRect shapeR;
+                if (a.shape == 2) {
+                    if (a.poly.size() < 3) { /* fall through */ }
+                } else {
+                    shapeR = rectFromRectT(a.rect.normalized());
+                }
+                if (shapeR.contains(event->pos())
+                    || (a.shape == 2 && a.poly.size() >= 3 && polyContains(a.poly, event->pos()))) {
+                    m_anomalyDragIdx = aIdx;
+                    m_dragAnchor = event->pos();
+                    m_dragRectStart = (a.shape == 2) ? QRectF() : a.rect.normalized();
+                    grabMouse();
+                    return;
+                }
+            }
+        }
+    }
+
     if (event->button() == Qt::LeftButton && m_blocksVisible) {
         // 数据块交互优先: 命中块(活动块优先) > [保留]/[删除]标记 > 8手柄 > 块内拖动 > 十字线
         const int idx = hitBlock(event->pos());
@@ -791,6 +815,24 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
 
 void ImageLabel::mouseMoveEvent(QMouseEvent *event)
 {
+    // v1.0.116: 编辑态异常拖动移动
+    if (m_anomalyDragIdx >= 0 && m_anomalyDragIdx < m_anomalies.size()
+        && (event->buttons() & Qt::LeftButton)) {
+        AnomalyMark &a = m_anomalies[m_anomalyDragIdx];
+        const double dTrace = widgetXToTrace(event->pos().x())
+                            - widgetXToTrace(qRound(m_dragAnchor.x()));
+        const double dSamp = widgetYToSample(event->pos().y())
+                           - widgetYToSample(qRound(m_dragAnchor.y()));
+        if (a.shape >= 0 && a.shape <= 3) {
+            // 移动 rect (圆/矩/文本) 或所有 poly 顶点
+            a.rect.translate(dTrace, dSamp);
+            for (QPointF &pt : a.poly) pt += QPointF(dTrace, dSamp);
+            m_dragAnchor = event->pos();   // 增量式
+        }
+        update();
+        return;
+    }
+
     // 数据块拖动/调整: 按锚点差更新 trace/sample 域, clampNoOverlap 防重叠实时夹取
     if (m_dragMode != DragNone && m_dragIdx >= 0 && m_dragIdx < m_blocks.size()
         && (event->buttons() & Qt::LeftButton)) {
@@ -859,6 +901,13 @@ void ImageLabel::mouseMoveEvent(QMouseEvent *event)
 void ImageLabel::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
+        if (m_anomalyDragIdx >= 0) {
+            releaseMouse();
+            m_anomalyDragIdx = -1;
+            update();
+            QLabel::mouseReleaseEvent(event);
+            return;
+        }
         if (m_dragMode != DragNone && m_dragIdx >= 0 && m_dragIdx < m_blocks.size()) {
             releaseMouse();   // 结束鼠标抓取
             const int idx = m_dragIdx;
@@ -2457,52 +2506,8 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
                 return;
             }
             Q_UNUSED(drawRows);
-            // S4: 异常标注绘制 — 圆/矩(点击拖拽大小由固定默认) / 多边形(逐点) / 文本(弹输入)
-            const int shapeSel = m_annoGroup ? m_annoGroup->checkedId() : -1;
-            if (shapeSel >= 0) {
-                // 默认尺寸: 圆60道×40采样 矩80道×40采样; 多边形加点; 文本弹输入
-                static const QColor shapeColors[4] = {
-                    QColor(0xff, 0xff, 0x00), QColor(0xff, 0x00, 0x00),
-                    QColor(0xff, 0xa5, 0x00), QColor(0x00, 0xd4, 0xff) };
-                AnomalyMark a;
-                a.shape = shapeSel;
-                a.color = shapeColors[shapeSel];
-                const int t = pos.x(), s = pos.y();
-                if (shapeSel == 0 || shapeSel == 1) {
-                    const int wT = (shapeSel == 0) ? 60 : 80, wS = 40;
-                    a.rect = QRectF(t - wT / 2, s - wS / 2, wT, wS);
-                    a.name = QString::fromUtf8("异常%1").arg(tab->anomalies.size() + 1, 2, 10, QChar('0'));
-                    tab->anomalies.append(a);
-                } else if (shapeSel == 2) {
-                    // 多边形: 逐点追加到一个"进行中"的标注(以 name=="__poly_pending__" 标记)
-                    const int pendIdx = [tab]() {
-                        for (int k = tab->anomalies.size() - 1; k >= 0; --k)
-                            if (tab->anomalies[k].name == QStringLiteral("__poly_pending__")) return k;
-                        return -1;
-                    }();
-                    if (pendIdx >= 0) {
-                        tab->anomalies[pendIdx].poly.append(QPointF(t, s));
-                    } else {
-                        a.poly.append(QPointF(t, s));
-                        a.name = QStringLiteral("__poly_pending__");
-                        tab->anomalies.append(a);
-                    }
-                } else if (shapeSel == 3) {
-                    bool ok = false;
-                    const QString txt = QInputDialog::getText(this, QString::fromUtf8("文本批注"),
-                        QString::fromUtf8("批注文字:"), QLineEdit::Normal,
-                        QString::fromUtf8("批注%1").arg(tab->anomalies.size() + 1), &ok);
-                    if (ok && !txt.trimmed().isEmpty()) {
-                        a.name = txt.trimmed();
-                        a.rect = QRectF(t - 60, s - 10, 120, 24);
-                        tab->anomalies.append(a);
-                    }
-                }
-                refreshAnomalyList();
-                syncInterpOverlays();
-                if (shapeSel != 2) commitInterp();   // 多边形在闭合时写
-                return;
-            }
+            // v1.0.116: 异常标注形状创建已移至形状按钮联动(anomalySetShape);
+            // 图上点击不再创建异常, ImageLabel 直接处理编辑态拖动/调整
         }
         onImageClicked(pos);
     });
@@ -4864,6 +4869,30 @@ void ImageLabel::setRadanLayers(const QVector<HorizonLayer> &layers)
     update();
 }
 
+// 射线法: 点是否在多边形(trace/sample域转为widget域再判断)
+bool ImageLabel::polyContains(const QVector<QPointF> &poly, const QPoint &pos) const
+{
+    if (poly.size() < 3) return false;
+    QVector<QPointF> wpts;
+    for (const QPointF &p : poly)
+        wpts.append(QPointF(traceToWidgetX(qRound(p.x())), sampleToWidgetY(qRound(p.y()))));
+    bool inside = false;
+    for (int i = 0, j = wpts.size() - 1; i < wpts.size(); j = i++) {
+        if (((wpts[i].y() > pos.y()) != (wpts[j].y() > pos.y()))
+            && (pos.x() < (wpts[j].x() - wpts[i].x()) * (pos.y() - wpts[i].y())
+                         / (wpts[j].y() - wpts[i].y()) + wpts[i].x()))
+            inside = !inside;
+    }
+    return inside;
+}
+
+int ImageLabel::editingAnomalyIndex() const
+{
+    for (int i = 0; i < m_anomalies.size(); ++i)
+        if (m_anomalies[i].editing && m_anomalies[i].shape >= 0) return i;
+    return -1;
+}
+
 bool ImageLabel::hasInterpOverlay() const
 {
     for (const HorizonLayer &h : m_radanLayers)
@@ -4929,14 +4958,15 @@ void ImageLabel::drawInterpOverlay()
         p.setBrush(Qt::NoBrush);
     }
 
-    // 异常标注
+    // 异常标注(编辑态=虚线+手柄+半透明填充; 确认态=实线)
     for (int i = 0; i < m_anomalies.size(); ++i) {
         const AnomalyMark &a = m_anomalies[i];
-        const bool sel = (i == m_interpSelectedAnomaly);
-        QPen pen(a.color, sel ? a.color == Qt::red ? 3 : 3 : 2,
-                 (a.shape == 0) ? Qt::DashLine : Qt::SolidLine);
+        if (a.shape < 0) continue;   // 未选形状
+        const bool editing = a.editing;
+        QPen pen(a.color, 2, editing ? Qt::DashLine : Qt::SolidLine);
         p.setPen(pen);
-        p.setBrush(Qt::NoBrush);
+        p.setBrush(editing ? QColor(a.color.red(), a.color.green(), a.color.blue(), 30)
+                           : Qt::NoBrush);
         QString depthLbl;
         if (m_interpMPerSample > 0) {
             const double s0 = (a.shape == 2 && !a.poly.isEmpty())
@@ -4944,11 +4974,13 @@ void ImageLabel::drawInterpOverlay()
             depthLbl = QString::fromUtf8(" [深度: %1m]").arg(s0 * m_interpMPerSample, 0, 'f', 2);
         }
 
+        QRect shapeRect;
         if (a.shape == 0) {          // 圆(外接框画椭圆)
-            const QRect r = rectFromRectT(a.rect.normalized());
-            p.drawEllipse(r);
+            shapeRect = rectFromRectT(a.rect.normalized());
+            p.drawEllipse(shapeRect);
         } else if (a.shape == 1) {   // 矩形
-            p.drawRect(rectFromRectT(a.rect.normalized()));
+            shapeRect = rectFromRectT(a.rect.normalized());
+            p.drawRect(shapeRect);
         } else if (a.shape == 2) {   // 闭合多边形
             if (a.poly.size() >= 3) {
                 QPainterPath path;
@@ -4961,13 +4993,35 @@ void ImageLabel::drawInterpOverlay()
                 p.drawPath(path);
             }
         } else {                      // 文本框
-            const QRect r = rectFromRectT(a.rect.normalized());
-            p.drawRect(r);
+            shapeRect = rectFromRectT(a.rect.normalized());
+            p.drawRect(shapeRect);
             QFont tf(a.fontFamily);
             tf.setPixelSize(a.fontSize);
             p.setFont(tf);
             p.setPen(a.color);
-            p.drawText(r.adjusted(3, 1, -3, -1), Qt::AlignTop | Qt::AlignLeft, a.name);
+            p.drawText(shapeRect.adjusted(3, 1, -3, -1), Qt::AlignTop | Qt::AlignLeft, a.name);
+        }
+
+        // 编辑态: 手柄(圆/矩/文本=8角边, 多边形=顶点)
+        if (editing) {
+            p.setBrush(Qt::white);
+            p.setPen(QPen(a.color, 1));
+            if (a.shape == 2 && a.poly.size() >= 3) {
+                for (const QPointF &pt : a.poly) {
+                    const int x = traceToWidgetX(qRound(pt.x()));
+                    const int y = sampleToWidgetY(qRound(pt.y()));
+                    p.drawRect(QRect(x - 4, y - 4, 8, 8));
+                }
+            } else if (shapeRect.width() > 0) {
+                const QPoint cs[8] = {
+                    shapeRect.topLeft(), QPoint(shapeRect.center().x(), shapeRect.top()),
+                    shapeRect.topRight(), QPoint(shapeRect.right(), shapeRect.center().y()),
+                    shapeRect.bottomRight(), QPoint(shapeRect.center().x(), shapeRect.bottom()),
+                    shapeRect.bottomLeft(), QPoint(shapeRect.left(), shapeRect.center().y())};
+                for (const QPoint &c : cs)
+                    p.drawRect(QRect(c.x() - 4, c.y() - 4, 8, 8));
+            }
+            p.setBrush(Qt::NoBrush);
         }
 
         // 标签(名称+深度): 气泡盒置于形状上方; 文本批注自身即文字不再加气泡
@@ -5206,23 +5260,40 @@ void MainWindow::createInterpPanel()
                          " background: transparent;");
     anHL->addWidget(anCap);
     anHL->addStretch(1);
-    QToolButton *anDel = new QToolButton(anHead);
+    QToolButton *anAdd = new QToolButton(anHead);
     if (MatIcon::ready())
-        anDel->setIcon(MatIcon::icon(QStringLiteral("delete"), QColor(0xba, 0x1a, 0x1a)));
-    anDel->setToolTip(QString::fromUtf8("删除选中异常"));
-    anDel->setCursor(Qt::PointingHandCursor);
-    anDel->setStyleSheet("QToolButton { border: none; border-radius: 2px; }"
+        anAdd->setIcon(MatIcon::icon(QStringLiteral("add"), QColor(0x00, 0x48, 0xaf)));
+    anAdd->setToolTip(QString::fromUtf8("新增异常标注"));
+    anAdd->setCursor(Qt::PointingHandCursor);
+    anAdd->setStyleSheet("QToolButton { border: none; border-radius: 2px; }"
                          "QToolButton:hover { background: #dee9fc; }");
-    anHL->addWidget(anDel);
+    connect(anAdd, &QToolButton::clicked, this, [this]() { addAnomalyItem(); });
+    anHL->addWidget(anAdd);
     anL->addWidget(anHead);
 
     m_anomalyList = new QListWidget(anBox);
     m_anomalyList->setStyleSheet(
         "QListWidget { border: none; background: #ffffff; font-size: 12px; }"
-        "QListWidget::item { padding: 4px 6px; border-bottom: 1px solid #e6eeff; }"
-        "QListWidget::item:selected { background: #dee9fc; color: #121c2a; }");
+        "QListWidget::item { padding: 0px; border-bottom: 1px solid #e6eeff; }");
     m_anomalyList->setMinimumHeight(120);
     anL->addWidget(m_anomalyList);
+
+    // v1.0.116: 列表选中变化 → 前一个自动确认(实线) + 形状按钮取消 + 高亮刷新
+    connect(m_anomalyList, &QListWidget::currentRowChanged, this, [this](int row) {
+        if (!m_currentTab) return;
+        // 前一个自动确认
+        if (m_selectedAnomaly >= 0 && m_selectedAnomaly != row
+            && m_selectedAnomaly < m_currentTab->anomalies.size())
+            m_currentTab->anomalies[m_selectedAnomaly].editing = false;
+        // 形状按钮取消选中
+        if (m_annoGroup) {
+            QAbstractButton *btn = m_annoGroup->checkedButton();
+            if (btn) btn->setChecked(false);
+        }
+        m_selectedAnomaly = row;
+        refreshAnomalyList();
+        syncInterpOverlays();
+    });
     bl->addWidget(anBox, 1);
 
     scroll->setWidget(body);
@@ -5256,16 +5327,6 @@ void MainWindow::createInterpPanel()
     connect(m_btnTrackStop, &QPushButton::clicked, this, [this]() {
         if (m_btnTrackStart) m_btnTrackStart->setChecked(false);   // 恢复灰
         if (m_currentTab) clearTrackSeeds();
-    });
-    // 删除选中异常
-    connect(anDel, &QToolButton::clicked, this, [this]() {
-        if (!m_currentTab || m_selectedAnomaly < 0
-            || m_selectedAnomaly >= m_currentTab->anomalies.size()) return;
-        m_currentTab->anomalies.remove(m_selectedAnomaly);
-        m_selectedAnomaly = -1;
-        refreshAnomalyList();
-        syncInterpOverlays();
-        commitInterp();
     });
 }
 
@@ -5397,7 +5458,66 @@ void MainWindow::refreshHorizonList()
         m_horizonTree->setCurrentItem(m_horizonTree->topLevelItem(selectedHorizon()));
 }
 
-// 异常列表刷新: [形状图标+名称+色点] + 备注
+// 新增异常标注: 名"异常标注N"(N=补缺编号, 从已有name提取最大N, 找空缺)
+void MainWindow::addAnomalyItem()
+{
+    if (!m_currentTab) return;
+    // 找空缺编号: 从已有 name 提取"异常标注N"的 N, 从1起找第一个空缺
+    QSet<int> used;
+    for (const AnomalyMark &a : m_currentTab->anomalies) {
+        if (a.name.startsWith(QStringLiteral("异常标注"))) {
+            const int n = a.name.mid(QString::fromUtf8("异常标注").length()).toInt();
+            if (n > 0) used.insert(n);
+        }
+    }
+    int newN = 1;
+    while (used.contains(newN)) ++newN;
+
+    AnomalyMark a;
+    a.shape = -1;   // 尚未选形状
+    a.name = QStringLiteral("异常标注%1").arg(newN);
+    a.color = QColor(0xff, 0xff, 0x00);   // 默认黄色
+    m_currentTab->anomalies.append(a);
+    m_selectedAnomaly = m_currentTab->anomalies.size() - 1;
+    refreshAnomalyList();
+    syncInterpOverlays();
+}
+
+// 选中异常设形状+进入编辑态(虚线+手柄)
+void MainWindow::anomalySetShape(int idx, int shapeId)
+{
+    if (!m_currentTab || idx < 0 || idx >= m_currentTab->anomalies.size()) return;
+    AnomalyMark &a = m_currentTab->anomalies[idx];
+    static const QColor shapeColors[4] = {
+        QColor(0xff, 0xff, 0x00),   // 圆 黄
+        QColor(0xff, 0x00, 0x00),   // 矩 红
+        QColor(0xff, 0xa5, 0x00),   // 多边形 橙
+        QColor(0x00, 0xd4, 0xff),   // 文本 青
+    };
+    a.shape = shapeId;
+    a.color = shapeColors[shapeId];
+    a.editing = true;
+    if (a.rect.isNull()) {
+        // 默认位置: 视口中心 60道×40采样
+        TabData *tab = m_currentTab;
+        const int centerT = tab->traceCount / 2;
+        const int centerS = (tab->nsamp - (tab->zeroApplied ? tab->zeroSkipRows : 0)) / 2;
+        a.rect = QRectF(centerT - 30, centerS - 20, 60, 40);
+    }
+    syncInterpOverlays();
+    refreshAnomalyList();
+}
+
+// 异常确认(虚线→实线)
+void MainWindow::anomalyConfirmShape(int idx)
+{
+    if (!m_currentTab || idx < 0 || idx >= m_currentTab->anomalies.size()) return;
+    m_currentTab->anomalies[idx].editing = false;
+    syncInterpOverlays();
+    refreshAnomalyList();
+}
+
+// 异常列表刷新: 每行 = [形状图标] [名称QLineEdit] [色点] [备注QLineEdit] [垃圾桶]
 void MainWindow::refreshAnomalyList()
 {
     if (!m_anomalyList || !m_currentTab) return;
@@ -5405,39 +5525,80 @@ void MainWindow::refreshAnomalyList()
     m_anomalyList->clear();
     static const char *shapeGlyph[4] = { "radio_button_unchecked", "check_box_outline_blank",
                                          "pentagon", "title" };
-    static const char *shapeName[4] = { "圆形", "矩形", "多边形", "文本" };
+    static const char *shapeEmpty = "help";   // 未选形状
     for (int i = 0; i < m_currentTab->anomalies.size(); ++i) {
-        const AnomalyMark &a = m_currentTab->anomalies[i];
+        AnomalyMark &a = m_currentTab->anomalies[i];
         QWidget *row = new QWidget(m_anomalyList);
-        QVBoxLayout *rl = new QVBoxLayout(row);
-        rl->setContentsMargins(2, 2, 2, 2);
-        rl->setSpacing(1);
-        QHBoxLayout *top = new QHBoxLayout;
-        top->setSpacing(6);
+        row->setStyleSheet(i == m_selectedAnomaly
+                               ? "background: #dee9fc; border-radius: 2px;"
+                               : "background: transparent;");
+        QHBoxLayout *rl = new QHBoxLayout(row);
+        rl->setContentsMargins(4, 3, 2, 3);
+        rl->setSpacing(4);
+
+        // 形状图标
         QLabel *icon = new QLabel;
         if (MatIcon::ready())
-            icon->setPixmap(MatIcon::pixmap(QString::fromLatin1(shapeGlyph[qBound(0, a.shape, 3)]),
-                                            QColor(0x00, 0x48, 0xaf), 14, 0.0, devicePixelRatioF()));
-        top->addWidget(icon);
-        QLabel *name = new QLabel(a.name.isEmpty()
-                                      ? QString::fromUtf8(shapeName[qBound(0, a.shape, 3)])
-                                      : a.name);
-        name->setStyleSheet("font-size: 12px; font-weight: bold; color: #121c2a; border: none;");
-        top->addWidget(name, 1);
+            icon->setPixmap(MatIcon::pixmap(
+                QString::fromLatin1(a.shape >= 0 && a.shape <= 3 ? shapeGlyph[a.shape] : shapeEmpty),
+                QColor(0x00, 0x48, 0xaf), 14, 0.0, devicePixelRatioF()));
+        icon->setFixedSize(16, 16);
+        rl->addWidget(icon);
+
+        // 名称(可编辑)
+        QLineEdit *nameEd = new QLineEdit(a.name, row);
+        nameEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 12px;"
+                              " font-weight: bold; color: #121c2a; padding: 0; }"
+                              "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
+        nameEd->setFixedWidth(90);
+        connect(nameEd, &QLineEdit::editingFinished, this, [this, i, nameEd]() {
+            if (!m_currentTab || i >= m_currentTab->anomalies.size()) return;
+            const QString t = nameEd->text().trimmed();
+            if (!t.isEmpty()) {
+                m_currentTab->anomalies[i].name = t;
+                syncInterpOverlays();
+            }
+        });
+        rl->addWidget(nameEd);
+
+        // 色点
         QLabel *dot = new QLabel;
-        dot->setFixedSize(12, 12);
-        dot->setStyleSheet(QString("background: %1; border: 1px solid #c3c6d6; border-radius: 6px;")
+        dot->setFixedSize(10, 10);
+        dot->setStyleSheet(QString("background: %1; border: 1px solid #c3c6d6; border-radius: 5px;")
                                .arg(a.color.name()));
-        top->addWidget(dot);
-        rl->addLayout(top);
-        if (!a.remark.isEmpty()) {
-            QLabel *rem = new QLabel(a.remark);
-            rem->setStyleSheet("font-size: 11px; color: #424654; border: none;");
-            rem->setWordWrap(true);
-            rl->addWidget(rem);
-        }
+        rl->addWidget(dot);
+
+        // 备注(可编辑)
+        QLineEdit *remEd = new QLineEdit(a.remark, row);
+        remEd->setPlaceholderText(QString::fromUtf8("备注..."));
+        remEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 11px;"
+                             " color: #424654; padding: 0; }"
+                             "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
+        connect(remEd, &QLineEdit::editingFinished, this, [this, i, remEd]() {
+            if (!m_currentTab || i >= m_currentTab->anomalies.size()) return;
+            m_currentTab->anomalies[i].remark = remEd->text().trimmed();
+        });
+        rl->addWidget(remEd, 1);
+
+        // 垃圾桶
+        QToolButton *del = new QToolButton(row);
+        if (MatIcon::ready())
+            del->setIcon(MatIcon::icon(QStringLiteral("delete"), QColor(0xba, 0x1a, 0x1a)));
+        del->setToolTip(QString::fromUtf8("删除"));
+        del->setCursor(Qt::PointingHandCursor);
+        del->setStyleSheet("QToolButton { border: none; border-radius: 2px; }"
+                           "QToolButton:hover { background: rgba(186,26,26,0.1); }");
+        connect(del, &QToolButton::clicked, this, [this, i]() {
+            if (!m_currentTab || i >= m_currentTab->anomalies.size()) return;
+            m_currentTab->anomalies.remove(i);
+            m_selectedAnomaly = -1;
+            refreshAnomalyList();
+            syncInterpOverlays();
+        });
+        rl->addWidget(del);
+
         QListWidgetItem *it = new QListWidgetItem;
-        it->setSizeHint(QSize(0, 44));
+        it->setSizeHint(QSize(0, 32));
         m_anomalyList->addItem(it);
         m_anomalyList->setItemWidget(it, row);
     }
@@ -8298,27 +8459,25 @@ void MainWindow::createMenuBar()
         m_annoGroup->setId(m_btnAnoRect, 1);
         m_annoGroup->setId(m_btnAnoPoly, 2);
         m_annoGroup->setId(m_btnAnoText, 3);
-        // 多边形双击闭合: 切换工具时也自动闭合进行中的多边形
-        const auto closePendingPoly = [this]() {
-            if (!m_currentTab) return;
-            for (int k = m_currentTab->anomalies.size() - 1; k >= 0; --k) {
-                if (m_currentTab->anomalies[k].name == QStringLiteral("__poly_pending__")) {
-                    AnomalyMark &a = m_currentTab->anomalies[k];
-                    if (a.poly.size() >= 3) {
-                        a.name = QString::fromUtf8("异常%1")
-                                     .arg(m_currentTab->anomalies.size(), 2, 10, QChar('0'));
-                        commitInterp();   // 多边形闭合时持久化
-                    } else {
-                        m_currentTab->anomalies.remove(k);   // 不足3点丢弃
-                    }
-                    refreshAnomalyList();
-                    syncInterpOverlays();
-                }
-            }
-        };
+        // v1.0.116: 形状按钮 ↔ 选中异常联动
+        // checked → anomalySetShape(编辑态虚线+手柄); unchecked → anomalyConfirmShape(确认实线)
         connect(m_annoGroup, &QButtonGroup::idToggled, this,
-                [this, closePendingPoly](int, bool checked) {
-                    if (!checked) closePendingPoly();
+                [this](int shapeId, bool checked) {
+                    if (!m_currentTab) return;
+                    if (checked) {
+                        if (m_selectedAnomaly < 0
+                            || m_selectedAnomaly >= m_currentTab->anomalies.size()) {
+                            // 无选中项: 按钮弹回
+                            QAbstractButton *btn = m_annoGroup->button(shapeId);
+                            if (btn) btn->setChecked(false);
+                            return;
+                        }
+                        anomalySetShape(m_selectedAnomaly, shapeId);
+                    } else {
+                        if (m_selectedAnomaly >= 0
+                            && m_selectedAnomaly < m_currentTab->anomalies.size())
+                            anomalyConfirmShape(m_selectedAnomaly);
+                    }
                 });
 
         // 组3: 解译成果导出 (占位)
