@@ -584,6 +584,13 @@ ImageLabel::ImageLabel(QWidget *parent)
     setMinimumSize(100, 50);
     setText("No image loaded");
     setStyleSheet("border: 1px solid gray;");
+    // v1.0.120: 流动虚线动画(编辑态异常+多边形绘制时运行)
+    m_dashTimer = new QTimer(this);
+    m_dashTimer->setInterval(80);
+    connect(m_dashTimer, &QTimer::timeout, this, [this]() {
+        m_dashOffset = (m_dashOffset + 1) % 20;
+        update();
+    });
     setMouseTracking(true);
 }
 
@@ -793,23 +800,66 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    // v1.0.116: 编辑态异常拖动(优先于数据块交互)
+    // v1.0.120: 多边形绘制模式 — 点击加顶点; 靠近首顶点闭合
+    if (event->button() == Qt::LeftButton && m_polyDrawing) {
+        const QPointF np(widgetXToTrace(event->pos().x()),
+                         widgetYToSample(event->pos().y()));
+        if (m_polyPoints.size() >= 3) {
+            const QPointF &fp = m_polyPoints.first();
+            const int fx = traceToWidgetX(qRound(fp.x()));
+            const int fy = sampleToWidgetY(qRound(fp.y()));
+            if (qAbs(event->pos().x() - fx) < 12 && qAbs(event->pos().y() - fy) < 12) {
+                // 闭合
+                m_polyDrawing = false;
+                emit anomalyPolyDone(editingAnomalyIndex(), m_polyPoints);
+                m_polyPoints.clear();
+                update();
+                return;
+            }
+        }
+        m_polyPoints.append(np);
+        update();
+        return;
+    }
+
+    // v1.0.120: 编辑态异常 — 手柄调整大小 > 拖动移动(优先于数据块)
     if (event->button() == Qt::LeftButton) {
         const int aIdx = editingAnomalyIndex();
         if (aIdx >= 0) {
             const AnomalyMark &a = m_anomalies[aIdx];
-            if (a.shape >= 0 && a.shape <= 3) {
-                QRect shapeR;
-                if (a.shape == 2) {
-                    if (a.poly.size() < 3) { /* fall through */ }
-                } else {
-                    shapeR = rectFromRectT(a.rect.normalized());
-                }
-                if (shapeR.contains(event->pos())
-                    || (a.shape == 2 && a.poly.size() >= 3 && polyContains(a.poly, event->pos()))) {
+            if (a.shape >= 0 && a.shape <= 3 && !(a.shape == 2 && a.poly.isEmpty())) {
+                if (a.shape != 2) {
+                    const QRect r = rectFromRectT(a.rect.normalized());
+                    // 8手柄命中检测(±6px)
+                    static const int tol = 6;
+                    const QPoint cs[8] = {
+                        r.topLeft(), QPoint(r.center().x(), r.top()), r.topRight(),
+                        QPoint(r.right(), r.center().y()), r.bottomRight(),
+                        QPoint(r.center().x(), r.bottom()), r.bottomLeft(),
+                        QPoint(r.left(), r.center().y())};
+                    for (int hi = 0; hi < 8; ++hi) {
+                        if (QRect(cs[hi].x()-tol, cs[hi].y()-tol, tol*2, tol*2).contains(event->pos())) {
+                            m_anomalyDragIdx = aIdx;
+                            m_anomalyDragMode = static_cast<DragMode>(DragTL + hi);
+                            m_dragAnchor = event->pos();
+                            m_dragRectStart = a.rect.normalized();
+                            grabMouse();
+                            return;
+                        }
+                    }
+                    // 内部拖动移动
+                    if (r.contains(event->pos())) {
+                        m_anomalyDragIdx = aIdx;
+                        m_anomalyDragMode = DragMove;
+                        m_dragAnchor = event->pos();
+                        m_dragRectStart = a.rect.normalized();
+                        grabMouse();
+                        return;
+                    }
+                } else if (a.poly.size() >= 3 && polyContains(a.poly, event->pos())) {
                     m_anomalyDragIdx = aIdx;
+                    m_anomalyDragMode = DragMove;
                     m_dragAnchor = event->pos();
-                    m_dragRectStart = (a.shape == 2) ? QRectF() : a.rect.normalized();
                     grabMouse();
                     return;
                 }
@@ -854,19 +904,52 @@ void ImageLabel::mousePressEvent(QMouseEvent *event)
 
 void ImageLabel::mouseMoveEvent(QMouseEvent *event)
 {
-    // v1.0.116: 编辑态异常拖动移动
+    // v1.0.120: 多边形绘制光标跟踪
+    if (m_polyDrawing && !(event->buttons() & Qt::LeftButton)) {
+        m_polyCursor = event->pos();
+        update();
+        // 不return, 允许hover光标等继续处理
+    }
+
+    // v1.0.120: 编辑态异常 — 拖动移动 / 手柄调整大小
     if (m_anomalyDragIdx >= 0 && m_anomalyDragIdx < m_anomalies.size()
         && (event->buttons() & Qt::LeftButton)) {
         AnomalyMark &a = m_anomalies[m_anomalyDragIdx];
-        const double dTrace = widgetXToTrace(event->pos().x())
-                            - widgetXToTrace(qRound(m_dragAnchor.x()));
-        const double dSamp = widgetYToSample(event->pos().y())
-                           - widgetYToSample(qRound(m_dragAnchor.y()));
-        if (a.shape >= 0 && a.shape <= 3) {
-            // 移动 rect (圆/矩/文本) 或所有 poly 顶点
+        if (m_anomalyDragMode == DragMove) {
+            const double dTrace = widgetXToTrace(event->pos().x())
+                                - widgetXToTrace(qRound(m_dragAnchor.x()));
+            const double dSamp = widgetYToSample(event->pos().y())
+                               - widgetYToSample(qRound(m_dragAnchor.y()));
             a.rect.translate(dTrace, dSamp);
             for (QPointF &pt : a.poly) pt += QPointF(dTrace, dSamp);
-            m_dragAnchor = event->pos();   // 增量式
+            m_dragAnchor = event->pos();
+        } else if (m_anomalyDragMode != DragNone && a.shape != 2) {
+            // 手柄调整大小(圆/矩/文本)
+            const double dTrace = widgetXToTrace(event->pos().x())
+                                - widgetXToTrace(qRound(m_dragAnchor.x()));
+            const double dSamp = widgetYToSample(event->pos().y())
+                               - widgetYToSample(qRound(m_dragAnchor.y()));
+            QRectF r = m_dragRectStart;
+            switch (m_anomalyDragMode) {
+            case DragTL: r.setLeft(r.left()+dTrace); r.setTop(r.top()+dSamp); break;
+            case DragT:  r.setTop(r.top()+dSamp); break;
+            case DragTR: r.setRight(r.right()+dTrace); r.setTop(r.top()+dSamp); break;
+            case DragR:  r.setRight(r.right()+dTrace); break;
+            case DragBR: r.setRight(r.right()+dTrace); r.setBottom(r.bottom()+dSamp); break;
+            case DragB:  r.setBottom(r.bottom()+dSamp); break;
+            case DragBL: r.setLeft(r.left()+dTrace); r.setBottom(r.bottom()+dSamp); break;
+            case DragL:  r.setLeft(r.left()+dTrace); break;
+            default: break;
+            }
+            const double maxT = qMax(0.0, (double)m_mapTraceCount - 1);
+            const double maxS = qMax(0.0, (double)m_mapDrawRows - 1);
+            double l = qBound(0.0, r.normalized().left(), maxT);
+            double rr = qBound(0.0, r.normalized().right(), maxT);
+            double t = qBound(0.0, r.normalized().top(), maxS);
+            double b = qBound(0.0, r.normalized().bottom(), maxS);
+            if (rr - l < 1.0) rr = l + 1.0;
+            if (b - t < 1.0) b = t + 1.0;
+            a.rect = QRectF(QPointF(l, t), QPointF(rr, b));
         }
         update();
         return;
@@ -940,9 +1023,14 @@ void ImageLabel::mouseMoveEvent(QMouseEvent *event)
 void ImageLabel::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
-        if (m_anomalyDragIdx >= 0) {
+        if (m_anomalyDragIdx >= 0 && m_anomalyDragIdx < m_anomalies.size()) {
             releaseMouse();
+            const AnomalyMark &a = m_anomalies[m_anomalyDragIdx];
+            const int idx = m_anomalyDragIdx;
             m_anomalyDragIdx = -1;
+            m_anomalyDragMode = DragNone;
+            // 同步回 MainWindow(tab->anomalies) — BUG1 修复
+            emit anomalyMoved(idx, a.rect, a.poly);
             update();
             QLabel::mouseReleaseEvent(event);
             return;
@@ -2474,6 +2562,39 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
             [this, tab](int idx) { if (m_currentTab == tab) markEditBlockKeep(idx); });
     connect(tab->imageLabel, &ImageLabel::editMarkDeleteRequested, this,
             [this, tab](int idx) { if (m_currentTab == tab) markEditBlockDelete(idx); });
+    // v1.0.120: 异常拖动/调整同步回tab(BUG1: 位置不丢)
+    connect(tab->imageLabel, &ImageLabel::anomalyMoved, this,
+            [this, tab](int idx, const QRectF &rect, const QVector<QPointF> &poly) {
+        if (m_currentTab != tab || idx < 0 || idx >= tab->anomalies.size()) return;
+        tab->anomalies[idx].rect = rect;
+        tab->anomalies[idx].poly = poly;
+    });
+    // v1.0.120: 多边形闭合
+    connect(tab->imageLabel, &ImageLabel::anomalyPolyDone, this,
+            [this, tab](int idx, const QVector<QPointF> &poly) {
+        if (m_currentTab != tab || idx < 0 || idx >= tab->anomalies.size()) return;
+        tab->anomalies[idx].poly = poly;
+        tab->anomalies[idx].editing = false;   // 闭合即确认(实线)
+        if (m_annoGroup) {
+            QAbstractButton *btn = m_annoGroup->checkedButton();
+            if (btn) btn->setChecked(false);   // 按钮自动取消
+        }
+        syncInterpOverlays();
+        refreshAnomalyList();
+    });
+    // v1.0.120: 多边形未闭合被取消(丢弃)
+    connect(tab->imageLabel, &ImageLabel::anomalyPolyAborted, this, [this, tab]() {
+        if (m_currentTab != tab) return;
+        for (int k = tab->anomalies.size() - 1; k >= 0; --k) {
+            if (tab->anomalies[k].shape == 2 && tab->anomalies[k].poly.size() < 3) {
+                tab->anomalies[k].shape = -1;
+                tab->anomalies[k].poly.clear();
+                tab->anomalies[k].rect = QRectF();
+            }
+        }
+        syncInterpOverlays();
+        refreshAnomalyList();
+    });
 
     // Page layout: imageGrid + chartView
     pageLayout->addLayout(tab->imageGrid, 1);
@@ -4997,12 +5118,56 @@ void ImageLabel::drawInterpOverlay()
         p.setBrush(Qt::NoBrush);
     }
 
-    // 异常标注(编辑态=虚线+手柄+半透明填充; 确认态=实线)
+    // v1.0.120: 启动/停止流动虚线定时器(有编辑态或多边形绘制时)
+    bool needAnim = m_polyDrawing;
+    for (const AnomalyMark &am : m_anomalies)
+        if (am.editing) { needAnim = true; break; }
+    if (needAnim && m_dashTimer && !m_dashTimer->isActive())
+        m_dashTimer->start();
+    else if (!needAnim && m_dashTimer && m_dashTimer->isActive())
+        m_dashTimer->stop();
+
+    // 多边形绘制模式: 流动小圆圈光标 + 已落顶点 + dot line 连接 + 预览线
+    if (m_polyDrawing) {
+        QPen apen(QColor(0xff, 0xa5, 0x00), 2, Qt::DashLine);
+        apen.setDashOffset(m_dashOffset);
+        p.setPen(apen);
+        // 光标小圆圈
+        const int cx = m_polyCursor.x();
+        const int cy = m_polyCursor.y();
+        p.drawEllipse(QPoint(cx, cy), 6, 6);
+        // 已落顶点 + dot line 连接
+        if (!m_polyPoints.isEmpty()) {
+            // 首顶点大圆(闭合目标)
+            const QPointF &fp = m_polyPoints.first();
+            const int fx = traceToWidgetX(qRound(fp.x()));
+            const int fy = sampleToWidgetY(qRound(fp.y()));
+            p.drawEllipse(QPoint(fx, fy), 8, 8);
+            // 顶点+连线
+            QPainterPath path;
+            path.moveTo(fx, fy);
+            for (int k = 1; k < m_polyPoints.size(); ++k) {
+                const int px = traceToWidgetX(qRound(m_polyPoints[k].x()));
+                const int py = sampleToWidgetY(qRound(m_polyPoints[k].y()));
+                path.lineTo(px, py);
+                p.drawEllipse(QPoint(px, py), 4, 4);
+            }
+            path.lineTo(cx, cy);   // 预览线到光标
+            p.drawPath(path);
+        }
+    }
+
+    // 异常标注(编辑态=流动虚线+手柄+半透明填充; 确认态=实线)
     for (int i = 0; i < m_anomalies.size(); ++i) {
         const AnomalyMark &a = m_anomalies[i];
         if (a.shape < 0) continue;   // 未选形状
+        if (a.editing && a.shape == 2 && a.poly.isEmpty()) continue;   // 多边形空=绘制中, 由上方绘制
         const bool editing = a.editing;
-        QPen pen(a.color, 2, editing ? Qt::DashLine : Qt::SolidLine);
+        QPen pen(a.color, 2, Qt::SolidLine);
+        if (editing) {
+            pen.setStyle(Qt::DashLine);
+            pen.setDashOffset(m_dashOffset);   // 流动虚线
+        }
         p.setPen(pen);
         p.setBrush(editing ? QColor(a.color.red(), a.color.green(), a.color.blue(), 30)
                            : Qt::NoBrush);
@@ -5531,36 +5696,52 @@ void MainWindow::addAnomalyItem()
     syncInterpOverlays();
 }
 
-// 选中异常设形状+进入编辑态(虚线+手柄)
+// 选中异常设形状+进入编辑态(虚线+手柄); 多边形=启动绘制模式
 void MainWindow::anomalySetShape(int idx, int shapeId)
 {
     if (!m_currentTab || idx < 0 || idx >= m_currentTab->anomalies.size()) return;
     AnomalyMark &a = m_currentTab->anomalies[idx];
     static const QColor shapeColors[4] = {
-        QColor(0xff, 0xff, 0x00),   // 圆 黄
-        QColor(0xff, 0x00, 0x00),   // 矩 红
-        QColor(0xff, 0xa5, 0x00),   // 多边形 橙
-        QColor(0x00, 0xd4, 0xff),   // 文本 青
-    };
+        QColor(0xff, 0xff, 0x00), QColor(0xff, 0x00, 0x00),
+        QColor(0xff, 0xa5, 0x00), QColor(0x00, 0xd4, 0xff) };
     a.shape = shapeId;
     a.color = shapeColors[shapeId];
     a.editing = true;
-    if (a.rect.isNull()) {
-        // 默认位置: 视口中心 60道×40采样
-        TabData *tab = m_currentTab;
-        const int centerT = tab->traceCount / 2;
-        const int centerS = (tab->nsamp - (tab->zeroApplied ? tab->zeroSkipRows : 0)) / 2;
-        a.rect = QRectF(centerT - 30, centerS - 20, 60, 40);
+    if (shapeId == 2) {
+        // 多边形: 清空已有顶点, 启动绘制模式(ImageLabel 小圆圈光标)
+        a.poly.clear();
+        a.rect = QRectF();
+        if (m_currentTab->imageLabel)
+            m_currentTab->imageLabel->startPolyDrawing();
+    } else {
+        if (m_currentTab->imageLabel)
+            m_currentTab->imageLabel->stopPolyDrawing();
+        if (a.rect.isNull()) {
+            TabData *tab = m_currentTab;
+            const int centerT = tab->traceCount / 2;
+            const int centerS = (tab->nsamp - (tab->zeroApplied ? tab->zeroSkipRows : 0)) / 2;
+            a.rect = QRectF(centerT - 30, centerS - 20, 60, 40);
+        }
     }
     syncInterpOverlays();
     refreshAnomalyList();
 }
 
-// 异常确认(虚线→实线)
+// 异常确认(虚线→实线); 未闭合多边形(<3点)丢弃
 void MainWindow::anomalyConfirmShape(int idx)
 {
     if (!m_currentTab || idx < 0 || idx >= m_currentTab->anomalies.size()) return;
-    m_currentTab->anomalies[idx].editing = false;
+    AnomalyMark &a = m_currentTab->anomalies[idx];
+    if (m_currentTab->imageLabel)
+        m_currentTab->imageLabel->stopPolyDrawing();
+    if (a.shape == 2 && a.poly.size() < 3) {
+        // 未闭合多边形: 不保留
+        a.shape = -1;
+        a.poly.clear();
+        a.rect = QRectF();
+    } else {
+        a.editing = false;
+    }
     syncInterpOverlays();
     refreshAnomalyList();
 }

@@ -182,6 +182,10 @@ public:
     bool hasInterpOverlay() const;
     // v1.0.116 异常编辑拖动: 返回编辑态异常索引(有编辑态异常时鼠标事件优先处理拖动)
     int editingAnomalyIndex() const;
+    // v1.0.120 多边形绘制模式控制
+    void startPolyDrawing() { m_polyDrawing = true; m_polyPoints.clear(); setMouseTracking(true); }
+    void stopPolyDrawing() { m_polyDrawing = false; m_polyPoints.clear(); update(); }
+    bool isPolyDrawing() const { return m_polyDrawing; }
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
@@ -198,6 +202,10 @@ signals:
     void editRectChanged(int idx, const QRectF &rectTS);   // 块拖动/调整结束
     void editMarkKeepRequested(int idx);                    // 块上[保留]标记
     void editMarkDeleteRequested(int idx);                  // 块上[删除]标记
+    // v1.0.120 异常标注
+    void anomalyMoved(int idx, const QRectF &rect, const QVector<QPointF> &poly);   // 拖动结束同步回tab
+    void anomalyPolyDone(int idx, const QVector<QPointF> &poly);   // 多边形闭合
+    void anomalyPolyAborted();                                     // 多边形未闭合被取消
 
 private:
     QImage m_image;
@@ -253,6 +261,15 @@ private:
     QVector<QPointF> m_seeds;         // 追踪参考点(选中层)
     QVector<HorizonLayer> m_radanLayers;   // RADAN原生层位点(彩色圆点)
     int m_anomalyDragIdx = -1;             // 正在拖动的编辑态异常索引
+    // v1.0.120 流动虚线动画
+    int m_dashOffset = 0;
+    QTimer *m_dashTimer = nullptr;
+    // v1.0.120 多边形绘制状态
+    bool m_polyDrawing = false;            // 正在绘制闭合多边形
+    QVector<QPointF> m_polyPoints;         // 已落下的顶点
+    QPointF m_polyCursor;                  // 当前光标位置
+    // v1.0.120 异常调整手柄拖动
+    DragMode m_anomalyDragMode = DragNone;
     bool polyContains(const QVector<QPointF> &poly, const QPoint &pos) const;
     double m_interpMPerSample = 0.0;  // 深度标签换算
     int m_interpSelectedAnomaly = -1;

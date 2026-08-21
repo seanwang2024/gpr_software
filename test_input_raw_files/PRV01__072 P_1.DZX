@@ -11560,7 +11560,7 @@
     <Xtable>0</Xtable>
     <displayGain>0.0000000</displayGain>
   </DataCollection>
-            <InterpGroup>
+              <InterpGroup>
     <Horizon name="路基顶面" color="#00ffff" width="2" visible="1" dashed="1">
     </Horizon>
     <Horizon name="基底原土层" color="#ff00ff" width="2" visible="1" dashed="0">
@@ -11570,7 +11570,11 @@
     </Anomaly>
     <Anomaly shape="2" name="异常标注2" remark="" color="#ffa500" font="Microsoft YaHei" fontSize="12">
     </Anomaly>
+    <Anomaly shape="0" name="异常标注3" remark="" color="#ffff00" font="Microsoft YaHei" fontSize="12">
+      <Rect>836,236,896,276</Rect>
+    </Anomaly>
   </InterpGroup>
+
 
 
 
