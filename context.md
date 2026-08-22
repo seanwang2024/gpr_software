@@ -1,7 +1,7 @@
 # 项目上下文 (2026-08-20)
 
 ## 项目概述
-劳雷GPR(探地雷达)数据处理软件,Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, 当前版本 v1.0.109
+劳雷GPR(探地雷达)数据处理软件,Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, 当前版本 v1.0.131
 
 ## 当前工作: 数据解译模块(已完成 v1.0.108-109, 待用户验收)
 按 specs/软件需求20260817/.../数据解译-追踪异常.html 实现:
@@ -12,8 +12,10 @@
   异常标注列表(形状图标+名称+色点+备注; 选中高亮; 删除按钮)
 - **层位追踪**: 手动=选中层后在图上点击连线; 自动=拾取参考点(黄十字种子)→开始→峰值跟随(±10窗)向两侧延伸
 - **异常标注**: 圆/矩形(点击放置默认尺寸)/多边形(逐点+切换工具闭合)/文本(弹输入框); 深度标签气泡
-- **InterpGroup持久化**: 层位曲线+异常写入同名DZX `<InterpGroup><Horizon name/color/width/visible/dashed><Pt>scan/samp;
-  <Anomaly shape/name/color/font/fontSize><Rect>或<Pt>` 文本级手术(同MarkGroup模式); createTab尾挂读取
+- **TargetGroup持久化(v1.0.131)**: 异常写同名DZX原生`<TargetGroup>`(layerNum=7, RADAN同钢筋/空洞, 不再删组);
+  `<groupName>`=名称; `<defaultVelocity>0.106[D1形状][D2D3字号][D4魔数9]`编码私有信息(尾4位对RADAN冗余不改);
+  几何=TargetWayPt(圆=圆心+半径点/矩文本=TL+BR/多边形=N顶点); RADAN原生组导入(≥3点→多边形,振幅往返保真ptRaw);
+  旧InterpGroup仅读取回退; 编码详见 **DZX兼容编码方案.md**; flush=关闭/切换/退出时写
 - ImageLabel drawInterpOverlay: 层位折线(虚/实线+左缘名称chip)+异常形状(圆/矩/多边形/文本)+深度气泡+种子十字
 - syncInterpUiState: 进出数据解译页(ribbon idx=3)面板显隐+按钮复位+多边形闭合
 - 数据解译页交互在 imageClicked lambda 内分发(仅 ribbonTab idx=3 时拦截)
@@ -21,13 +23,13 @@
 ## 已完成模块
 - 主页(v1.0.87-97): TopBar+Ribbon 4组+文件头右栏+状态栏+色彩叠加(RADAN规律: 调色板[变换表(灰度)])
 - 编辑(v1.0.98-107): 编辑标记(MarkGroup DZX)+数据块(多矩形框+防重叠+保留唯一+裁剪)+横向缩放
-- 数据解译(v1.0.108-109): 追踪+异常标注+InterpGroup DZX
+- 数据解译(v1.0.108-131): 追踪+异常标注+TargetGroup DZX兼容+数据导出CSV(RADAN 31列UTF-16)
 
 ## 待做
 - AI分析模块(第5标签, 占位)
-- 数据解译: 数据导出/图像导出(占位→实现)
+- 数据解译: 图像导出(占位→实现); 数据导出振幅/时间戳字段(占位)
 - 编辑数据块: 用户回测(多块交互/裁剪链路)
-- MarkGroup/InterpGroup RADAN兼容性实测
+- TargetGroup RADAN实测(用户验证: RADAN读/存后异常仍在)
 
 ### 已完成(v1.0.87 头部彻底重构):
 - **图标系统**: 内嵌 Material Symbols Outlined 矢量字体(设计稿同款) + JetBrains Mono

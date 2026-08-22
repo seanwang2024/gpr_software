@@ -151,6 +151,7 @@ struct AnomalyMark {
     QRectF rect;               // 圆(外接框)/矩/文本框
     QVector<QPointF> poly;     // 多边形顶点
     bool editing = false;      // 会话内编辑态(虚线+手柄), 不持久化
+    QStringList ptRaw;         // v1.0.131 RADAN原生目标点原始timeAmpDepVel(往返保真, 仅导入时填充)
 };
 
 class ImageLabel : public QLabel
@@ -452,15 +453,20 @@ private:
                               QVector<HorizonLayer> &horizons, QVector<AnomalyMark> &anomalies);
     static bool readDzxDLayers(const QString &dztPath, QVector<HorizonLayer> &radanLayers);
     bool writeDzxDLayers(const QString &dztPath, const QVector<HorizonLayer> &radanLayers);
-    bool writeDzxInterp(const QString &dztPath,
-                        const QVector<HorizonLayer> &horizons,
-                        const QVector<AnomalyMark> &anomalies);
+    // v1.0.131 异常标注 → RADAN原生 TargetGroup(layerNum=7) 读写
+    // velocity尾4位编码: D1形状 D2D3字号 D4魔数9(本软件标记); RADAN读值不改动冗余位
+    static bool readDzxTargets(const QString &dztPath, QVector<AnomalyMark> &anomalies);
+    bool writeDzxTargets(const QString &dztPath, const QVector<AnomalyMark> &anomalies);
     void commitInterp();                                             // 解译数据内存提交(排序+刷新, 不写DZX)
     void flushInterpToDzx(TabData *tab);                             // RADAN规律: 关闭/切换文件时一次性写 DZX
     void addHorizonLayer();                                           // 新增层位(编号递增或补缺, 7色循环)
     void addAnomalyItem();                                            // 新增异常标注(补缺编号)
     void anomalySetShape(int idx, int shapeId);                       // 选中异常设形状+进入编辑态
     void anomalyConfirmShape(int idx);                                // 异常确认(虚线→实线)
+    // v1.0.130 数据导出(RADAN兼容CSV)
+    void showExportDialog();                                          // 导出配置模态框(按数据解译-数据导出.html)
+    bool exportInterpCsv(TabData *tab, const QString &csvPath,        // 写31列逐扫描CSV(UTF-16LE+CRLF)
+                         bool layers, bool markers, bool anomalies, bool depth);
     void refreshSelectionInfo();            // 选区几何4字段刷新(道号/时间/尺寸)
     void clearEditBlocks();                 // 删除/重置: 清空全部数据块
     void createNewEditBlock();              // 新建数据块(自动找不重叠位置; 进块模式默认建一个)

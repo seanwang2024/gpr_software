@@ -2897,8 +2897,10 @@ TabData* MainWindow::createTab(const QString &filePath, const QImage &image)
 
     // 新建 tab 立即成为当前 tab → 同步标题（防止 currentChanged 信号未触发的边界情况）
     tab->markers = readDzxMarkers(filePath);   // v1.0.98: 同名 DZX <MarkGroup> 标记
-    // v1.0.108: 读 InterpGroup(异常标注)
-    readDzxInterp(filePath, tab->horizons, tab->anomalies);
+    // v1.0.131: 异常标注读 RADAN原生 TargetGroup(layerNum=7, velocity尾4位编码); 旧版InterpGroup仅回退
+    readDzxTargets(filePath, tab->anomalies);
+    if (tab->anomalies.isEmpty())
+        readDzxInterp(filePath, tab->horizons, tab->anomalies);
     // v1.0.113: 读 RADAN 原生 LayerGroup/LayerWayPt 层位(层位列表数据源)
     readDzxDLayers(filePath, tab->radanLayers);
     m_currentTab = tab;
@@ -4641,43 +4643,124 @@ bool MainWindow::readDzxInterp(const QString &dztPath,
     return true;
 }
 
-// 写 DZX <InterpGroup> (文本级手术, 同 MarkGroup 模式)
-bool MainWindow::writeDzxInterp(const QString &dztPath,
-                                const QVector<HorizonLayer> &horizons,
-                                const QVector<AnomalyMark> &anomalies)
+// ==================== v1.0.131 异常标注 → RADAN原生 TargetGroup ====================
+// 编码方案: <defaultVelocity>0.106[D1][D2D3][D4]</defaultVelocity> (RADAN固定7位小数)
+//   D1=形状(0圆1矩2多边形3文本) D2D3=字号(文本用) D4=魔数9(本软件标记, RADAN原生组≠9)
+// 几何: TargetWayPt=scanSampChanProp"scan,samp,0,0"; 圆=圆心+半径点, 矩/文本=TL+BR, 多边形=N顶点
+// RADAN把组当钢筋/空洞类目标读取显示, velocity尾4位对其为冗余精度不修改 → 往返不丢数据
+
+// 读 DZX <TargetGroup>/<TargetWayPt> → 异常标注
+// D4=9 本软件异常(按编码还原形状/字号); 否则RADAN原生目标: ≥3点→多边形, 1-2点→默认尺寸圆
+bool MainWindow::readDzxTargets(const QString &dztPath, QVector<AnomalyMark> &anomalies)
+{
+    anomalies.clear();
+    QFileInfo fi(dztPath);
+    QFile f(fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX");
+    if (!f.open(QIODevice::ReadOnly)) return false;
+
+    static const QColor shapeColors[4] = {
+        QColor(0xff, 0xff, 0x00), QColor(0xff, 0x00, 0x00),
+        QColor(0xff, 0xa5, 0x00), QColor(0x00, 0xd4, 0xff) };
+
+    QXmlStreamReader r(&f);
+    bool inGroup = false;
+    QString groupName, curElem;
+    double velocity = 0.0;
+    QVector<QPointF> pts;
+    QStringList ptRaw;   // 各点原始 timeAmpDepVel 文本(RADAN原生目标往返保真)
+    while (!r.atEnd()) {
+        const QXmlStreamReader::TokenType tok = r.readNext();
+        const QString name = r.name().toString();
+        if (tok == QXmlStreamReader::StartElement) {
+            if (name == QStringLiteral("TargetGroup")) {
+                inGroup = true;
+                groupName.clear();
+                velocity = 0.0;
+                pts.clear();
+                ptRaw.clear();
+            } else if (inGroup && name == QStringLiteral("TargetWayPt")) {
+                while (!r.atEnd()) {
+                    const auto t2 = r.readNext();
+                    if (t2 == QXmlStreamReader::StartElement
+                        && r.name() == QStringLiteral("scanSampChanProp")) {
+                        const QStringList parts = r.readElementText().split(',');
+                        if (parts.size() >= 2)
+                            pts.append(QPointF(parts[0].toDouble(), parts[1].toDouble()));
+                    } else if (t2 == QXmlStreamReader::StartElement
+                               && r.name() == QStringLiteral("timeAmpDepVel")) {
+                        ptRaw.append(r.readElementText().trimmed());
+                    } else if (t2 == QXmlStreamReader::EndElement
+                               && r.name() == QStringLiteral("TargetWayPt")) {
+                        break;
+                    }
+                }
+            } else {
+                curElem = name;
+            }
+        } else if (tok == QXmlStreamReader::Characters && inGroup
+                   && !r.text().toString().trimmed().isEmpty()) {
+            const QString txt = r.text().toString().trimmed();
+            if (curElem == QStringLiteral("groupName")) {
+                groupName = txt;
+            } else if (curElem == QStringLiteral("defaultVelocity")) {
+                velocity = txt.toDouble();
+            }
+        } else if (tok == QXmlStreamReader::EndElement && name == QStringLiteral("TargetGroup") && inGroup) {
+            if (!groupName.isEmpty()) {   // 空名组跳过
+                // 尾4位解码: velocity×10^7 的后4位 (如 0.1063019 → 3019)
+                const qint64 code = qRound64(velocity * 1e7) % 10000;
+                AnomalyMark a;
+                a.name = groupName;
+                if (code % 10 == 9 && code / 1000 >= 0 && code / 1000 <= 3 && pts.size() >= 1) {
+                    // 本软件异常: D1形状 D2D3字号
+                    a.shape = int(code / 1000);
+                    const int fs = int((code / 10) % 100);
+                    a.fontSize = fs > 0 ? fs : 12;
+                    if (a.shape == 2 && pts.size() >= 3) {
+                        a.poly = pts;
+                    } else if (pts.size() >= 2) {
+                        // 圆: 圆心+半径点; 矩/文本: TL+BR
+                        if (a.shape == 0) {
+                            const double rad = qMax(qAbs(pts[1].x() - pts[0].x()),
+                                                    0.5);
+                            a.rect = QRectF(pts[0].x() - rad, pts[0].y() - rad,
+                                            rad * 2, rad * 2);
+                        } else {
+                            a.rect = QRectF(pts[0], pts[1]).normalized();
+                        }
+                    } else if (pts.size() == 1) {
+                        a.rect = QRectF(pts[0].x() - 30, pts[0].y() - 20, 60, 40);
+                    } else {
+                        a.shape = -1;   // 无几何: 丢弃
+                    }
+                } else if (pts.size() >= 3) {
+                    // RADAN原生目标(钢筋等散点): 导入为闭合多边形(保留原始振幅数据)
+                    a.shape = 2;
+                    a.fontSize = 12;
+                    a.poly = pts;
+                    a.ptRaw = ptRaw;
+                } else if (pts.size() >= 1) {
+                    // RADAN原生1-2点: 每组取首点为默认尺寸圆
+                    a.shape = 0;
+                    a.fontSize = 12;
+                    a.rect = QRectF(pts[0].x() - 30, pts[0].y() - 20, 60, 40);
+                }
+                if (a.shape >= 0 && a.shape <= 3) {
+                    a.color = shapeColors[a.shape];
+                    anomalies.append(a);
+                }
+            }
+            inGroup = false;
+        }
+    }
+    return true;
+}
+
+// 写回 DZX TargetGroup(文本级手术: 删旧全部 TargetGroup 段 → DataCollection 前插新)
+bool MainWindow::writeDzxTargets(const QString &dztPath, const QVector<AnomalyMark> &anomalies)
 {
     QFileInfo fi(dztPath);
     const QString dzxPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX";
-
-    QString block = QStringLiteral("  <InterpGroup>\r\n");
-    for (const HorizonLayer &h : horizons) {
-        block += QStringLiteral("    <Horizon name=\"%1\" color=\"%2\" width=\"%3\" visible=\"%4\" dashed=\"%5\">\r\n")
-                     .arg(h.name.toHtmlEscaped(), h.color.name())
-                     .arg(h.lineWidth).arg(h.visible ? 1 : 0).arg(h.dashed ? 1 : 0);
-        for (const QPointF &p : h.points)
-            block += QStringLiteral("      <Pt><scan>%1</scan><samp>%2</samp></Pt>\r\n")
-                         .arg(qRound(p.x())).arg(qRound(p.y()));
-        block += QStringLiteral("    </Horizon>\r\n");
-    }
-    for (const AnomalyMark &a : anomalies) {
-        if (a.name == QStringLiteral("__poly_pending__")) continue;
-        block += QStringLiteral("    <Anomaly shape=\"%1\" name=\"%2\" remark=\"%3\" color=\"%4\" font=\"%5\" fontSize=\"%6\">\r\n")
-                     .arg(a.shape).arg(a.name.toHtmlEscaped(), a.remark.toHtmlEscaped(),
-                                       a.color.name(), a.fontFamily.toHtmlEscaped())
-                     .arg(a.fontSize);
-        if (a.shape == 2) {
-            for (const QPointF &p : a.poly)
-                block += QStringLiteral("      <Pt><scan>%1</scan><samp>%2</samp></Pt>\r\n")
-                             .arg(qRound(p.x())).arg(qRound(p.y()));
-        } else {
-            const QRectF rn = a.rect.normalized();
-            block += QStringLiteral("      <Rect>%1,%2,%3,%4</Rect>\r\n")
-                         .arg(qRound(rn.left())).arg(qRound(rn.top()))
-                         .arg(qRound(rn.right())).arg(qRound(rn.bottom()));
-        }
-        block += QStringLiteral("    </Anomaly>\r\n");
-    }
-    block += QStringLiteral("  </InterpGroup>\r\n");
 
     QByteArray content;
     QFile f(dzxPath);
@@ -4685,30 +4768,85 @@ bool MainWindow::writeDzxInterp(const QString &dztPath,
         content = f.readAll();
         f.close();
     }
-    if (!content.isEmpty()) {
-        const QByteArray blockUtf8 = block.toUtf8();
-        const int s = content.indexOf("<InterpGroup>");
-        if (s >= 0) {
-            const int e = content.indexOf("</InterpGroup>", s);
-            if (e < 0) return false;
-            content.replace(s, e + 14 - s, blockUtf8);
-        } else {
-            const int e = content.lastIndexOf("</DZX>");
-            if (e < 0) return false;
-            content.insert(e, blockUtf8);
+    if (content.isEmpty()) return false;
+
+    // 1. 删除所有 <TargetGroup>...</TargetGroup> 区段(含换行, 同 writeDzxDLayers 模式)
+    {
+        int s = 0;
+        while ((s = content.indexOf("<TargetGroup>")) >= 0) {
+            const int e = content.indexOf("</TargetGroup>", s);
+            if (e < 0) break;
+            const int le = e + 14;
+            int ls = s;
+            while (ls > 0 && (content[ls-1] == ' ' || content[ls-1] == '\t')) ls--;
+            if (ls > 0 && content[ls-1] == '\n') ls--;
+            if (ls > 0 && content[ls-1] == '\r') ls--;
+            if (le < content.size() && content[le] == '\r') content.remove(ls, le + 1 - ls);
+            else if (le < content.size() && content[le] == '\n') content.remove(ls, le + 1 - ls);
+            else content.remove(ls, le - ls);
         }
-        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
-        f.write(content);
-        f.close();
-    } else {
-        if (!f.open(QIODevice::WriteOnly)) return false;
-        QByteArray xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
-                         "<DZX xmlns=\"www.geophysical.com/DZX/1.02\">\r\n";
-        xml += block.toUtf8();
-        xml += "</DZX>\r\n";
-        f.write(xml);
-        f.close();
     }
+
+    // 2. 构建新 TargetGroup 块(字段布局对齐 RADAN 原生钢筋/空洞)
+    static const int shapeColorIdx[4] = { 0, 1, 2, 3 };   // RADAN色索引(仅其显示用)
+    QString block;
+    for (const AnomalyMark &a : anomalies) {
+        if (a.shape < 0 || a.shape > 3) continue;   // 未赋形不入盘
+        // 几何 → TargetWayPt 点列
+        QVector<QPointF> pts;
+        if (a.shape == 2) {
+            if (a.poly.size() < 3) continue;        // 未闭合多边形不入盘
+            pts = a.poly;
+        } else {
+            const QRectF rn = a.rect.normalized();
+            if (rn.width() < 1 || rn.height() < 1) continue;
+            if (a.shape == 0) {   // 圆: 圆心 + 半径点(还原外接框)
+                const QPointF c = rn.center();
+                pts = { c, QPointF(c.x() + rn.width() / 2.0, c.y()) };
+            } else {              // 矩/文本: TL + BR
+                pts = { rn.topLeft(), rn.bottomRight() };
+            }
+        }
+        // velocity 尾4位: D1形状 D2D3字号 D4魔数9
+        const int code = a.shape * 1000 + qBound(0, a.fontSize, 99) * 10 + 9;
+        const QString vel = QStringLiteral("0.106%1").arg(code, 4, 10, QChar('0'));
+        block += QStringLiteral("  <TargetGroup>\r\n");
+        block += QStringLiteral("    <groupName>%1</groupName>\r\n").arg(a.name.toHtmlEscaped());
+        block += QStringLiteral("    <display>1</display>\r\n");
+        block += QStringLiteral("    <color>%1</color>\r\n").arg(shapeColorIdx[a.shape]);
+        block += QStringLiteral("    <sizePx>3</sizePx>\r\n");
+        block += QStringLiteral("    <outline>1</outline>\r\n");
+        block += QStringLiteral("    <readOnly>0</readOnly>\r\n");
+        block += QStringLiteral("    <diameter>0.1200000</diameter>\r\n");
+        block += QStringLiteral("    <link>1</link>\r\n");
+        block += QStringLiteral("    <pickType>1</pickType>\r\n");
+        block += QStringLiteral("    <layerNum>7</layerNum>\r\n");
+        block += QStringLiteral("    <velMethod>0</velMethod>\r\n");
+        block += QStringLiteral("    <lockVelocity>0</lockVelocity>\r\n");
+        block += QStringLiteral("    <defaultVelocity>%1</defaultVelocity>\r\n").arg(vel);
+        for (int pi = 0; pi < pts.size(); ++pi) {
+            // RADAN原生导入的点: 原始timeAmpDepVel原样写回(往返保真); 本软件点=零+velocity
+            const QString tadv = (pi < a.ptRaw.size() && !a.ptRaw[pi].isEmpty())
+                                     ? a.ptRaw[pi]
+                                     : QStringLiteral("0.0000000,0.0000000,0.0000000,") + vel;
+            block += QStringLiteral("    <TargetWayPt>\r\n"
+                                    "      <scanSampChanProp>%1,%2,0,0</scanSampChanProp>\r\n"
+                                    "      <timeAmpDepVel>%3</timeAmpDepVel>\r\n"
+                                    "    </TargetWayPt>\r\n")
+                         .arg(qRound(pts[pi].x())).arg(qRound(pts[pi].y())).arg(tadv);
+        }
+        block += QStringLiteral("  </TargetGroup>\r\n");
+    }
+
+    // 3. 插入到 <DataCollection> 或 </DZX> 之前
+    int pos = content.indexOf("<DataCollection>");
+    if (pos < 0) pos = content.lastIndexOf("</DZX>");
+    if (pos < 0) return false;
+    content.insert(pos, block.toUtf8());
+
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    f.write(content);
+    f.close();
     if (!content.contains("<BinaryData"))
         syncDzxMtimeToDzt(dztPath, dzxPath);
     return true;
@@ -4721,12 +4859,12 @@ void MainWindow::commitInterp()
     syncInterpOverlays();
 }
 
-// RADAN规律: 关闭/切换文件时一次性把层位(LayerGroup)+异常(InterpGroup)写入 DZX
+// RADAN规律: 关闭/切换文件时一次性把层位(LayerGroup)+异常(TargetGroup)写入 DZX
 void MainWindow::flushInterpToDzx(TabData *tab)
 {
     if (!tab || tab->filePath.isEmpty()) return;
     writeDzxDLayers(tab->filePath, tab->radanLayers);
-    writeDzxInterp(tab->filePath, tab->horizons, tab->anomalies);
+    writeDzxTargets(tab->filePath, tab->anomalies);
 }
 
 // 读取 DZX <LayerGroup>/<LayerWayPt> — RADAN 原生层位点(scanSampChanProp="scan,samp,chan,prop")
@@ -6060,6 +6198,325 @@ void MainWindow::refreshAnomalyList()
     if (m_selectedAnomaly >= 0 && m_selectedAnomaly < m_anomalyList->count())
         m_anomalyList->setCurrentRow(m_selectedAnomaly);
     m_anomalyList->blockSignals(false);
+}
+
+// ==================== v1.0.130 数据导出 (RADAN兼容CSV) ====================
+
+// 层点插值: 扫描t处的采样值(层点按trace升序; 跨度外返回-1)
+static double layerSampleAt(const HorizonLayer &h, int t)
+{
+    const QVector<QPointF> &pts = h.points;
+    if (pts.isEmpty()) return -1.0;
+    if (pts.size() == 1) return qRound(pts.first().x()) == t ? pts.first().y() : -1.0;
+    if (t < pts.first().x() || t > pts.last().x()) return -1.0;
+    for (int i = 1; i < pts.size(); ++i) {
+        if (t <= pts.at(i).x()) {
+            const double x0 = pts.at(i - 1).x(), y0 = pts.at(i - 1).y();
+            const double x1 = pts.at(i).x(),     y1 = pts.at(i).y();
+            return qFuzzyCompare(x1, x0) ? y1 : y0 + (y1 - y0) * (t - x0) / (x1 - x0);
+        }
+    }
+    return -1.0;
+}
+
+// 写31列逐扫描CSV: UTF-16 LE BOM + CRLF + 行尾逗号 (字节级对齐RADAN导出格式)
+// 列: 文件信息(0-3) 标志名称/里程(4-5) 第1-2层(3列) 第3-5层(4列含往返时间) 目标解释(4列) 注解(2列) 尾空列
+bool MainWindow::exportInterpCsv(TabData *tab, const QString &csvPath,
+                                 bool layers, bool markers, bool anomalies, bool depth)
+{
+    if (!tab || tab->traceCount <= 0 || csvPath.isEmpty()) return false;
+
+    // ---- 单位换算 ----
+    const double nsPerSample = tab->nsamp > 0 ? double(tab->headerRange) / tab->nsamp : 0.0;
+    double mPerSample = 0.0;   // 与图上深度标签同式: depthRange/有效行, depthRange=c·t/(2√εr)
+    {
+        const int skip = tab->zeroApplied ? tab->zeroSkipRows : 0;
+        const int drawRows = tab->nsamp - skip;
+        if (drawRows > 0 && tab->epsr > 0)
+            mPerSample = 0.299792458 * tab->headerRange
+                         / (2.0 * std::sqrt(double(tab->epsr)) * drawRows);
+    }
+    double mPerScan = 0.0;     // 米/道: DZT头spm(offset14)优先, DZX unitsPerScan兜底
+    if (tab->header.size() >= 18) {
+        float spm = 0.f;
+        memcpy(&spm, tab->header.constData() + 14, 4);
+        if (spm > 0) mPerScan = 1.0 / spm;
+    }
+    if (mPerScan <= 0) mPerScan = readDzxUnitsPerScan(tab->filePath);
+
+    // ---- 预备: 标志/目标解释/注解 按扫描索引 ----
+    const QString dztName = QFileInfo(tab->filePath).fileName();
+    QHash<int, QString> markerNameAt;      // 扫描 → MARK%02d (RADAN命名规律)
+    if (markers) {
+        for (int i = 0; i < tab->markers.size(); ++i)
+            markerNameAt.insert(tab->markers[i],
+                                QStringLiteral("MARK%1").arg(i + 1, 2, 10, QChar('0')));
+    }
+    struct TgtRow { QString name; double samp; };
+    QHash<int, TgtRow> targetAt;           // 扫描 → 目标解释(圆/矩/多边形异常)
+    QHash<int, QString> noteAt;            // 扫描 → 注解(文本批注)
+    if (anomalies) {
+        for (const AnomalyMark &a : tab->anomalies) {
+            if (a.shape < 0) continue;
+            QRectF br = a.rect;            // 圆/矩/文本=外接框; 多边形=顶点外接框
+            if (a.shape == 2 && a.poly.size() >= 3) {
+                br = QRectF(a.poly.first(), a.poly.first());
+                for (const QPointF &p : a.poly) br = br.united(QRectF(p, p));
+            }
+            if (a.shape != 3 && (br.width() < 0.5 || br.height() < 0.5)) continue;   // 无几何
+            const int t = qBound(0, qRound(br.center().x()), tab->traceCount - 1);
+            const double s = qMax(0.0, br.center().y());
+            if (a.shape == 3) noteAt.insert(t, a.remark.isEmpty() ? a.name : a.remark);
+            else targetAt.insert(t, TgtRow{ a.name, s });
+        }
+    }
+
+    // ---- 写文件 ----
+    QFile f(csvPath);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    f.write("\xFF\xFE", 2);   // UTF-16 LE BOM
+    auto wrLine = [&f](const QString &line) {
+        const QString s = line + QLatin1String("\r\n");
+        f.write(reinterpret_cast<const char *>(s.utf16()), s.size() * 2);
+    };
+    auto num3 = [](double v) { return QString::number(v, 'f', 3); };
+
+    // 表头(31列, 行尾逗号)
+    QStringList hd;
+    hd << QString::fromUtf8("文件名") << QString::fromUtf8("开始扫描") << QString::fromUtf8("结束扫描")
+       << QString::fromUtf8("扫描") << QString::fromUtf8("名称") << QString::fromUtf8("里程桩号(m)");
+    for (int L = 1; L <= 5; ++L) {
+        hd << QString::fromUtf8("第 %1 层 扫描").arg(L)
+           << QString::fromUtf8("第 %1 层 名称").arg(L);
+        if (L >= 3) hd << QString::fromUtf8("第 %1 层 往返时间").arg(L);
+        hd << QString::fromUtf8("第 %1 层 深度(m)").arg(L);
+    }
+    hd << QString::fromUtf8("目标解释 扫描") << QString::fromUtf8("目标解释 名称")
+       << QString::fromUtf8("目标解释 往返时间") << QString::fromUtf8("目标解释 深度(m)")
+       << QString::fromUtf8("注解 扫描") << QString::fromUtf8("注解 备注") << QString();
+    wrLine(hd.join(QLatin1Char(',')));
+
+    // 层位: 取有点的前5层 → 第1-5层列
+    QVector<const HorizonLayer *> lay;
+    if (layers) {
+        for (const HorizonLayer &h : tab->radanLayers)
+            if (!h.points.isEmpty() && lay.size() < 5) lay.append(&h);
+    }
+
+    for (int t = 0; t < tab->traceCount; ++t) {
+        QStringList r;
+        r << dztName << "0" << QString::number(tab->traceCount - 1) << QString::number(t)
+          << (markerNameAt.contains(t) ? markerNameAt.value(t) : QString())
+          << (mPerScan > 0 ? num3(t * mPerScan) : QString());
+        for (int li = 0; li < 5; ++li) {
+            if (li < lay.size()) {
+                const double s = layerSampleAt(*lay[li], t);   // -1=跨度外
+                r << QString::number(t) << lay[li]->name;
+                if (li >= 2) r << (s >= 0 ? num3(s * nsPerSample) : QString());
+                r << (s >= 0 && depth && mPerSample > 0 ? num3(s * mPerSample) : QString());
+            } else {
+                // 无该层: RADAN仍填扫描+名称占位
+                r << QString::number(t) << QString::fromUtf8("第 %1 层").arg(li + 1);
+                if (li >= 2) r << QString();
+                r << QString();
+            }
+        }
+        if (targetAt.contains(t)) {   // 目标解释: 空态=0//0.000/0.000(RADAN填充样式)
+            const TgtRow &tg = targetAt.value(t);
+            r << QString::number(t) << tg.name
+              << num3(tg.samp * nsPerSample)
+              << (depth && mPerSample > 0 ? num3(tg.samp * mPerSample) : QString());
+        } else {
+            r << "0" << QString() << "0.000" << "0.000";
+        }
+        if (noteAt.contains(t))
+            r << QString::number(t) << noteAt.value(t);
+        else
+            r << QString() << QString();
+        r << QString();   // 尾空列
+        wrLine(r.join(QLatin1Char(',')));
+    }
+    f.close();
+    return true;
+}
+
+// 导出配置模态框(按 数据解译-数据导出.html): tabs + 字段复选 + 格式 + 范围 + 取消/确认
+void MainWindow::showExportDialog()
+{
+    if (!m_currentTab) return;
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString::fromUtf8("导出配置"));
+    dlg.setModal(true);
+    dlg.setFixedSize(600, 430);
+    dlg.setStyleSheet(
+        "QDialog { background: #ffffff; }"
+        "QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"
+        " letter-spacing: 1px; border-bottom: 1px solid #c3c6d6; padding-bottom: 4px; }"
+        "QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }"
+        "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
+        " border-radius: 2px; background: #ffffff; }"
+        "QCheckBox::indicator:checked { background: #0048af; border-color: #0048af;"
+        " image: url(none); }"
+        "QRadioButton { font-size: 12px; color: #121c2a; spacing: 8px; }"
+        "QComboBox { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
+        " padding: 6px 28px 6px 10px; font-size: 12px; color: #121c2a; }"
+        "QComboBox::drop-down { border: none; width: 24px; }"
+        "QComboBox::down-arrow { image: url(none); border-left: 4px solid transparent;"
+        " border-right: 4px solid transparent; border-top: 6px solid #424654; margin-right: 8px; }"
+        "QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 2px;"
+        " background: #ffffff; color: #121c2a; font-size: 13px; font-weight: 600;"
+        " padding: 7px 18px; }"
+        "QPushButton#btnCancel:hover { background: #e6eeff; }"
+        "QPushButton#btnOk { border: 1px solid #0048af; border-radius: 2px;"
+        " background: #0048af; color: #ffffff; font-size: 13px; font-weight: 600;"
+        " padding: 7px 24px; }"
+        "QPushButton#btnOk:hover { background: #00419e; }");
+
+    QVBoxLayout *root = new QVBoxLayout(&dlg);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+
+    // ---- 顶部tabs: 数据导出(默认) / 图像导出(占位) ----
+    QTabWidget *tabs = new QTabWidget(&dlg);
+    tabs->setStyleSheet(
+        "QTabWidget::pane { border: none; }"
+        "QTabBar::tab { padding: 10px 22px; font-size: 13px; font-weight: 600;"
+        " color: #424654; background: #ffffff; border-bottom: 2px solid #c3c6d6; }"
+        "QTabBar::tab:selected { color: #0048af; border-bottom: 2px solid #0048af; }");
+    QWidget *dataPage = new QWidget;
+    QVBoxLayout *dpL = new QVBoxLayout(dataPage);
+    dpL->setContentsMargins(24, 20, 24, 20);
+    dpL->setSpacing(16);
+
+    // ---- 选择导出字段(2列网格) ----
+    QLabel *sec1 = new QLabel(QString::fromUtf8("选择导出字段"), dataPage);
+    sec1->setObjectName(QStringLiteral("secTitle"));
+    dpL->addWidget(sec1);
+    QGridLayout *grid = new QGridLayout;
+    grid->setSpacing(10);
+    auto addCheck = [&](int row, int col, const QString &text, bool on, bool enabled = true) {
+        QCheckBox *cb = new QCheckBox(text, dataPage);
+        cb->setChecked(on);
+        cb->setEnabled(enabled);
+        if (!enabled) cb->setToolTip(QString::fromUtf8("后续版本提供"));
+        grid->addWidget(cb, row, col);
+        return cb;
+    };
+    QCheckBox *ckLayers = addCheck(0, 0, QString::fromUtf8("层位信息"), true);
+    QCheckBox *ckMarkers = addCheck(0, 1, QString::fromUtf8("标记信息"), true);
+    QCheckBox *ckAnomalies = addCheck(1, 0, QString::fromUtf8("异常信息"), true);
+    QCheckBox *ckDepth = addCheck(1, 1, QString::fromUtf8("深度信息"), true);
+    addCheck(2, 0, QString::fromUtf8("振幅数据"), false, false);
+    addCheck(2, 1, QString::fromUtf8("时间戳"), false, false);
+    dpL->addLayout(grid);
+
+    QWidget *sep = new QWidget(dataPage);
+    sep->setFixedHeight(1);
+    sep->setStyleSheet(QStringLiteral("background: #c3c6d6;"));
+    dpL->addWidget(sep);
+
+    // ---- 文件格式 + 数据范围 ----
+    QHBoxLayout *fmtRow = new QHBoxLayout;
+    fmtRow->setSpacing(24);
+    QVBoxLayout *fmtL = new QVBoxLayout;
+    QLabel *secF = new QLabel(QString::fromUtf8("文件格式"), dataPage);
+    secF->setObjectName(QStringLiteral("secTitle"));
+    fmtL->addWidget(secF);
+    QComboBox *fmtBox = new QComboBox(dataPage);
+    fmtBox->addItem(QStringLiteral("CSV (*.csv)"));
+    fmtBox->addItem(QString::fromUtf8("Excel (*.xlsx) — 后续版本"));
+    fmtBox->addItem(QString::fromUtf8("TXT (*.txt) — 后续版本"));
+    fmtL->addWidget(fmtBox);
+    fmtRow->addLayout(fmtL);
+    QVBoxLayout *rngL = new QVBoxLayout;
+    QLabel *secR = new QLabel(QString::fromUtf8("数据范围"), dataPage);
+    secR->setObjectName(QStringLiteral("secTitle"));
+    rngL->addWidget(secR);
+    QRadioButton *rngCur = new QRadioButton(QString::fromUtf8("当前文件"), dataPage);
+    QRadioButton *rngAll = new QRadioButton(QString::fromUtf8("全项目"), dataPage);
+    rngCur->setChecked(true);
+    rngL->addWidget(rngCur);
+    rngL->addWidget(rngAll);
+    fmtRow->addLayout(rngL);
+    fmtRow->addStretch(1);
+    dpL->addLayout(fmtRow);
+    dpL->addStretch(1);
+    tabs->addTab(dataPage, QString::fromUtf8("数据导出"));
+
+    QWidget *imgPage = new QWidget;
+    QVBoxLayout *ipL = new QVBoxLayout(imgPage);
+    QLabel *ph = new QLabel(QString::fromUtf8("图像导出将在后续版本提供。"), imgPage);
+    ph->setAlignment(Qt::AlignCenter);
+    ph->setStyleSheet(QStringLiteral("color: #737785; font-size: 13px;"));
+    ipL->addWidget(ph);
+    tabs->addTab(imgPage, QString::fromUtf8("图像导出"));
+    root->addWidget(tabs, 1);
+
+    // ---- 底部: 取消 / 确认导出 ----
+    QWidget *foot = new QWidget(&dlg);
+    foot->setFixedHeight(64);
+    foot->setStyleSheet(QStringLiteral("background: #ffffff; border-top: 1px solid #c3c6d6;"));
+    QHBoxLayout *fl = new QHBoxLayout(foot);
+    fl->setContentsMargins(24, 0, 24, 0);
+    fl->setSpacing(12);
+    fl->addStretch(1);
+    QPushButton *btnCancel = new QPushButton(QString::fromUtf8("取消"), foot);
+    btnCancel->setObjectName(QStringLiteral("btnCancel"));
+    QPushButton *btnOk = new QPushButton(QString::fromUtf8("确认导出"), foot);
+    btnOk->setObjectName(QStringLiteral("btnOk"));
+    if (MatIcon::ready()) {
+        btnOk->setIcon(MatIcon::icon(QStringLiteral("check"), QColor(0xff, 0xff, 0xff)));
+        btnOk->setLayoutDirection(Qt::RightToLeft);   // 图标在文字左
+    }
+    fl->addWidget(btnCancel);
+    fl->addWidget(btnOk);
+    root->addWidget(foot);
+
+    connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+    connect(btnOk, &QPushButton::clicked, &dlg, [&]() {
+        const bool lay = ckLayers->isChecked(), mk = ckMarkers->isChecked();
+        const bool ano = ckAnomalies->isChecked(), dep = ckDepth->isChecked();
+        if (rngAll->isChecked()) {
+            // 全项目: 逐tab写各自目录同名CSV(覆盖), 汇总+打开第一个
+            QStringList done;
+            for (TabData *tb : m_tabs) {
+                if (!tb || tb->filePath.isEmpty() || tb->traceCount <= 0) continue;
+                const QFileInfo fi(tb->filePath);
+                const QString out = fi.absolutePath() + QLatin1Char('/')
+                                    + fi.completeBaseName() + QStringLiteral(".csv");
+                if (exportInterpCsv(tb, out, lay, mk, ano, dep)) done << out;
+            }
+            if (!done.isEmpty()) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(done.first()));
+                QMessageBox::information(&dlg, QString::fromUtf8("数据导出"),
+                    QString::fromUtf8("已导出 %1 个文件:\n%2").arg(done.size()).arg(done.join(QLatin1Char('\n'))));
+            } else {
+                QMessageBox::warning(&dlg, QString::fromUtf8("数据导出"),
+                    QString::fromUtf8("没有可导出的文件。"));
+            }
+            dlg.accept();
+        } else {
+            // 当前文件: 默认同名, 用户可改路径/文件名
+            const QFileInfo fi(m_currentTab->filePath);
+            QString sel = QFileDialog::getSaveFileName(
+                &dlg, QString::fromUtf8("导出CSV"),
+                fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName() + QStringLiteral(".csv"),
+                QStringLiteral("CSV (*.csv)"));
+            if (sel.isEmpty()) return;   // 取消保存: 配置框不关
+            if (!sel.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive)) sel += QStringLiteral(".csv");
+            if (fmtBox->currentIndex() > 0)
+                QMessageBox::information(&dlg, QString::fromUtf8("数据导出"),
+                    QString::fromUtf8("所选格式将在后续版本提供，本次已按 CSV 导出。"));
+            if (exportInterpCsv(m_currentTab, sel, lay, mk, ano, dep)) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(sel));   // 系统关联程序打开
+                dlg.accept();
+            } else {
+                QMessageBox::warning(&dlg, QString::fromUtf8("数据导出"),
+                    QString::fromUtf8("导出失败: 无法写入 %1").arg(sel));
+            }
+        }
+    });
+    dlg.exec();
 }
 
 // 数据解译状态总闸: 进出数据解译页/切tab; 面板显隐+按钮复位+列表刷新
@@ -8945,8 +9402,8 @@ void MainWindow::createMenuBar()
         expRow->addWidget(btnExpData);
         expRow->addWidget(btnExpImg);
         connect(btnExpData, &QToolButton::clicked, this, [this]() {
-            QMessageBox::information(this, QString::fromUtf8("数据导出"),
-                QString::fromUtf8("解译成果数据导出将在后续版本提供。"));
+            if (!requireOpenFile()) return;
+            showExportDialog();
         });
         connect(btnExpImg, &QToolButton::clicked, this, [this]() {
             QMessageBox::information(this, QString::fromUtf8("图像导出"),
