@@ -2365,6 +2365,9 @@ MainWindow::MainWindow(QWidget *parent)
     // 渲染自检: 布局稳定后保存顶栏/整窗/编辑页ribbon离屏渲染图(QWidget::grab, 不受DPI/截屏干扰)
     QTimer::singleShot(800, this, [this]() {
         const QString dir = QCoreApplication::applicationDirPath();
+        // 导出对话框自检: GPR_EXPORT_RENDER=1 → showExportDialog内离屏渲染后直接返回(不弹窗)
+        if (qEnvironmentVariableIsSet("GPR_EXPORT_RENDER"))
+            showExportDialog();
         if (m_topBar) m_topBar->grab().save(dir + "/topbar_render.png");
         grab().save(dir + "/window_render.png");
         if (ribbonTab) {
@@ -6343,12 +6346,13 @@ bool MainWindow::exportInterpCsv(TabData *tab, const QString &csvPath,
 // 导出配置模态框(按 数据解译-数据导出.html): tabs + 字段复选 + 格式 + 范围 + 取消/确认
 void MainWindow::showExportDialog()
 {
-    if (!m_currentTab) return;
     QDialog dlg(this);
     dlg.setWindowTitle(QString::fromUtf8("导出配置"));
     dlg.setModal(true);
     dlg.setFixedSize(600, 430);
-    dlg.setStyleSheet(
+
+    // 选中打钩 = qrc 资源(check_white.png, PIL绘制) — QSS url()对绝对路径(C:被当scheme)不可靠
+    dlg.setStyleSheet(QStringLiteral(
         "QDialog { background: #ffffff; }"
         "QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"
         " letter-spacing: 1px; border-bottom: 1px solid #c3c6d6; padding-bottom: 4px; }"
@@ -6356,7 +6360,7 @@ void MainWindow::showExportDialog()
         "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
         " border-radius: 2px; background: #ffffff; }"
         "QCheckBox::indicator:checked { background: #0048af; border-color: #0048af;"
-        " image: url(none); }"
+        " image: url(:/icons/check_white.png); }"
         "QRadioButton { font-size: 12px; color: #121c2a; spacing: 8px; }"
         "QComboBox { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
         " padding: 6px 28px 6px 10px; font-size: 12px; color: #121c2a; }"
@@ -6370,7 +6374,7 @@ void MainWindow::showExportDialog()
         "QPushButton#btnOk { border: 1px solid #0048af; border-radius: 2px;"
         " background: #0048af; color: #ffffff; font-size: 13px; font-weight: 600;"
         " padding: 7px 24px; }"
-        "QPushButton#btnOk:hover { background: #00419e; }");
+        "QPushButton#btnOk:hover { background: #00419e; }"));
 
     QVBoxLayout *root = new QVBoxLayout(&dlg);
     root->setContentsMargins(0, 0, 0, 0);
@@ -6453,9 +6457,18 @@ void MainWindow::showExportDialog()
     root->addWidget(tabs, 1);
 
     // ---- 底部: 取消 / 确认导出 ----
+    // 顶边线用实体色条(QSS border在普通QWidget不可靠); foot样式必须scoped:
+    // 裸声明会级联到子按钮, 按Qt规则"更近祖先样式表优先于更远(无视选择器优先级)",
+    // 白底会覆盖对话框级 #btnOk 的蓝底 → 白字白底全隐形(v1.0.132实测坑)
+    QWidget *footLine = new QWidget(&dlg);
+    footLine->setFixedHeight(1);
+    footLine->setStyleSheet(QStringLiteral("background: #c3c6d6;"));
+    root->addWidget(footLine);
     QWidget *foot = new QWidget(&dlg);
     foot->setFixedHeight(64);
-    foot->setStyleSheet(QStringLiteral("background: #ffffff; border-top: 1px solid #c3c6d6;"));
+    foot->setObjectName(QStringLiteral("expFoot"));
+    foot->setAttribute(Qt::WA_StyledBackground, true);
+    foot->setStyleSheet(QStringLiteral("#expFoot { background: #ffffff; }"));
     QHBoxLayout *fl = new QHBoxLayout(foot);
     fl->setContentsMargins(24, 0, 24, 0);
     fl->setSpacing(12);
@@ -6464,16 +6477,16 @@ void MainWindow::showExportDialog()
     btnCancel->setObjectName(QStringLiteral("btnCancel"));
     QPushButton *btnOk = new QPushButton(QString::fromUtf8("确认导出"), foot);
     btnOk->setObjectName(QStringLiteral("btnOk"));
-    if (MatIcon::ready()) {
-        btnOk->setIcon(MatIcon::icon(QStringLiteral("check"), QColor(0xff, 0xff, 0xff)));
-        btnOk->setLayoutDirection(Qt::RightToLeft);   // 图标在文字左
-    }
+    if (MatIcon::ready())   // Qt默认: 图标在文字左侧(勿设RightToLeft, 会镜像布局吃掉文字)
+        btnOk->setIcon(MatIcon::icon(QStringLiteral("check"), QColor(0xff, 0xff, 0xff),
+                                     QColor(), QColor(), 16, 1.0));
     fl->addWidget(btnCancel);
     fl->addWidget(btnOk);
     root->addWidget(foot);
 
     connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
     connect(btnOk, &QPushButton::clicked, &dlg, [&]() {
+        if (!m_currentTab) return;   // 导出需已打开文件(弹窗本身可预览)
         const bool lay = ckLayers->isChecked(), mk = ckMarkers->isChecked();
         const bool ano = ckAnomalies->isChecked(), dep = ckDepth->isChecked();
         if (rngAll->isChecked()) {
@@ -6516,6 +6529,14 @@ void MainWindow::showExportDialog()
             }
         }
     });
+    // 渲染自检: 离屏渲染对话框/按钮/复选框即返回(不弹窗)
+    if (qEnvironmentVariableIsSet("GPR_EXPORT_RENDER")) {
+        const QString dir = QCoreApplication::applicationDirPath();
+        dlg.grab().save(dir + "/exportdlg_render.png");
+        btnOk->grab().save(dir + "/btnok_render.png");
+        ckLayers->grab().save(dir + "/checkbox_render.png");
+        return;
+    }
     dlg.exec();
 }
 
