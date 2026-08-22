@@ -125,6 +125,9 @@ static void relockLineEditEdit(QLineEdit *ed)
 #include <QRegularExpression>
 #include <QWindow>
 #include <QPrinter>
+#include <QPdfWriter>
+#include <QPageSize>
+#include <QImageWriter>
 #include <QTextDocument>
 #include <QXmlStreamReader>
 #include <functional>
@@ -5569,6 +5572,195 @@ void ImageLabel::drawInterpOverlay()
     }
 }
 
+// ==================== v1.0.133 图像导出渲染 ====================
+
+// 导出用解译叠加(最终态): 无编辑手柄/无选中填充/无流动虚线 — 层位点+曲线+chip, 异常形状+标签
+void ImageLabel::paintExportOverlays(QPainter &p, bool layers, bool anomalies) const
+{
+    if (layers) {
+        // RADAN 层位点(彩色实心圆点)
+        for (const HorizonLayer &rl : m_radanLayers) {
+            if (!rl.visible || rl.points.isEmpty()) continue;
+            p.setPen(Qt::NoPen);
+            p.setBrush(rl.color);
+            const int r = qMax(2, rl.lineWidth / 2);
+            for (const QPointF &pt : rl.points)
+                p.drawEllipse(QPoint(traceToWidgetX(qRound(pt.x())),
+                                     sampleToWidgetY(qRound(pt.y()))), r, r);
+            p.setBrush(Qt::NoBrush);
+        }
+        // 层位曲线 + 左缘名称 chip
+        for (const HorizonLayer &h : m_horizons) {
+            if (!h.visible || h.points.size() < 2) continue;
+            QPen pen(h.color, h.lineWidth, h.dashed ? Qt::DashLine : Qt::SolidLine);
+            p.setPen(pen);
+            QPainterPath path;
+            path.moveTo(traceToWidgetX(qRound(h.points.first().x())),
+                        sampleToWidgetY(qRound(h.points.first().y())));
+            for (int i = 1; i < h.points.size(); ++i)
+                path.lineTo(traceToWidgetX(qRound(h.points[i].x())),
+                            sampleToWidgetY(qRound(h.points[i].y())));
+            p.drawPath(path);
+            const int chipY = qBound(10, sampleToWidgetY(qRound(h.points.first().y())) - 8,
+                                     height() - 22);
+            const QFont f = MatIcon::monoFont(11);
+            p.setFont(f);
+            const int tw = QFontMetrics(f).horizontalAdvance(h.name) + 10;
+            QRect chip(QPoint(2, chipY), QSize(tw, 16));
+            p.setPen(QPen(h.color, 1));
+            p.setBrush(QColor(0, 0, 0, 150));
+            p.drawRoundedRect(chip, 2, 2);
+            p.setPen(h.color);
+            p.drawText(chip, Qt::AlignCenter, h.name);
+            p.setBrush(Qt::NoBrush);
+        }
+    }
+    if (anomalies) {
+        for (const AnomalyMark &a : m_anomalies) {
+            if (a.shape < 0) continue;   // 未赋形
+            if (a.shape == 2 && a.poly.size() < 3) continue;
+            QString depthLbl;
+            if (m_interpMPerSample > 0) {
+                const double s0 = (a.shape == 2 && !a.poly.isEmpty())
+                                      ? a.poly.first().y() : a.rect.normalized().top();
+                depthLbl = QString::fromUtf8(" [深度: %1m]").arg(s0 * m_interpMPerSample, 0, 'f', 2);
+            }
+            p.setPen(QPen(a.color, 2, Qt::SolidLine));
+            p.setBrush(Qt::NoBrush);
+            QRect shapeRect;
+            if (a.shape == 0) {
+                shapeRect = rectFromRectT(a.rect.normalized());
+                p.drawEllipse(shapeRect);
+            } else if (a.shape == 1) {
+                shapeRect = rectFromRectT(a.rect.normalized());
+                p.drawRect(shapeRect);
+            } else if (a.shape == 2) {
+                QPainterPath path;
+                path.moveTo(traceToWidgetX(qRound(a.poly[0].x())),
+                            sampleToWidgetY(qRound(a.poly[0].y())));
+                for (int k = 1; k < a.poly.size(); ++k)
+                    path.lineTo(traceToWidgetX(qRound(a.poly[k].x())),
+                                sampleToWidgetY(qRound(a.poly[k].y())));
+                path.closeSubpath();
+                p.drawPath(path);
+            } else {
+                shapeRect = rectFromRectT(a.rect.normalized());
+                p.drawRect(shapeRect);
+                QFont tf(a.fontFamily);
+                tf.setPixelSize(a.fontSize);
+                p.setFont(tf);
+                p.setPen(a.color);
+                p.drawText(shapeRect.adjusted(3, 1, -3, -1), Qt::AlignTop | Qt::AlignLeft, a.name);
+            }
+            // 标签(名称+深度)气泡 — 文本批注自身即文字不加
+            if (a.shape != 3) {
+                QRectF geoF = a.rect.normalized();
+                if (a.shape == 2 && !a.poly.isEmpty()) {
+                    geoF = QRectF(a.poly.first(), a.poly.first());
+                    for (const QPointF &pt : a.poly)
+                        geoF = geoF.united(QRectF(pt, pt));
+                }
+                const QRect r = rectFromRectT(geoF);
+                const QString lbl = a.name + depthLbl;
+                const QFont lf = MatIcon::monoFont(11);
+                p.setFont(lf);
+                const int lw = QFontMetrics(lf).horizontalAdvance(lbl) + 10;
+                int ly = r.top() - 20;
+                if (ly < 1) ly = r.top() + 3;
+                QRect box(QPoint(qBound(1, r.left(), qMax(1, width() - lw - 2)), ly),
+                          QSize(lw, 17));
+                p.setPen(QPen(a.color, 1));
+                p.setBrush(QColor(255, 255, 255, 200));
+                p.drawRoundedRect(box, 2, 2);
+                p.setPen(a.color);
+                p.drawText(box, Qt::AlignCenter, lbl);
+                p.setBrush(Qt::NoBrush);
+            }
+        }
+    }
+}
+
+// 导出渲染: 基图+解译叠加+坐标网格; scale=DPI/96(线宽/文字随DPI高清重绘)
+QImage ImageLabel::renderExportImage(const QImage &base, const QRect &visRect, bool layers,
+                                     bool anomalies, bool grid, double scale) const
+{
+    if (base.isNull() || scale <= 0.0) return QImage();
+    const QRect src = visRect.isNull() ? base.rect() : visRect.intersected(base.rect());
+    if (src.width() < 2 || src.height() < 2) return QImage();
+
+    const int mT = grid ? 26 : 0;    // 顶部道号刻度带(基准像素)
+    const int mL = grid ? 46 : 0;    // 左侧深度刻度带(基准像素)
+    QImage out(qRound((src.width() + mL) * scale), qRound((src.height() + mT) * scale),
+               QImage::Format_RGB32);
+    out.fill(Qt::white);
+    {
+        QPainter p(&out);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.drawImage(QRectF(mL * scale, mT * scale, src.width() * scale, src.height() * scale),
+                    base, src);
+
+        // 变换到基图坐标系, 叠加层沿用屏幕映射(traceToWidgetX/sampleToWidgetY)
+        p.save();
+        p.translate(mL * scale, mT * scale);
+        p.scale(scale, scale);
+        p.translate(-src.left(), -src.top());
+        if (grid) {
+            // 坐标网格: 半透明白线(竖=道号步进, 横=深度步进), 画在图上、叠加层之下
+            QPen gp(QColor(255, 255, 255, 90), 1);
+            p.setPen(gp);
+            const int trStep = qMax(1, qRound(80.0 / qMax(0.25, double(m_mapPxPerTrace))));
+            for (int t = 0; t < m_mapTraceCount; t += trStep) {
+                const int x = traceToWidgetX(t);
+                if (x < src.left() || x > src.right()) continue;
+                p.drawLine(x, src.top(), x, src.bottom());
+            }
+            const int sStep = qMax(1, qRound(60.0 * m_mapDrawRows / qMax(1.0, double(height()))));
+            for (int s = 0; s < m_mapDrawRows; s += sStep) {
+                const int y = sampleToWidgetY(s);
+                if (y < src.top() || y > src.bottom()) continue;
+                p.drawLine(src.left(), y, src.right(), y);
+            }
+        }
+        if (layers || anomalies)
+            paintExportOverlays(p, layers, anomalies);
+        p.restore();
+
+        // 刻度带标签(白底带内, mono字体; 字号随DPI封顶2x)
+        if (grid) {
+            const QFont gf = MatIcon::monoFont(qBound(9, qRound(10 * qMin(scale, 2.0)), 14));
+            const QFontMetrics gm(gf);
+            p.setFont(gf);
+            p.setPen(QColor(0x42, 0x46, 0x54));
+            const int trStep = qMax(1, qRound(80.0 / qMax(0.25, double(m_mapPxPerTrace))));
+            for (int t = 0; t < m_mapTraceCount; t += trStep) {
+                const int x = traceToWidgetX(t);
+                if (x < src.left() || x > src.right()) continue;
+                const int px = qRound((mL + x - src.left()) * scale);
+                p.drawLine(px, qRound(mT * scale) - 4, px, qRound(mT * scale));   // 短刻度线
+                const QString lbl = QString::number(t);
+                p.drawText(QRect(px - gm.horizontalAdvance(lbl) / 2, 2,
+                                 gm.horizontalAdvance(lbl) + 4, qRound(mT * scale) - 6),
+                           Qt::AlignCenter, lbl);
+            }
+            const int sStep2 = qMax(1, qRound(60.0 * m_mapDrawRows / qMax(1.0, double(height()))));
+            for (int s = 0; s < m_mapDrawRows; s += sStep2) {
+                const int y = sampleToWidgetY(s);
+                if (y < src.top() || y > src.bottom()) continue;
+                const int py = qRound((mT + y - src.top()) * scale);
+                p.drawLine(qRound(mL * scale) - 4, py, qRound(mL * scale), py);
+                const QString lbl = (m_interpMPerSample > 0)
+                    ? QString::number(s * m_interpMPerSample, 'f', 2) : QString::number(s);
+                p.drawText(QRect(2, py - gm.height() / 2, qRound(mL * scale) - 10, gm.height()),
+                           Qt::AlignVCenter | Qt::AlignRight, lbl);
+            }
+        }
+    }
+    const double dpi = scale * 96.0;
+    out.setDotsPerMeterX(qRound(dpi / 0.0254));
+    out.setDotsPerMeterY(qRound(dpi / 0.0254));
+    return out;
+}
+
 // ---- v1.0.108 数据解译面板与状态 ----
 
 // 默认两层位(用户指定: 暂时只有两个层可供选择)
@@ -6344,7 +6536,67 @@ bool MainWindow::exportInterpCsv(TabData *tab, const QString &csvPath,
 }
 
 // 导出配置模态框(按 数据解译-数据导出.html): tabs + 字段复选 + 格式 + 范围 + 取消/确认
-void MainWindow::showExportDialog()
+// v1.0.133: 第2页图像导出(导出内容/分辨率/文件格式/导出范围, 按 数据解译-图像导出.html)
+// 原始数据灰度基图(不含滤波/增益/变换表/调色板): 16bit线性拉伸, 尺寸=当前显示图(最近邻重采样)
+QImage MainWindow::buildRawGrayImage(TabData *tab, const QSize &outSize)
+{
+    if (!tab || outSize.isEmpty() || outSize.width() > 30000 || outSize.height() > 30000)
+        return QImage();
+    const int ns = tab->nsamp > 0 ? tab->nsamp : 512;
+    const int skip = tab->zeroApplied ? tab->zeroSkipRows : 0;
+    const int drawRows = qMax(1, ns - skip);
+    const int nTraces = tab->traceCount > 0 ? tab->traceCount : 1;
+    if (tab->originalRawData.size() < 2 * qsizetype(nTraces) * ns) return QImage();
+    const qint16 *src = reinterpret_cast<const qint16 *>(tab->originalRawData.constData());
+    // min/max(抽样≤10万点)
+    qint32 mn = 32767, mx = -32768;
+    const qsizetype total = qsizetype(nTraces) * ns;
+    const qsizetype step = qMax<qsizetype>(1, total / 100000);
+    for (qsizetype i = 0; i < total; i += step) {
+        const qint16 v = src[i];
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+    }
+    if (mx <= mn) { mn = 0; mx = 255; }   // 平坦数据兜底
+    QImage img(outSize, QImage::Format_RGB32);
+    for (int y = 0; y < outSize.height(); ++y) {
+        int samp = skip + qRound(double(y) * (drawRows - 1) / qMax(1, outSize.height() - 1));
+        samp = qBound(0, samp, ns - 1);
+        auto *line = reinterpret_cast<QRgb *>(img.scanLine(y));
+        for (int x = 0; x < outSize.width(); ++x) {
+            const int trace = qBound(0, qRound(double(x) * (nTraces - 1)
+                                               / qMax(1, outSize.width() - 1)), nTraces - 1);
+            const qint16 v = src[qsizetype(trace) * ns + samp];
+            const int g = qRound((double(v - mn) * 255.0) / double(mx - mn));
+            line[x] = qRgb(g, g, g);
+        }
+    }
+    return img;
+}
+
+// 按格式落盘: png/jpg/tiff(QImage自带DPI元数据) + pdf(QPdfWriter整页)
+bool MainWindow::saveExportImage(const QImage &img, const QString &path,
+                                 const QString &fmt, int dpi)
+{
+    if (img.isNull() || path.isEmpty()) return false;
+    if (fmt == QLatin1String("pdf")) {
+        QPdfWriter pw(path);
+        pw.setResolution(qMax(72, dpi));
+        pw.setPageSize(QPageSize(QSizeF(double(img.width()) / dpi * 25.4,
+                                        double(img.height()) / dpi * 25.4),
+                                 QPageSize::Millimeter));
+        pw.setPageMargins(QMarginsF(0, 0, 0, 0));
+        QPainter p(&pw);
+        p.drawImage(QRect(0, 0, pw.width(), pw.height()), img);
+        return true;
+    }
+    QImageWriter w(path, fmt.toLatin1());
+    if (fmt == QLatin1String("jpg") || fmt == QLatin1String("jpeg"))
+        w.setQuality(92);
+    return w.write(img);
+}
+
+void MainWindow::showExportDialog(int initialTab)
 {
     QDialog dlg(this);
     dlg.setWindowTitle(QString::fromUtf8("导出配置"));
@@ -6447,14 +6699,78 @@ void MainWindow::showExportDialog()
     dpL->addStretch(1);
     tabs->addTab(dataPage, QString::fromUtf8("数据导出"));
 
+    // ---- 图像导出页(按 数据解译-图像导出.html): 导出内容 + 分辨率/格式 + 导出范围 ----
     QWidget *imgPage = new QWidget;
     QVBoxLayout *ipL = new QVBoxLayout(imgPage);
-    QLabel *ph = new QLabel(QString::fromUtf8("图像导出将在后续版本提供。"), imgPage);
-    ph->setAlignment(Qt::AlignCenter);
-    ph->setStyleSheet(QStringLiteral("color: #737785; font-size: 13px;"));
-    ipL->addWidget(ph);
+    ipL->setContentsMargins(24, 20, 24, 20);
+    ipL->setSpacing(16);
+    QLabel *secE = new QLabel(QString::fromUtf8("导出内容"), imgPage);
+    secE->setObjectName(QStringLiteral("secTitle"));
+    ipL->addWidget(secE);
+    QGridLayout *igrid = new QGridLayout;
+    igrid->setSpacing(10);
+    auto addImgCheck = [&](int row, int col, const QString &text) {
+        QCheckBox *cb = new QCheckBox(text, imgPage);
+        cb->setChecked(true);
+        igrid->addWidget(cb, row, col);
+        return cb;
+    };
+    QCheckBox *ickProc = addImgCheck(0, 0, QString::fromUtf8("包含滤波处理"));
+    QCheckBox *ickLayers = addImgCheck(0, 1, QString::fromUtf8("显示层位线条"));
+    QCheckBox *ickAno = addImgCheck(1, 0, QString::fromUtf8("显示异常标注"));
+    QCheckBox *ickGrid = addImgCheck(1, 1, QString::fromUtf8("包含坐标网格"));
+    ipL->addLayout(igrid);
+
+    QWidget *isep = new QWidget(imgPage);
+    isep->setFixedHeight(1);
+    isep->setStyleSheet(QStringLiteral("background: #c3c6d6;"));
+    ipL->addWidget(isep);
+
+    // 分辨率 + 文件格式
+    QHBoxLayout *irow1 = new QHBoxLayout;
+    irow1->setSpacing(24);
+    QVBoxLayout *dpiL = new QVBoxLayout;
+    QLabel *secDpi = new QLabel(QString::fromUtf8("分辨率"), imgPage);
+    secDpi->setObjectName(QStringLiteral("secTitle"));
+    dpiL->addWidget(secDpi);
+    QComboBox *dpiBox = new QComboBox(imgPage);
+    dpiBox->addItem(QString::fromUtf8("标准 (96 DPI)"));
+    dpiBox->addItem(QString::fromUtf8("高清 (300 DPI)"));
+    dpiBox->addItem(QString::fromUtf8("超清 (600 DPI)"));
+    dpiBox->setCurrentIndex(1);   // HTML默认300 DPI
+    dpiL->addWidget(dpiBox);
+    irow1->addLayout(dpiL);
+    QVBoxLayout *ifmtL = new QVBoxLayout;
+    QLabel *secIF = new QLabel(QString::fromUtf8("文件格式"), imgPage);
+    secIF->setObjectName(QStringLiteral("secTitle"));
+    ifmtL->addWidget(secIF);
+    QComboBox *ifmtBox = new QComboBox(imgPage);
+    ifmtBox->addItem(QStringLiteral("PNG (*.png)"));
+    ifmtBox->addItem(QStringLiteral("JPG (*.jpg)"));
+    ifmtBox->addItem(QStringLiteral("PDF (*.pdf)"));
+    ifmtBox->addItem(QStringLiteral("TIFF (*.tiff)"));
+    ifmtL->addWidget(ifmtBox);
+    irow1->addLayout(ifmtL);
+    irow1->addStretch(1);
+    ipL->addLayout(irow1);
+
+    // 导出范围
+    QLabel *secIR = new QLabel(QString::fromUtf8("导出范围"), imgPage);
+    secIR->setObjectName(QStringLiteral("secTitle"));
+    ipL->addWidget(secIR);
+    QHBoxLayout *irngRow = new QHBoxLayout;
+    irngRow->setSpacing(24);
+    QRadioButton *irngCur = new QRadioButton(QString::fromUtf8("当前视图"), imgPage);
+    QRadioButton *irngAll = new QRadioButton(QString::fromUtf8("全测线拼接"), imgPage);
+    irngCur->setChecked(true);
+    irngRow->addWidget(irngCur);
+    irngRow->addWidget(irngAll);
+    irngRow->addStretch(1);
+    ipL->addLayout(irngRow);
+    ipL->addStretch(1);
     tabs->addTab(imgPage, QString::fromUtf8("图像导出"));
     root->addWidget(tabs, 1);
+    tabs->setCurrentIndex(qBound(0, initialTab, 1));
 
     // ---- 底部: 取消 / 确认导出 ----
     // 顶边线用实体色条(QSS border在普通QWidget不可靠); foot样式必须scoped:
@@ -6486,7 +6802,71 @@ void MainWindow::showExportDialog()
 
     connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
     connect(btnOk, &QPushButton::clicked, &dlg, [&]() {
-        if (!m_currentTab) return;   // 导出需已打开文件(弹窗本身可预览)
+        if (!m_currentTab || !m_currentTab->imageLabel) return;   // 导出需已打开文件(弹窗本身可预览)
+
+        // ---- 图像导出页 ----
+        if (tabs->currentIndex() == 1) {
+            static const int dpiVals[3] = { 96, 300, 600 };
+            static const char *fmtNames[4] = { "png", "jpg", "pdf", "tiff" };
+            static const char *fmtExts[4] = { "png", "jpg", "pdf", "tiff" };
+            static const char *fmtFilters[4] = { "PNG (*.png)", "JPEG (*.jpg)",
+                                                 "PDF (*.pdf)", "TIFF (*.tiff)" };
+            const int dpi = dpiVals[qBound(0, dpiBox->currentIndex(), 2)];
+            const int fi = qBound(0, ifmtBox->currentIndex(), 3);
+            const QString fmt = QLatin1String(fmtNames[fi]);
+            const QFileInfo fiInfo(m_currentTab->filePath);
+            QString sel = QFileDialog::getSaveFileName(
+                &dlg, QString::fromUtf8("导出图像"),
+                fiInfo.absolutePath() + QLatin1Char('/') + fiInfo.completeBaseName()
+                    + QLatin1Char('.') + QLatin1String(fmtExts[fi]),
+                QLatin1String(fmtFilters[fi]));
+            if (sel.isEmpty()) return;   // 取消保存: 配置框不关
+
+            // 基图: 含滤波=当前显示图; 不含=原始数据灰度
+            const QSize baseSize = m_currentTab->imageLabel->size();
+            QImage base = ickProc->isChecked()
+                              ? m_currentTab->imageLabel->displayImage()
+                              : buildRawGrayImage(m_currentTab, baseSize);
+            // 范围: 当前视图=滚动视口可见区; 全测线=整图
+            QRect vis;
+            if (!irngAll->isChecked() && m_currentTab->scrollArea
+                && m_currentTab->scrollArea->viewport()) {
+                const QWidget *vp = m_currentTab->scrollArea->viewport();
+                const QPoint off = m_currentTab->imageLabel->mapFrom(
+                    const_cast<QWidget *>(vp), QPoint(0, 0));
+                vis = QRect(QPoint(0, 0), base.size())
+                          .intersected(QRect(off, vp->size()));
+            }
+            const QImage img = m_currentTab->imageLabel->renderExportImage(
+                base, vis, ickLayers->isChecked(), ickAno->isChecked(),
+                ickGrid->isChecked(), dpi / 96.0);
+            if (img.isNull()) {
+                QMessageBox::warning(&dlg, QString::fromUtf8("图像导出"),
+                    QString::fromUtf8("导出失败: 没有可导出的图像内容。"));
+                return;
+            }
+            if (fmt == QLatin1String("tiff")
+                && !QImageWriter::supportedImageFormats().contains("tiff")) {
+                QMessageBox::information(&dlg, QString::fromUtf8("图像导出"),
+                    QString::fromUtf8("当前构建不支持 TIFF，已改存 PNG。"));
+                if (!sel.endsWith(QLatin1String(".png"), Qt::CaseInsensitive))
+                    sel += QLatin1String(".png");
+                if (!saveExportImage(img, sel, QLatin1String("png"), dpi)) {
+                    QMessageBox::warning(&dlg, QString::fromUtf8("图像导出"),
+                        QString::fromUtf8("导出失败: 无法写入 %1").arg(sel));
+                    return;
+                }
+            } else if (!saveExportImage(img, sel, fmt, dpi)) {
+                QMessageBox::warning(&dlg, QString::fromUtf8("图像导出"),
+                    QString::fromUtf8("导出失败: 无法写入 %1").arg(sel));
+                return;
+            }
+            QDesktopServices::openUrl(QUrl::fromLocalFile(sel));   // 系统关联程序打开
+            dlg.accept();
+            return;
+        }
+
+        // ---- 数据导出页(原有) ----
         const bool lay = ckLayers->isChecked(), mk = ckMarkers->isChecked();
         const bool ano = ckAnomalies->isChecked(), dep = ckDepth->isChecked();
         if (rngAll->isChecked()) {
@@ -6529,12 +6909,14 @@ void MainWindow::showExportDialog()
             }
         }
     });
-    // 渲染自检: 离屏渲染对话框/按钮/复选框即返回(不弹窗)
+    // 渲染自检: 离屏渲染对话框/按钮/复选框/图像导出页即返回(不弹窗)
     if (qEnvironmentVariableIsSet("GPR_EXPORT_RENDER")) {
         const QString dir = QCoreApplication::applicationDirPath();
         dlg.grab().save(dir + "/exportdlg_render.png");
         btnOk->grab().save(dir + "/btnok_render.png");
         ckLayers->grab().save(dir + "/checkbox_render.png");
+        tabs->setCurrentIndex(1);
+        dlg.grab().save(dir + "/exportimgtab_render.png");
         return;
     }
     dlg.exec();
@@ -9427,8 +9809,8 @@ void MainWindow::createMenuBar()
             showExportDialog();
         });
         connect(btnExpImg, &QToolButton::clicked, this, [this]() {
-            QMessageBox::information(this, QString::fromUtf8("图像导出"),
-                QString::fromUtf8("解译成果图像导出将在后续版本提供。"));
+            if (!requireOpenFile()) return;
+            showExportDialog(1);   // v1.0.133 直接进入图像导出页
         });
 
         interpLayout->addStretch(1);

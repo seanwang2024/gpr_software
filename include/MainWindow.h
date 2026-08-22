@@ -188,6 +188,16 @@ public:
     void stopPolyDrawing() { m_polyDrawing = false; m_polyPoints.clear(); update(); }
     bool isPolyDrawing() const { return m_polyDrawing; }
 
+    // v1.0.133 图像导出: 当前显示图(含全部处理)作为导出基图
+    const QImage &displayImage() const { return m_image; }
+    // 导出渲染: base=基图(处理图或原始灰度), visRect=可见区(标签坐标, 空=全部),
+    // layers/anomalies=解译叠加, grid=坐标网格(顶道号带+左深度带), scale=DPI/96(叠加与文字高清重绘)
+    QImage renderExportImage(const QImage &base, const QRect &visRect, bool layers,
+                             bool anomalies, bool grid, double scale) const;
+
+private:
+    void paintExportOverlays(class QPainter &p, bool layers, bool anomalies) const;
+
 protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -463,10 +473,13 @@ private:
     void addAnomalyItem();                                            // 新增异常标注(补缺编号)
     void anomalySetShape(int idx, int shapeId);                       // 选中异常设形状+进入编辑态
     void anomalyConfirmShape(int idx);                                // 异常确认(虚线→实线)
-    // v1.0.130 数据导出(RADAN兼容CSV)
-    void showExportDialog();                                          // 导出配置模态框(按数据解译-数据导出.html)
+    // v1.0.130 数据导出(RADAN兼容CSV); v1.0.133 图像导出(同模态框第2页)
+    void showExportDialog(int initialTab = 0);                        // 导出配置模态框(0=数据导出 1=图像导出)
     bool exportInterpCsv(TabData *tab, const QString &csvPath,        // 写31列逐扫描CSV(UTF-16LE+CRLF)
                          bool layers, bool markers, bool anomalies, bool depth);
+    QImage buildRawGrayImage(TabData *tab, const QSize &outSize);     // 原始数据灰度基图(不含滤波处理)
+    bool saveExportImage(const QImage &img, const QString &path,      // 按格式落盘(png/jpg/pdf/tiff+DPI元数据)
+                         const QString &fmt, int dpi);
     void refreshSelectionInfo();            // 选区几何4字段刷新(道号/时间/尺寸)
     void clearEditBlocks();                 // 删除/重置: 清空全部数据块
     void createNewEditBlock();              // 新建数据块(自动找不重叠位置; 进块模式默认建一个)
