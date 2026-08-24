@@ -129,6 +129,9 @@ static void relockLineEditEdit(QLineEdit *ed)
 #include <QPageSize>
 #include <QImageWriter>
 #include <QTextDocument>
+#include <QBuffer>
+#include <QSettings>
+#include <QTextDocument>
 #include <QXmlStreamReader>
 #include <functional>
 #include <cmath>
@@ -1200,6 +1203,39 @@ void ImageLabel::paintEvent(QPaintEvent *event)
     // v1.0.108 数据解译叠加: 层位曲线 + 异常标注 + 种子
     if (!m_image.isNull() && hasInterpOverlay())
         drawInterpOverlay();
+
+    // v1.0.135 AI检测框: 脱空(黄#f59e0b)/管线(蓝#3b82f6) + 标签chip; intact不画
+    if (!m_image.isNull() && !m_aiRects.isEmpty()) {
+        QPainter p(this);
+        static const QColor clsCol[3] = { QColor(0xf5, 0x9e, 0x0b),
+                                          QColor(0x93, 0xc5, 0xfd),
+                                          QColor(0x3b, 0x82, 0xf6) };
+        static const QString clsZh[3] = { QString::fromUtf8("脱空"),
+                                          QString::fromUtf8("完好"),
+                                          QString::fromUtf8("管线") };
+        const QFont lf = MatIcon::monoFont(11);
+        const QFontMetrics fm(lf);
+        const int n = qMin(m_aiRects.size(), qMin(m_aiIds.size(), m_aiConfs.size()));
+        for (int i = 0; i < n; ++i) {
+            const int id = m_aiIds[i];
+            if (id < 0 || id >= 3 || id == 1) continue;   // 完好不画
+            p.setPen(QPen(clsCol[id], 2));
+            p.setBrush(Qt::NoBrush);
+            p.drawRect(m_aiRects[i]);
+            const QString lbl = QStringLiteral("%1 %2%")
+                                    .arg(clsZh[id])
+                                    .arg(qRound(m_aiConfs[i] * 100));
+            const int tw = fm.horizontalAdvance(lbl) + 8;
+            QRect chip(m_aiRects[i].left(), m_aiRects[i].top() - 16, tw, 15);
+            if (chip.top() < 0) chip.moveTop(m_aiRects[i].top() + 1);
+            p.setPen(Qt::NoPen);
+            p.setBrush(clsCol[id]);
+            p.drawRect(chip);
+            p.setPen(Qt::white);
+            p.setFont(lf);
+            p.drawText(chip.adjusted(4, 0, -4, 0), Qt::AlignVCenter | Qt::AlignLeft, lbl);
+        }
+    }
 }
 
 // 编辑覆盖层绘制: 红虚线标记(+道号标签) → 矩形框(+8手柄+[保留][删除]pill)
@@ -2280,6 +2316,11 @@ MainWindow::MainWindow(QWidget *parent)
     contentLayout->addWidget(m_interpPanel);
     m_interpPanel->hide();
 
+    // v1.0.135: 右侧 320px AI智能检测引擎面板(AI分析模块, 默认隐藏)
+    createAiPanel();
+    contentLayout->addWidget(m_aiPanel);
+    m_aiPanel->hide();
+
     // --- 状态栏 (v1.0.87 28px,按设计稿: 左 ●就绪 | 右 道号/深度 等宽 + 进度条) ---
     m_progressBar = new QProgressBar(this);
     m_net = new QNetworkAccessManager(this);
@@ -2388,7 +2429,26 @@ MainWindow::MainWindow(QWidget *parent)
                     if (m_interpPanel && m_interpPanel->isVisible())
                         m_interpPanel->grab().save(QCoreApplication::applicationDirPath()
                                                   + "/interppanel_render.png");
-                    ribbonTab->setCurrentIndex(cur);
+                    // AI分析页渲染(v1.0.134); GPR_AI_RENDER=1 先开测试文件(开文件有异步回主页时序,延后再切idx4)
+                    const QString aiDzt = QStringLiteral(
+                        "D:/gpr_software/test_input_raw_files/PRV01__072 P_1.DZT");
+                    if (qEnvironmentVariableIsSet("GPR_AI_RENDER") && QFile::exists(aiDzt)) {
+                        openDztFile(aiDzt);
+                        QTimer::singleShot(400, this, [this, cur]() {
+                            ribbonTab->setCurrentIndex(4);
+                            QTimer::singleShot(400, this, [this, cur]() {
+                                grab().save(QCoreApplication::applicationDirPath()
+                                           + "/aipanel_render.png");
+                                ribbonTab->setCurrentIndex(cur);
+                            });
+                        });
+                    } else {
+                        ribbonTab->setCurrentIndex(4);
+                        QTimer::singleShot(300, this, [this, cur]() {
+                            grab().save(QCoreApplication::applicationDirPath() + "/aipage_render.png");
+                            ribbonTab->setCurrentIndex(cur);
+                        });
+                    }
                 });
             });
         }
@@ -2399,6 +2459,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ribbonTab, &QTabWidget::currentChanged, m_topBar, &TopBar::setModuleIndex);
     // v1.0.100: 进入编辑页默认激活"编辑标记"; 切走自动收起编辑工具面板
     connect(ribbonTab, &QTabWidget::currentChanged, this, [this](int idx) {
+        syncAiUiState();   // v1.0.135: 进出AI分析页 面板显隐+检测框叠加/清除(含离开时收起)
         if (idx == 1) {   // 1 = 编辑页
             if (!m_tabs.isEmpty()
                 && (!m_btnEditMarker || !m_btnEditMarker->isChecked())
@@ -2425,6 +2486,17 @@ MainWindow::MainWindow(QWidget *parent)
     });
     // 品牌下拉菜单
     connect(m_topBar, &TopBar::openFileRequested, this, &MainWindow::onOpenFile);
+    connect(m_topBar, &TopBar::assembleRequested, this, [this]() { showAssemblyDialog(); });
+    connect(m_topBar, &TopBar::workPathRequested, this, [this]() { showWorkPathDialog(); });
+    connect(m_topBar, &TopBar::convertRequested, this, [this]() { showConvertDialog(); });
+
+    // v1.0.141 工作路径设置(QSettings持久化)
+    {
+        QSettings st(QStringLiteral("LaoreiGPR"), QStringLiteral("MyQtApp"));
+        m_workPath = st.value(QStringLiteral("workPath")).toString();
+        m_autoLoadLastPath = st.value(QStringLiteral("autoLoadLastPath"), true).toBool();
+        m_lastOpenDir = st.value(QStringLiteral("lastOpenDir")).toString();
+    }
     connect(m_topBar, &TopBar::closeFileRequested, this, [this]() {
         if (!m_tabs.isEmpty()) {
             int idx = m_docTabWidget->currentIndex();
@@ -2991,6 +3063,7 @@ void MainWindow::switchToTab(int index)
         refreshHeaderPanel();   // v1.0.87 切文件刷新右栏字段
     syncEditUiState();          // v1.0.98 切文件同步编辑面板(缩放控件回填/无文件收起)
     syncInterpUiState();        // v1.0.108 切文件同步解译面板
+    syncAiUiState();            // v1.0.135 切文件同步AI面板/检测框
 
     scrollArea = tab->scrollArea;
     imageLabel = tab->imageLabel;
@@ -4344,11 +4417,24 @@ void MarkerThumbWidget::mouseReleaseEvent(QMouseEvent *event)
     QWidget::mouseReleaseEvent(event);
 }
 
+// v1.0.142 DT/DX自有格式配对(DT和DX格式.md): 读=源扩展优先(.DT→.DX / .DZT→.DZX)并回退另一后缀;
+// 写=跟随源扩展。V1阶段DT/DX与DZT/DZX字节完全相同仅后缀不同。
+static QString dzxPairPath(const QString &dataFilePath, bool forWrite)
+{
+    QFileInfo fi(dataFilePath);
+    const QString base = fi.absolutePath() + "/" + fi.completeBaseName();
+    const bool isDt = fi.suffix().compare(QStringLiteral("dt"), Qt::CaseInsensitive) == 0;
+    const QString first = base + (isDt ? QStringLiteral(".DX") : QStringLiteral(".DZX"));
+    const QString second = base + (isDt ? QStringLiteral(".DZX") : QStringLiteral(".DX"));
+    if (forWrite || QFile::exists(first)) return first;
+    if (QFile::exists(second)) return second;
+    return first;
+}
+
 // 从同名 DZX 读 <unitsPerScan>(米/道) — 标记距离列兜底(DZT spm 实测可能为 0)
 double MainWindow::readDzxUnitsPerScan(const QString &dztPath)
 {
-    QFileInfo fi(dztPath);
-    QFile f(fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX");
+    QFile f(dzxPairPath(dztPath, false));
     if (!f.open(QIODevice::ReadOnly)) return 0.0;
     QXmlStreamReader r(&f);
     bool inUnits = false;
@@ -4372,8 +4458,7 @@ double MainWindow::readDzxUnitsPerScan(const QString &dztPath)
 QVector<int> MainWindow::readDzxMarkers(const QString &dztPath)
 {
     QVector<int> markers;
-    QFileInfo fi(dztPath);
-    QFile f(fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX");
+    QFile f(dzxPairPath(dztPath, false));
     if (!f.open(QIODevice::ReadOnly)) return markers;
     QXmlStreamReader r(&f);
     bool inProfile = false, inWayPt = false, hasName = false;
@@ -4411,7 +4496,7 @@ QVector<int> MainWindow::readDzxMarkers(const QString &dztPath)
 bool MainWindow::writeDzxMarkers(const QString &dztPath, const QVector<int> &markers)
 {
     QFileInfo fi(dztPath);
-    const QString dzxPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX";
+    const QString dzxPath = dzxPairPath(dztPath, true);
 
     QByteArray content;
     QFile f(dzxPath);
@@ -4577,8 +4662,7 @@ bool MainWindow::readDzxInterp(const QString &dztPath,
 {
     horizons.clear();
     anomalies.clear();
-    QFileInfo fi(dztPath);
-    QFile f(fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX");
+    QFile f(dzxPairPath(dztPath, false));
     if (!f.open(QIODevice::ReadOnly)) return false;
     QXmlStreamReader r(&f);
     enum { None, InGroup, InHorizon, InAnomaly } zone = None;
@@ -4660,8 +4744,7 @@ bool MainWindow::readDzxInterp(const QString &dztPath,
 bool MainWindow::readDzxTargets(const QString &dztPath, QVector<AnomalyMark> &anomalies)
 {
     anomalies.clear();
-    QFileInfo fi(dztPath);
-    QFile f(fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX");
+    QFile f(dzxPairPath(dztPath, false));
     if (!f.open(QIODevice::ReadOnly)) return false;
 
     static const QColor shapeColors[4] = {
@@ -4766,7 +4849,7 @@ bool MainWindow::readDzxTargets(const QString &dztPath, QVector<AnomalyMark> &an
 bool MainWindow::writeDzxTargets(const QString &dztPath, const QVector<AnomalyMark> &anomalies)
 {
     QFileInfo fi(dztPath);
-    const QString dzxPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX";
+    const QString dzxPath = dzxPairPath(dztPath, true);
 
     QByteArray content;
     QFile f(dzxPath);
@@ -4878,8 +4961,7 @@ void MainWindow::flushInterpToDzx(TabData *tab)
 bool MainWindow::readDzxDLayers(const QString &dztPath, QVector<HorizonLayer> &radanLayers)
 {
     radanLayers.clear();
-    QFileInfo fi(dztPath);
-    QFile f(fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX");
+    QFile f(dzxPairPath(dztPath, false));
     if (!f.open(QIODevice::ReadOnly)) return false;
 
     static const QColor layerColors[] = {
@@ -4953,7 +5035,7 @@ bool MainWindow::readDzxDLayers(const QString &dztPath, QVector<HorizonLayer> &r
 bool MainWindow::writeDzxDLayers(const QString &dztPath, const QVector<HorizonLayer> &radanLayers)
 {
     QFileInfo fi(dztPath);
-    const QString dzxPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX";
+    const QString dzxPath = dzxPairPath(dztPath, true);
 
     QByteArray content;
     QFile f(dzxPath);
@@ -5324,6 +5406,16 @@ void ImageLabel::setInterpOverlays(const QVector<HorizonLayer> &horizons,
 void ImageLabel::setRadanLayers(const QVector<HorizonLayer> &layers)
 {
     m_radanLayers = layers;
+    update();
+}
+
+// v1.0.135 AI检测框(空=清除); rects为图像像素坐标, 与widget 1:1
+void ImageLabel::setAiBoxes(const QVector<QRect> &rects, const QVector<int> &ids,
+                            const QVector<float> &confs)
+{
+    m_aiRects = rects;
+    m_aiIds = ids;
+    m_aiConfs = confs;
     update();
 }
 
@@ -6922,6 +7014,1515 @@ void MainWindow::showExportDialog(int initialTab)
     dlg.exec();
 }
 
+// ==================== v1.0.134 AI报告 (按 AI分析-AI报告.html) ====================
+
+// 统计图表: 左饼图(类别占比) + 右柱状图(类别数量), 画布 700x260
+QImage MainWindow::buildAiStatsChart(int total, const int counts[3])
+{
+    static const QColor clsColors[3] = { QColor(0xf5, 0x9e, 0x0b),   // 脱空 黄
+                                         QColor(0x93, 0xc5, 0xfd),   // 完好 浅蓝
+                                         QColor(0x3b, 0x82, 0xf6) }; // 管线 蓝
+    static const QString clsZh[3] = { QString::fromUtf8("脱空"),
+                                      QString::fromUtf8("完好"),
+                                      QString::fromUtf8("管线") };
+    QImage img(700, 260, QImage::Format_RGB32);
+    img.fill(Qt::white);
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    // 左: 饼图(无数据画空圆+提示)
+    QRect pieRect(30, 40, 180, 180);
+    p.setPen(QPen(Qt::white, 2));
+    int startAngle = 90 * 16;
+    if (total > 0) {
+        for (int i = 0; i < 3; ++i) {
+            if (counts[i] <= 0) continue;
+            const int span = qRound(360.0 * counts[i] / total) * 16;
+            p.setBrush(clsColors[i]);
+            p.drawPie(pieRect, startAngle, -span);
+            startAngle -= span;
+        }
+    } else {
+        p.setBrush(QColor(0xe6, 0xee, 0xff));
+        p.drawPie(pieRect, 0, 360 * 16);
+    }
+    // 饼图图例
+    const QFont lf = MatIcon::monoFont(12);
+    p.setFont(lf);
+    for (int i = 0; i < 3; ++i) {
+        const int ly = 60 + i * 30;
+        p.setPen(Qt::NoPen);
+        p.setBrush(clsColors[i]);
+        p.drawRect(240, ly, 14, 14);
+        p.setPen(QColor(0x12, 0x1c, 0x2a));
+        p.drawText(QRect(262, ly - 4, 160, 22), Qt::AlignVCenter | Qt::AlignLeft,
+                   QString::fromUtf8("%1  %2 (%3%)")
+                       .arg(clsZh[i]).arg(counts[i])
+                       .arg(total > 0 ? qRound(100.0 * counts[i] / total) : 0));
+    }
+
+    // 右: 柱状图(每类数量)
+    const int bx0 = 460, bw = 60, gap = 30, bmaxH = 170, byBase = 220;
+    const int maxC = qMax(1, qMax(counts[0], qMax(counts[1], counts[2])));
+    p.setPen(QPen(QColor(0xc3, 0xc6, 0xd6), 1));
+    p.drawLine(bx0 - 20, byBase, 690, byBase);
+    for (int i = 0; i < 3; ++i) {
+        const int h = qRound(double(counts[i]) / maxC * bmaxH);
+        const int x = bx0 + i * (bw + gap);
+        p.setPen(Qt::NoPen);
+        p.setBrush(clsColors[i]);
+        p.drawRect(x, byBase - h, bw, h);
+        p.setPen(QColor(0x12, 0x1c, 0x2a));
+        p.drawText(QRect(x - 10, byBase - h - 22, bw + 20, 18),
+                   Qt::AlignCenter, QString::number(counts[i]));
+        p.drawText(QRect(x - 10, byBase + 4, bw + 20, 18),
+                   Qt::AlignCenter, clsZh[i]);
+    }
+    p.end();
+    return img;
+}
+
+// 一键生成报告: HTML正文 → pdf(QTextDocument+QPrinter) / html(base64图) / doc(HTML内容)
+bool MainWindow::generateAiReport(const QString &outPath, const QString &fmt,
+                                  bool ckModel, bool ckConf, bool ckGpu, bool ckChart,
+                                  bool ckRaw, bool ckAnno, bool ckList, bool ckStat)
+{
+    if (!m_currentTab) return false;
+    const QFileInfo fi(m_currentTab->filePath);
+    const double mPerSample = interpMPerSample();
+    const double mPerScan = markerSpacingM();
+    static const QString clsZh[3] = { QString::fromUtf8("脱空"),
+                                      QString::fromUtf8("完好"),
+                                      QString::fromUtf8("管线") };
+    static const QString clsHex[3] = { QStringLiteral("#f59e0b"),
+                                       QStringLiteral("#93c5fd"),
+                                       QStringLiteral("#3b82f6") };
+
+    // 病害 = 非 intact 类
+    int counts[3] = { 0, 0, 0 };
+    int total = 0;
+    for (int i = 0; i < m_currentTab->aiIds.size(); ++i) {
+        const int id = m_currentTab->aiIds[i];
+        if (id < 0 || id > 2) continue;
+        counts[id]++;
+        total++;
+    }
+    const int diseaseTotal = counts[0] + counts[2];
+
+    // 基础信息表
+    QString info;
+    auto infoRow = [&info](const QString &k, const QString &v) {
+        info += QStringLiteral("<tr><td bgcolor='#eff4ff' width='160'><b>%1</b></td>"
+                               "<td width='520'>%2</td></tr>")
+                    .arg(k, v);
+    };
+    infoRow(QString::fromUtf8("数据文件"), fi.fileName());
+    infoRow(QString::fromUtf8("测线长度"),
+            mPerScan > 0 ? QString::fromUtf8("%1 道 / %2 m")
+                               .arg(m_currentTab->traceCount)
+                               .arg(m_currentTab->traceCount * mPerScan, 0, 'f', 2)
+                         : QString::fromUtf8("%1 道").arg(m_currentTab->traceCount));
+    infoRow(QString::fromUtf8("检测目标总数"),
+            QString::fromUtf8("%1 (脱空 %2 / 管线 %3)").arg(diseaseTotal).arg(counts[0]).arg(counts[2]));
+    infoRow(QString::fromUtf8("报告生成时间"),
+            QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd hh:mm:ss")));
+    if (ckModel)
+        infoRow(QString::fromUtf8("模型"), QStringLiteral("yolo_gpr_cls.onnx (GPR-YOLO 分类)"));
+    if (ckConf)
+        infoRow(QString::fromUtf8("置信度筛选"),
+                QString::fromUtf8("跨类NMS(IoU&gt;0.15抑制) + 每类置信度前20"));
+    if (ckGpu)
+        infoRow(QString::fromUtf8("推理加速"), QStringLiteral("CPU (OpenCV DNN)"));
+
+    // 病害详细列表
+    QString listTbl;
+    if (ckList) {
+        listTbl = QStringLiteral(
+            "<table border='1' cellspacing='0' cellpadding='4' width='700'>"
+            "<tr bgcolor='#0048af'><td><font color='white'><b>序号</b></font></td>"
+            "<td><font color='white'><b>类别</b></font></td>"
+            "<td><font color='white'><b>道号</b></font></td>"
+            "<td><font color='white'><b>深度(m)</b></font></td>"
+            "<td><font color='white'><b>里程(m)</b></font></td>"
+            "<td><font color='white'><b>置信度</b></font></td></tr>");
+        int sn = 0;
+        for (int i = 0; i < m_currentTab->aiIds.size(); ++i) {
+            const int id = m_currentTab->aiIds[i];
+            if (id != 0 && id != 2) continue;   // 病害类
+            const QRect &r = m_currentTab->aiRects[i];
+            const int trace = r.center().x();
+            const int samp = r.center().y();
+            listTbl += QStringLiteral(
+                           "<tr><td>%1</td><td bgcolor='%2'><b>%3</b></td>"
+                           "<td>%4</td><td>%5</td><td>%6</td><td>%7%</td></tr>")
+                           .arg(++sn).arg(clsHex[id], clsZh[id])
+                           .arg(trace)
+                           .arg(mPerSample > 0 ? QString::number(samp * mPerSample, 'f', 2)
+                                               : QStringLiteral("-"))
+                           .arg(mPerScan > 0 ? QString::number(trace * mPerScan, 'f', 2)
+                                             : QStringLiteral("-"))
+                           .arg(qRound(m_currentTab->aiConfs[i] * 100));
+        }
+        if (sn == 0)
+            listTbl += QStringLiteral("<tr><td colspan='6'>%1</td></tr>")
+                          .arg(QString::fromUtf8("（无病害目标）"));
+        listTbl += QStringLiteral("</table>");
+    }
+
+    // 位置/深度统计表(按类别)
+    QString statTbl;
+    if (ckStat) {
+        statTbl = QStringLiteral(
+            "<table border='1' cellspacing='0' cellpadding='4' width='700'>"
+            "<tr bgcolor='#0048af'><td><font color='white'><b>类别</b></font></td>"
+            "<td><font color='white'><b>数量</b></font></td>"
+            "<td><font color='white'><b>平均深度(m)</b></font></td>"
+            "<td><font color='white'><b>深度范围(m)</b></font></td>"
+            "<td><font color='white'><b>里程范围(m)</b></font></td></tr>");
+        for (int id = 0; id < 3; ++id) {
+            if (id == 1) continue;   // 完好不入统计表
+            int n = 0;
+            double sumD = 0, mnD = 1e9, mxD = -1e9, mnS = 1e9, mxS = -1e9;
+            for (int i = 0; i < m_currentTab->aiIds.size(); ++i) {
+                if (m_currentTab->aiIds[i] != id) continue;
+                const QRect &r = m_currentTab->aiRects[i];
+                const double d = r.center().y() * mPerSample;
+                const double s = r.center().x() * mPerScan;
+                sumD += d;
+                mnD = qMin(mnD, d); mxD = qMax(mxD, d);
+                mnS = qMin(mnS, s); mxS = qMax(mxS, s);
+                ++n;
+            }
+            if (n == 0) {
+                statTbl += QStringLiteral("<tr><td bgcolor='%1'><b>%2</b></td><td>0</td>"
+                                          "<td colspan='3'>—</td></tr>").arg(clsHex[id], clsZh[id]);
+            } else {
+                statTbl += QStringLiteral("<tr><td bgcolor='%1'><b>%2</b></td><td>%3</td>"
+                                          "<td>%4</td><td>%5 ~ %6</td><td>%7 ~ %8</td></tr>")
+                              .arg(clsHex[id], clsZh[id]).arg(n)
+                              .arg(sumD / n, 0, 'f', 2)
+                              .arg(mnD, 0, 'f', 2).arg(mxD, 0, 'f', 2)
+                              .arg(mnS, 0, 'f', 2).arg(mxS, 0, 'f', 2);
+            }
+        }
+        statTbl += QStringLiteral("</table>");
+    }
+
+    // 图片(标注图=重新生成: 基图+框)
+    QVector<QPair<QString, QImage>> imgs;   // name → image
+    if (ckRaw) {
+        const QSize sz(qMin(m_currentTab->traceCount, 4000), qMin(m_currentTab->nsamp, 1024));
+        imgs.append({ QStringLiteral("raw"), buildRawGrayImage(m_currentTab, sz) });
+    }
+    if (ckAnno && m_currentTab->aiRects.size() > 0) {
+        cv::Mat full, ann;
+        buildRadarCVMat(full);
+        QList<cv::Rect> cvRects;
+        QList<int> cvIds;
+        QList<float> cvConfs;
+        for (int i = 0; i < m_currentTab->aiIds.size(); ++i) {
+            cvRects.append(cv::Rect(m_currentTab->aiRects[i].x(), m_currentTab->aiRects[i].y(),
+                                    m_currentTab->aiRects[i].width(), m_currentTab->aiRects[i].height()));
+            cvIds.append(m_currentTab->aiIds[i]);
+            cvConfs.append(m_currentTab->aiConfs[i]);
+        }
+        drawResultOverlay(full, cvRects, cvIds, cvConfs, ann);
+        cv::Mat rgb;
+        cv::cvtColor(ann, rgb, cv::COLOR_BGR2RGB);
+        imgs.append({ QStringLiteral("anno"),
+                      QImage(rgb.data, rgb.cols, rgb.rows, static_cast<int>(rgb.step),
+                             QImage::Format_RGB888).copy() });
+    }
+    if (ckChart)
+        imgs.append({ QStringLiteral("chart"), buildAiStatsChart(total, counts) });
+
+    // HTML正文(图片用 rimg://N 占位: PDF走QTextDocument资源, html/doc替换为base64)
+    QString html = QStringLiteral(
+        "<html><head><meta charset='utf-8'></head><body>"
+        "<h1 align='center'><font color='#0048af'>探地雷达 AI 智能检测报告</font></h1>"
+        "<hr>");
+    html += QStringLiteral("<h3>一、报告基础信息</h3><table border='1' cellspacing='0'"
+                           " cellpadding='4' width='700'>%1</table>").arg(info);
+    auto imgHtml = [&imgs](const QString &title, const char *resName) -> QString {
+        for (int i = 0; i < imgs.size(); ++i) {
+            if (imgs[i].first == QLatin1String(resName)) {
+                const QImage &im = imgs[i].second;
+                const int w = qMin(700, im.width());
+                const int h = qRound(double(im.height()) * w / im.width());
+                return QStringLiteral("<h3>%1</h3><img src='rimg://%2' width='%3' height='%4'/>")
+                    .arg(title).arg(i).arg(w).arg(h);
+            }
+        }
+        return QString();
+    };
+    if (ckChart)
+        html += imgHtml(QString::fromUtf8("二、检测统计图表"), "chart");
+    if (ckRaw)
+        html += imgHtml(ckChart ? QString::fromUtf8("三、原始雷达剖面图")
+                                : QString::fromUtf8("二、原始雷达剖面图"), "raw");
+    if (ckAnno && m_currentTab->aiRects.size() > 0) {
+        int sec = 2 + int(ckChart) + int(ckRaw);
+        static const QString cn[10] = { QString::fromUtf8("一"), QString::fromUtf8("二"),
+                                        QString::fromUtf8("三"), QString::fromUtf8("四"),
+                                        QString::fromUtf8("五"), QString::fromUtf8("六"),
+                                        QString::fromUtf8("七"), QString::fromUtf8("八"),
+                                        QString::fromUtf8("九"), QString::fromUtf8("十") };
+        html += imgHtml(QStringLiteral("%1、AI检测标注图").arg(cn[qBound(0, sec - 1, 9)]), "anno");
+    }
+    int secNext = 2 + int(ckChart) + int(ckRaw) + int(ckAnno && m_currentTab->aiRects.size() > 0);
+    static const QString cnN[10] = { QString::fromUtf8("一"), QString::fromUtf8("二"),
+                                    QString::fromUtf8("三"), QString::fromUtf8("四"),
+                                    QString::fromUtf8("五"), QString::fromUtf8("六"),
+                                    QString::fromUtf8("七"), QString::fromUtf8("八"),
+                                    QString::fromUtf8("九"), QString::fromUtf8("十") };
+    if (ckList)
+        html += QStringLiteral("<h3>%1、病害详细列表清单</h3>%2")
+                    .arg(cnN[qBound(0, secNext - 1, 9)]).arg(listTbl);
+    if (ckStat)
+        html += QStringLiteral("<h3>%1、位置/深度统计表</h3>%2")
+                    .arg(cnN[qBound(0, secNext - 1 + int(ckList), 9)]).arg(statTbl);
+    html += QStringLiteral("<br><p align='center'><font color='#737785' size='2'>"
+                           "劳雷 GPR 智能检测 · 自动生成</font></p></body></html>");
+
+    // 落盘
+    QFile f(outPath);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    if (fmt == QLatin1String("pdf")) {
+        QTextDocument doc;
+        for (int i = 0; i < imgs.size(); ++i)
+            doc.addResource(QTextDocument::ImageResource, QUrl(QStringLiteral("rimg://%1").arg(i)),
+                            imgs[i].second);
+        doc.setHtml(html);
+        QPrinter pr(QPrinter::HighResolution);
+        pr.setOutputFormat(QPrinter::PdfFormat);
+        pr.setOutputFileName(outPath);
+        doc.print(&pr);
+        return true;
+    }
+    // html / doc: 图片转 base64 内嵌
+    QString out = html;
+    for (int i = 0; i < imgs.size(); ++i) {
+        QByteArray ba;
+        QBuffer buf(&ba);
+        buf.open(QIODevice::WriteOnly);
+        imgs[i].second.save(&buf, "PNG");
+        out.replace(QStringLiteral("src='rimg://%1'").arg(i),
+                    QStringLiteral("src='data:image/png;base64,%1'")
+                        .arg(QString::fromLatin1(ba.toBase64().constData())));
+    }
+    f.write(out.toUtf8());
+    f.close();
+    return true;
+}
+
+// AI智能报告导出配置模态框(按 AI分析-AI报告.html):
+// 报告基础信息4复选 + 导出内容4复选 + 格式(PDF/Word/HTML)+路径浏览 + 一键生成
+void MainWindow::showAiReportDialog()
+{
+    if (!m_currentTab) return;
+    // v1.0.135: 未检测直接提示(不再进入配置弹窗)
+    if (m_currentTab->aiRects.isEmpty()) {
+        QMessageBox::information(this, QString::fromUtf8("AI报告"),
+            QString::fromUtf8("请先进行AI检测 然后才能生成AI报告"));
+        return;
+    }
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString::fromUtf8("AI智能报告导出配置"));
+    dlg.setModal(true);
+    dlg.setFixedSize(600, 520);
+    dlg.setStyleSheet(QStringLiteral(
+        "QDialog { background: #ffffff; }"
+        "QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"
+        " letter-spacing: 1px; border-bottom: 1px solid #c3c6d6; padding-bottom: 4px; }"
+        "QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }"
+        "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
+        " border-radius: 2px; background: #ffffff; }"
+        "QCheckBox::indicator:checked { background: #0048af; border-color: #0048af;"
+        " image: url(:/icons/check_white.png); }"
+        "QComboBox { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
+        " padding: 6px 28px 6px 10px; font-size: 12px; color: #121c2a; }"
+        "QComboBox::drop-down { border: none; width: 24px; }"
+        "QComboBox::down-arrow { image: url(none); border-left: 4px solid transparent;"
+        " border-right: 4px solid transparent; border-top: 6px solid #424654; margin-right: 8px; }"
+        "QLineEdit { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
+        " padding: 6px 8px; font-size: 12px; color: #121c2a; }"
+        "QToolButton#btnBrowse { border: 1px solid #c3c6d6; border-radius: 2px;"
+        " background: #ffffff; }"
+        "QToolButton#btnBrowse:hover { background: #e6eeff; }"
+        "QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 2px;"
+        " background: #ffffff; color: #121c2a; font-size: 13px; font-weight: 600;"
+        " padding: 7px 18px; }"
+        "QPushButton#btnCancel:hover { background: #e6eeff; }"
+        "QPushButton#btnGen { border: 1px solid #0048af; border-radius: 2px;"
+        " background: #0048af; color: #ffffff; font-size: 13px; font-weight: 600;"
+        " padding: 7px 24px; }"
+        "QPushButton#btnGen:hover { background: #00419e; }"));
+
+    QVBoxLayout *root = new QVBoxLayout(&dlg);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+    QWidget *body = new QWidget(&dlg);
+    QVBoxLayout *bL = new QVBoxLayout(body);
+    bL->setContentsMargins(24, 20, 24, 20);
+    bL->setSpacing(14);
+
+    auto addSection = [&](const QString &title, std::initializer_list<std::pair<const char *, bool>> items) {
+        QLabel *sec = new QLabel(title, body);
+        sec->setObjectName(QStringLiteral("secTitle"));
+        bL->addWidget(sec);
+        QGridLayout *g = new QGridLayout;
+        g->setSpacing(10);
+        int row = 0, col = 0;
+        QList<QCheckBox *> boxes;
+        for (const auto &it : items) {
+            QCheckBox *cb = new QCheckBox(QString::fromUtf8(it.first), body);
+            cb->setChecked(it.second);
+            g->addWidget(cb, row, col);
+            boxes.append(cb);
+            if (++col > 1) { col = 0; ++row; }
+        }
+        bL->addLayout(g);
+        QWidget *sp = new QWidget(body);
+        sp->setFixedHeight(1);
+        sp->setStyleSheet(QStringLiteral("background: #c3c6d6;"));
+        bL->addWidget(sp);
+        return boxes;
+    };
+
+    // 报告基础信息 / 导出内容选择(全默认勾选, 同HTML)
+    const QList<QCheckBox *> infoBoxes = addSection(
+        QString::fromUtf8("报告基础信息"),
+        { { "导出模型信息", true }, { "置信度阈值设置", true },
+          { "GPU加速状态", true }, { "统计图表（饼图/柱状图）", true } });
+    const QList<QCheckBox *> contBoxes = addSection(
+        QString::fromUtf8("导出内容选择"),
+        { { "原始雷达剖面图", true }, { "AI检测标注图", true },
+          { "病害详细列表清单", true }, { "位置/深度统计表", true } });
+
+    // 导出设置: 文件格式 + 导出路径(只读+浏览)
+    QLabel *secSet = new QLabel(QString::fromUtf8("导出设置"), body);
+    secSet->setObjectName(QStringLiteral("secTitle"));
+    bL->addWidget(secSet);
+    QHBoxLayout *setRow = new QHBoxLayout;
+    setRow->setSpacing(24);
+    QVBoxLayout *fmtL = new QVBoxLayout;
+    QLabel *lFmt = new QLabel(QString::fromUtf8("文件格式"), body);
+    lFmt->setStyleSheet(QStringLiteral("font-size: 12px; color: #424654; border: none;"));
+    fmtL->addWidget(lFmt);
+    QComboBox *fmtBox = new QComboBox(body);
+    fmtBox->addItem(QStringLiteral("PDF (*.pdf)"));
+    fmtBox->addItem(QStringLiteral("Word (*.doc)"));
+    fmtBox->addItem(QStringLiteral("HTML (*.html)"));
+    fmtL->addWidget(fmtBox);
+    setRow->addLayout(fmtL, 1);
+    QVBoxLayout *pathL = new QVBoxLayout;
+    QLabel *lPath = new QLabel(QString::fromUtf8("导出路径"), body);
+    lPath->setStyleSheet(QStringLiteral("font-size: 12px; color: #424654; border: none;"));
+    pathL->addWidget(lPath);
+    QHBoxLayout *pRow = new QHBoxLayout;
+    QLineEdit *pathEd = new QLineEdit(
+        QFileInfo(m_currentTab->filePath).absolutePath(), body);
+    pathEd->setReadOnly(true);
+    QToolButton *btnBrowse = new QToolButton(body);
+    btnBrowse->setObjectName(QStringLiteral("btnBrowse"));
+    if (MatIcon::ready())
+        btnBrowse->setIcon(MatIcon::icon(QStringLiteral("folder_open"),
+                                         QColor(0x42, 0x46, 0x54)));
+    pRow->addWidget(pathEd, 1);
+    pRow->addWidget(btnBrowse);
+    pathL->addLayout(pRow);
+    setRow->addLayout(pathL, 2);
+    bL->addLayout(setRow);
+    bL->addStretch(1);
+    root->addWidget(body, 1);
+
+    connect(btnBrowse, &QToolButton::clicked, &dlg, [this, &dlg, pathEd]() {
+        const QString d = QFileDialog::getExistingDirectory(
+            &dlg, QString::fromUtf8("选择导出路径"), pathEd->text());
+        if (!d.isEmpty()) pathEd->setText(d);
+    });
+
+    // 底部: 取消 / 一键生成报告(footer样式同导出配置, scoped+色条)
+    QWidget *footLine = new QWidget(&dlg);
+    footLine->setFixedHeight(1);
+    footLine->setStyleSheet(QStringLiteral("background: #c3c6d6;"));
+    root->addWidget(footLine);
+    QWidget *foot = new QWidget(&dlg);
+    foot->setFixedHeight(64);
+    foot->setObjectName(QStringLiteral("aiRepFoot"));
+    foot->setAttribute(Qt::WA_StyledBackground, true);
+    foot->setStyleSheet(QStringLiteral("#aiRepFoot { background: #ffffff; }"));
+    QHBoxLayout *fl = new QHBoxLayout(foot);
+    fl->setContentsMargins(24, 0, 24, 0);
+    fl->setSpacing(12);
+    fl->addStretch(1);
+    QPushButton *btnCancel = new QPushButton(QString::fromUtf8("取消"), foot);
+    btnCancel->setObjectName(QStringLiteral("btnCancel"));
+    QPushButton *btnGen = new QPushButton(QString::fromUtf8("一键生成报告"), foot);
+    btnGen->setObjectName(QStringLiteral("btnGen"));
+    if (MatIcon::ready())
+        btnGen->setIcon(MatIcon::icon(QStringLiteral("description"), QColor(0xff, 0xff, 0xff),
+                                      QColor(), QColor(), 16, 1.0));
+    fl->addWidget(btnCancel);
+    fl->addWidget(btnGen);
+    root->addWidget(foot);
+
+    connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+    connect(btnGen, &QPushButton::clicked, &dlg, [&]() {
+        if (!m_currentTab) return;
+        static const char *fmts[3] = { "pdf", "doc", "html" };
+        static const char *exts[3] = { "pdf", "doc", "html" };
+        const int fi = qBound(0, fmtBox->currentIndex(), 2);
+        const QString outPath = pathEd->text() + QLatin1Char('/')
+            + QFileInfo(m_currentTab->filePath).completeBaseName()
+            + QStringLiteral("_AI报告.") + QLatin1String(exts[fi]);
+        if (!generateAiReport(outPath, QLatin1String(fmts[fi]),
+                              infoBoxes[0]->isChecked(), infoBoxes[1]->isChecked(),
+                              infoBoxes[2]->isChecked(), infoBoxes[3]->isChecked(),
+                              contBoxes[0]->isChecked(), contBoxes[1]->isChecked(),
+                              contBoxes[2]->isChecked(), contBoxes[3]->isChecked())) {
+            QMessageBox::warning(&dlg, QString::fromUtf8("AI报告"),
+                QString::fromUtf8("生成失败: 无法写入 %1").arg(outPath));
+            return;
+        }
+        QDesktopServices::openUrl(QUrl::fromLocalFile(outPath));   // 系统关联程序打开
+        dlg.accept();
+    });
+    dlg.exec();
+}
+
+// ==================== v1.0.139 数据组装 (按 地听-数据组装.html) ====================
+// 模态框: 待组装文件列表(勾选/大小/格式) + 批处理实体名称 → 确认组装写 *.BDT 清单(格式见 BDT格式.md)
+
+// 文件大小人性化
+static QString bdtHumanSize(qint64 bytes)
+{
+    if (bytes >= 1024 * 1024)
+        return QString::number(bytes / 1048576.0, 'f', 1) + QStringLiteral(" MB");
+    if (bytes >= 1024)
+        return QString::number(bytes / 1024.0, 'f', 1) + QStringLiteral(" KB");
+    return QString::number(bytes) + QStringLiteral(" B");
+}
+
+// 扩展名 → 格式列文本
+static QString bdtFormatText(const QString &suffix)
+{
+    const QString s = suffix.toLower();
+    if (s == QStringLiteral("dzt")) return QStringLiteral("GSSI Data (.dzt)");
+    if (s == QStringLiteral("dzx")) return QString::fromUtf8("RADAN 处理 (.dzx)");
+    if (s == QStringLiteral("eic")) return QString::fromUtf8("EIC 数据 (.eic)");
+    if (s.isEmpty()) return QString::fromUtf8("未知格式");
+    return QStringLiteral("%1 Data (.%1)").arg(s);
+}
+
+void MainWindow::showAssemblyDialog()
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString::fromUtf8("数据组装配置"));
+    dlg.setModal(true);
+    dlg.setFixedSize(600, 560);
+    dlg.setStyleSheet(QStringLiteral(
+        "QDialog { background: #f8f9ff; }"
+        "QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"
+        " letter-spacing: 1px; border: none; background: transparent; }"
+        "QLineEdit { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
+        " padding: 6px 8px; font-size: 13px; color: #121c2a; }"
+        "QLineEdit:focus { border: 1px solid #0048af; }"
+        "QTableWidget { background: #ffffff; border: 1px solid #c3c6d6; font-size: 12px;"
+        " gridline-color: #e6eeff; }"
+        "QTableWidget::item { padding: 3px 6px; }"
+        "QHeaderView::section { background: #d9e3f6; color: #424654; border: none;"
+        " border-bottom: 1px solid #c3c6d6; border-right: 1px solid #c3c6d6;"
+        " padding: 4px 6px; font-size: 11px; font-weight: bold; }"
+        "QTableWidget::item:selected { background: #dee9fc; color: #121c2a; }"
+        "QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 2px;"
+        " background: #ffffff; color: #121c2a; font-size: 13px; font-weight: 600;"
+        " padding: 7px 18px; }"
+        "QPushButton#btnCancel:hover { background: #e6eeff; }"
+        "QPushButton#btnOk { border: 1px solid #0048af; border-radius: 2px;"
+        " background: #0048af; color: #ffffff; font-size: 13px; font-weight: 600;"
+        " padding: 7px 24px; }"
+        "QPushButton#btnOk:hover { background: #00419e; }"));
+
+    QVBoxLayout *root = new QVBoxLayout(&dlg);
+    root->setContentsMargins(16, 14, 16, 14);
+    root->setSpacing(12);
+
+    // ---- 待组装文件 + 操作按钮 ----
+    QWidget *headRow = new QWidget(&dlg);
+    headRow->setStyleSheet(QStringLiteral("background: transparent; border: none;"));
+    QHBoxLayout *hr = new QHBoxLayout(headRow);
+    hr->setContentsMargins(0, 0, 0, 0);
+    QLabel *sec1 = new QLabel(QString::fromUtf8("待组装文件"), headRow);
+    sec1->setObjectName(QStringLiteral("secTitle"));
+    hr->addWidget(sec1);
+    hr->addStretch(1);
+    auto smallBtn = [&headRow, &hr](const QString &glyph, const QString &text) {
+        QToolButton *b = new QToolButton(headRow);
+        if (MatIcon::ready())
+            b->setIcon(MatIcon::icon(glyph, QColor(0x12, 0x1c, 0x2a)));
+        b->setText(text);
+        b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setStyleSheet(QStringLiteral(
+            "QToolButton { background: #e6eeff; border: 1px solid #c3c6d6; border-radius: 3px;"
+            " padding: 4px 10px; font-size: 12px; color: #121c2a; }"
+            "QToolButton:hover { background: #dee9fc; }"));
+        hr->addWidget(b);
+        return b;
+    };
+    QToolButton *btnAdd = smallBtn(QStringLiteral("add"), QString::fromUtf8("添加文件"));
+    QToolButton *btnRemove = smallBtn(QStringLiteral("remove"), QString::fromUtf8("移除选中"));
+    root->addWidget(headRow);
+
+    // ---- 文件表格: 勾选 | 文件名 | 大小 | 格式 ----
+    QTableWidget *tbl = new QTableWidget(&dlg);
+    tbl->setColumnCount(4);
+    tbl->setHorizontalHeaderLabels({ QString(), QString::fromUtf8("文件名"),
+                                     QString::fromUtf8("大小"), QString::fromUtf8("格式") });
+    tbl->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
+    tbl->horizontalHeader()->resizeSection(0, 36);
+    tbl->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    tbl->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    tbl->horizontalHeader()->resizeSection(2, 86);
+    tbl->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
+    tbl->horizontalHeader()->resizeSection(3, 120);
+    tbl->verticalHeader()->setVisible(false);
+    tbl->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tbl->setMinimumHeight(240);
+    root->addWidget(tbl, 1);
+
+    // 表格底状态条: N items selected | Total size
+    QWidget *statRow = new QWidget(&dlg);
+    statRow->setStyleSheet(QStringLiteral("background: #eff4ff; border: 1px solid #c3c6d6;"
+                                          " border-top: none;"));
+    QHBoxLayout *sr = new QHBoxLayout(statRow);
+    sr->setContentsMargins(8, 3, 8, 3);
+    QLabel *lblSel = new QLabel(QStringLiteral("0 items selected"), statRow);
+    QLabel *lblSize = new QLabel(QStringLiteral("Total size: ~0 B"), statRow);
+    for (QLabel *l : { lblSel, lblSize }) {
+        l->setStyleSheet(QStringLiteral("font-size: 11px; color: #424654; border: none;"
+                                        " background: transparent;"));
+        if (MatIcon::ready()) l->setFont(MatIcon::monoFont(11));
+    }
+    sr->addWidget(lblSel);
+    sr->addStretch(1);
+    sr->addWidget(lblSize);
+    root->addWidget(statRow);
+
+    QWidget *sep = new QWidget(&dlg);
+    sep->setFixedHeight(1);
+    sep->setStyleSheet(QStringLiteral("background: #c3c6d6;"));
+    root->addWidget(sep);
+
+    // ---- 批处理实体名称 ----
+    QLabel *sec2 = new QLabel(QString::fromUtf8("批处理实体名称"), &dlg);
+    sec2->setObjectName(QStringLiteral("secTitle"));
+    root->addWidget(sec2);
+    QLineEdit *nameEd = new QLineEdit(&dlg);
+    nameEd->setPlaceholderText(QString::fromUtf8("请输入批处理实体名称"));
+    root->addWidget(nameEd);
+    root->addStretch(1);
+
+    // 底部: 取消 / 确认组装
+    QWidget *foot = new QWidget(&dlg);
+    foot->setObjectName(QStringLiteral("asmFoot"));
+    foot->setAttribute(Qt::WA_StyledBackground, true);
+    foot->setStyleSheet(QStringLiteral("#asmFoot { background: #eff4ff; border: none; }"));
+    QHBoxLayout *fr = new QHBoxLayout(foot);
+    fr->setContentsMargins(0, 10, 0, 0);
+    fr->addStretch(1);
+    QPushButton *btnCancel = new QPushButton(QString::fromUtf8("取消"), foot);
+    btnCancel->setObjectName(QStringLiteral("btnCancel"));
+    QPushButton *btnOk = new QPushButton(QString::fromUtf8("确认组装"), foot);
+    btnOk->setObjectName(QStringLiteral("btnOk"));
+    if (MatIcon::ready())
+        btnOk->setIcon(MatIcon::icon(QStringLiteral("build_circle"), QColor(0xff, 0xff, 0xff),
+                                     QColor(), QColor(), 16, 1.0));
+    fr->addWidget(btnCancel);
+    fr->addWidget(btnOk);
+    root->addWidget(foot);
+
+    // ---- 行为 ----
+    QString lastAddDir = defaultOpenDir();   // v1.0.141 工作路径生效
+    auto addFiles = [&](const QStringList &files) {
+        int added = 0;
+        for (const QString &f : files) {
+            const QString can = QFileInfo(f).absoluteFilePath();
+            bool dup = false;
+            for (int r = 0; r < tbl->rowCount(); ++r) {
+                const QTableWidgetItem *it = tbl->item(r, 1);
+                if (it && it->data(Qt::UserRole).toString() == can) { dup = true; break; }
+            }
+            if (dup) continue;
+            const QFileInfo fi(f);
+            // 建行期间屏蔽信号: setItem会同步触发itemChanged→refreshStat,
+            // 而半成品行 item(r,1) 为 nullptr → 空指针闪退(v1.0.139实测坑)
+            tbl->blockSignals(true);
+            tbl->insertRow(tbl->rowCount());
+            QTableWidgetItem *c0 = new QTableWidgetItem;
+            c0->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+            c0->setCheckState(Qt::Checked);
+            tbl->setItem(tbl->rowCount() - 1, 0, c0);
+            QTableWidgetItem *c1 = new QTableWidgetItem(fi.fileName());
+            if (MatIcon::ready())
+                c1->setIcon(MatIcon::icon(QStringLiteral("description"),
+                                          QColor(0x00, 0x48, 0xaf), QColor(), QColor(), 14));
+            c1->setData(Qt::UserRole, can);   // 绝对路径(判重/写BDT)
+            c1->setToolTip(can);
+            tbl->setItem(tbl->rowCount() - 1, 1, c1);
+            QTableWidgetItem *c2 = new QTableWidgetItem(bdtHumanSize(fi.size()));
+            c2->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            tbl->setItem(tbl->rowCount() - 1, 2, c2);
+            tbl->setItem(tbl->rowCount() - 1, 3,
+                         new QTableWidgetItem(bdtFormatText(fi.suffix())));
+            tbl->blockSignals(false);
+            ++added;
+        }
+        return added;
+    };
+    auto refreshStat = [&]() {
+        int n = 0;
+        qint64 tot = 0;
+        for (int r = 0; r < tbl->rowCount(); ++r) {
+            const QTableWidgetItem *c0 = tbl->item(r, 0);
+            const QTableWidgetItem *c1 = tbl->item(r, 1);
+            if (!c0 || !c1) continue;   // 半成品行跳过(防闪退)
+            if (c0->checkState() == Qt::Checked) {
+                ++n;
+                tot += QFileInfo(c1->data(Qt::UserRole).toString()).size();
+            }
+        }
+        lblSel->setText(QStringLiteral("%1 items selected").arg(n));
+        lblSize->setText(QStringLiteral("Total size: ~%1").arg(bdtHumanSize(tot)));
+    };
+    connect(tbl, &QTableWidget::itemChanged, &dlg, [&](QTableWidgetItem *) { refreshStat(); });
+
+    connect(btnAdd, &QToolButton::clicked, &dlg, [&]() {
+        const QStringList files = QFileDialog::getOpenFileNames(
+            &dlg, QString::fromUtf8("添加待组装文件"), lastAddDir,
+            QString::fromUtf8("GPR数据 (*.dzt *.dzx *.eic *.DZT *.EIC);;所有文件 (*)"));
+        if (files.isEmpty()) return;
+        lastAddDir = QFileInfo(files.first()).absolutePath();
+        rememberOpenDir(files.first());   // v1.0.141 记录上次目录
+        addFiles(files);
+        refreshStat();
+    });
+    connect(btnRemove, &QToolButton::clicked, &dlg, [&]() {
+        const QList<QModelIndex> sel = tbl->selectionModel()->selectedRows();
+        for (int i = sel.size() - 1; i >= 0; --i)
+            tbl->removeRow(sel[i].row());
+        refreshStat();
+    });
+    connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+    connect(btnOk, &QPushButton::clicked, &dlg, [&]() {
+        // 收集勾选行(列表顺序=组装顺序)
+        QStringList files;
+        for (int r = 0; r < tbl->rowCount(); ++r) {
+            const QTableWidgetItem *c0 = tbl->item(r, 0);
+            const QTableWidgetItem *c1 = tbl->item(r, 1);
+            if (c0 && c1 && c0->checkState() == Qt::Checked)
+                files.append(c1->data(Qt::UserRole).toString());
+        }
+        if (files.isEmpty()) {
+            QMessageBox::warning(&dlg, QString::fromUtf8("数据组装"),
+                QString::fromUtf8("请先添加并勾选待组装文件。"));
+            return;
+        }
+        const QString name = nameEd->text().trimmed();
+        if (name.isEmpty()) {
+            QMessageBox::warning(&dlg, QString::fromUtf8("数据组装"),
+                QString::fromUtf8("请输入批处理实体名称。"));
+            nameEd->setFocus();
+            return;
+        }
+        QString sel = QFileDialog::getSaveFileName(
+            &dlg, QString::fromUtf8("保存组装文件"),
+            lastAddDir + QLatin1Char('/') + name + QStringLiteral(".BDT"),
+            QStringLiteral("BDT 组装清单 (*.BDT)"));
+        if (sel.isEmpty()) return;   // 取消保存: 配置框不关
+        if (!sel.endsWith(QStringLiteral(".BDT"), Qt::CaseInsensitive))
+            sel += QStringLiteral(".BDT");
+
+        // 写 BDT V1 (UTF-8 + CRLF, 格式见 BDT格式.md)
+        QFile f(sel);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            QMessageBox::warning(&dlg, QString::fromUtf8("数据组装"),
+                QString::fromUtf8("无法写入 %1").arg(sel));
+            return;
+        }
+        QString txt = QStringLiteral("; BDT V1 - 劳雷GPR 数据组装清单\r\n"
+                                     "[BDT]\r\n"
+                                     "Version=1\r\n"
+                                     "Name=%1\r\n"
+                                     "Count=%2\r\n").arg(name).arg(files.size());
+        for (const QString &p : files)
+            txt += QStringLiteral("File=%1\r\n").arg(p);
+        f.write(txt.toUtf8());
+        f.close();
+
+        QMessageBox::information(&dlg, QString::fromUtf8("数据组装"),
+            QString::fromUtf8("组装完成: %1\r\n共 %2 个文件, 后续批处理功能可直接打开该清单执行。")
+                .arg(sel).arg(files.size()));
+        dlg.accept();
+    });
+
+    // 默认带入当前打开文件
+    if (m_currentTab && !m_currentTab->filePath.isEmpty())
+        addFiles({ m_currentTab->filePath });
+    refreshStat();
+    dlg.exec();
+}
+
+// ==================== v1.0.141 工作路径 (按 地听-工作路径.html) ====================
+
+// 生效打开目录: 勾选"启动自动加载上次路径"且上次目录存在→上次目录; 否则工作路径; 兜底当前文件目录/主目录
+QString MainWindow::defaultOpenDir()
+{
+    if (m_autoLoadLastPath && !m_lastOpenDir.isEmpty() && QDir(m_lastOpenDir).exists())
+        return m_lastOpenDir;
+    if (!m_workPath.isEmpty() && QDir(m_workPath).exists())
+        return m_workPath;
+    if (m_currentTab && !m_currentTab->filePath.isEmpty())
+        return QFileInfo(m_currentTab->filePath).absolutePath();
+    return QDir::homePath();
+}
+
+// 打开/添加文件后记录目录(持久化)
+void MainWindow::rememberOpenDir(const QString &filePath)
+{
+    const QString d = QFileInfo(filePath).absolutePath();
+    if (d.isEmpty() || d == m_lastOpenDir) return;
+    m_lastOpenDir = d;
+    QSettings st(QStringLiteral("LaoreiGPR"), QStringLiteral("MyQtApp"));
+    st.setValue(QStringLiteral("lastOpenDir"), d);
+}
+
+// 工作路径设置模态框(480px): 当前路径(mono+浏览) + 启动时自动加载上次路径 + 取消/应用设置
+void MainWindow::showWorkPathDialog()
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString::fromUtf8("工作路径设置"));
+    dlg.setModal(true);
+    dlg.setFixedSize(480, 260);
+    dlg.setStyleSheet(QStringLiteral(
+        "QDialog { background: #f8f9ff; }"
+        "QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"
+        " letter-spacing: 1px; border: none; background: transparent; }"
+        "QLabel#desc { font-size: 12px; color: #424654; border: none; background: transparent; }"
+        "QLineEdit { border: 1px solid #c3c6d6; border-radius: 0px; background: #ffffff;"
+        " font-size: 12px; color: #121c2a; padding: 4px 8px; }"
+        "QLineEdit:focus { border: 1px solid #0048af; }"
+        "QToolButton#btnBrowse { background: #e6eeff; border: 1px solid #c3c6d6;"
+        " border-left: 1px solid #c3c6d6; font-size: 11px; font-weight: bold;"
+        " color: #121c2a; padding: 5px 10px; }"
+        "QToolButton#btnBrowse:hover { background: #dee9fc; }"
+        "QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }"
+        "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
+        " border-radius: 0px; background: #ffffff; }"
+        "QCheckBox::indicator:checked { background: #0048af; border-color: #0048af;"
+        " image: url(:/icons/check_white.png); }"
+        "QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 0px;"
+        " background: #ffffff; color: #121c2a; font-size: 11px; font-weight: bold;"
+        " padding: 6px 16px; }"
+        "QPushButton#btnCancel:hover { background: #e6eeff; }"
+        "QPushButton#btnApply { border: 1px solid #0048af; border-radius: 0px;"
+        " background: #0048af; color: #ffffff; font-size: 11px; font-weight: bold;"
+        " padding: 6px 16px; }"
+        "QPushButton#btnApply:hover { background: #1e60d5; }"));
+
+    QVBoxLayout *root = new QVBoxLayout(&dlg);
+    root->setContentsMargins(12, 12, 12, 10);
+    root->setSpacing(12);
+
+    // 描述
+    QLabel *desc = new QLabel(QString::fromUtf8("设置默认工作目录，后续打开文件将自动定位至此路径。"), &dlg);
+    desc->setObjectName(QStringLiteral("desc"));
+    desc->setWordWrap(true);
+    root->addWidget(desc);
+
+    // 当前路径 + 浏览
+    QLabel *sec = new QLabel(QString::fromUtf8("当前路径"), &dlg);
+    sec->setObjectName(QStringLiteral("secTitle"));
+    root->addWidget(sec);
+    QWidget *pathRow = new QWidget(&dlg);
+    QHBoxLayout *pr = new QHBoxLayout(pathRow);
+    pr->setContentsMargins(0, 0, 0, 0);
+    pr->setSpacing(0);
+    QLineEdit *pathEd = new QLineEdit(
+        m_workPath.isEmpty() ? QDir::homePath() : m_workPath, pathRow);
+    if (MatIcon::ready()) pathEd->setFont(MatIcon::monoFont(12));
+    QToolButton *btnBrowse = new QToolButton(pathRow);
+    btnBrowse->setObjectName(QStringLiteral("btnBrowse"));
+    if (MatIcon::ready())
+        btnBrowse->setIcon(MatIcon::icon(QStringLiteral("search"), QColor(0x12, 0x1c, 0x2a),
+                                         QColor(), QColor(), 14));
+    btnBrowse->setText(QString::fromUtf8("浏览"));
+    btnBrowse->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    btnBrowse->setCursor(Qt::PointingHandCursor);
+    pr->addWidget(pathEd, 1);
+    pr->addWidget(btnBrowse);
+    root->addWidget(pathRow);
+
+    // 启动时自动加载上次路径
+    QCheckBox *ckAuto = new QCheckBox(QString::fromUtf8("启动时自动加载上次路径"), &dlg);
+    ckAuto->setChecked(m_autoLoadLastPath);
+    root->addWidget(ckAuto);
+    root->addStretch(1);
+
+    // 底部: 取消 / 应用设置
+    QWidget *foot = new QWidget(&dlg);
+    foot->setObjectName(QStringLiteral("wpFoot"));
+    foot->setAttribute(Qt::WA_StyledBackground, true);
+    foot->setStyleSheet(QStringLiteral("#wpFoot { background: #eff4ff; border: none; }"));
+    QHBoxLayout *fr = new QHBoxLayout(foot);
+    fr->setContentsMargins(0, 8, 0, 0);
+    fr->addStretch(1);
+    QPushButton *btnCancel = new QPushButton(QString::fromUtf8("取消"), foot);
+    btnCancel->setObjectName(QStringLiteral("btnCancel"));
+    QPushButton *btnApply = new QPushButton(QString::fromUtf8("应用设置"), foot);
+    btnApply->setObjectName(QStringLiteral("btnApply"));
+    fr->addWidget(btnCancel);
+    fr->addWidget(btnApply);
+    root->addWidget(foot);
+
+    connect(btnBrowse, &QToolButton::clicked, &dlg, [&dlg, pathEd]() {
+        const QString d = QFileDialog::getExistingDirectory(
+            &dlg, QString::fromUtf8("选择工作路径"), pathEd->text());
+        if (!d.isEmpty()) pathEd->setText(d);
+    });
+    connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+    connect(btnApply, &QPushButton::clicked, &dlg, [&]() {
+        const QString d = pathEd->text().trimmed();
+        if (d.isEmpty() || !QDir(d).exists()) {
+            QMessageBox::warning(&dlg, QString::fromUtf8("工作路径设置"),
+                QString::fromUtf8("路径不存在，请重新选择。"));
+            return;
+        }
+        m_workPath = d;
+        m_autoLoadLastPath = ckAuto->isChecked();
+        QSettings st(QStringLiteral("LaoreiGPR"), QStringLiteral("MyQtApp"));
+        st.setValue(QStringLiteral("workPath"), m_workPath);
+        st.setValue(QStringLiteral("autoLoadLastPath"), m_autoLoadLastPath);
+        dlg.accept();
+    });
+    dlg.exec();
+}
+
+// ==================== v1.0.142 格式转换 (按 地听-数据格式转换.html) ====================
+// DZT→DT(同名DZX一并→DX) / DZX→DX: 字节复制+改后缀(V1完全兼容, 见 DT和DX格式.md)
+
+// 分块复制(进度回调0-100)
+static bool copyWithProgress(const QString &src, const QString &dst,
+                             const std::function<void(int)> &prog)
+{
+    QFile in(src);
+    if (!in.open(QIODevice::ReadOnly)) return false;
+    QFile out(dst);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) { in.close(); return false; }
+    const qint64 total = in.size();
+    qint64 done = 0;
+    char buf[1 << 20];   // 1MB
+    while (!in.atEnd()) {
+        const qint64 n = in.read(buf, sizeof buf);
+        if (n <= 0 || out.write(buf, n) != n) { in.close(); out.close(); return false; }
+        done += n;
+        if (prog) prog(total > 0 ? int(done * 100 / total) : 100);
+    }
+    in.close();
+    out.close();
+    return true;
+}
+
+void MainWindow::showConvertDialog()
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString::fromUtf8("数据格式转换"));
+    dlg.setModal(true);
+    dlg.setFixedSize(520, 400);
+    dlg.setStyleSheet(QStringLiteral(
+        "QDialog { background: #f8f9ff; }"
+        "QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"
+        " letter-spacing: 1px; border: none; background: transparent; }"
+        "QLabel#hint { font-size: 11px; color: #737785; border: none; background: transparent; }"
+        "QLineEdit { border: 1px solid #c3c6d6; background: #ffffff; padding: 5px 8px;"
+        " font-size: 12px; color: #121c2a; }"
+        "QLineEdit:focus { border: 1px solid #0048af; }"
+        "QLineEdit:disabled { color: #424654; background: #ffffff; }"
+        "QComboBox { border: 1px solid #c3c6d6; background: #ffffff; padding: 5px 26px 5px 8px;"
+        " font-size: 13px; color: #121c2a; }"
+        "QComboBox::drop-down { border: none; width: 22px; }"
+        "QComboBox::down-arrow { image: url(none); border-left: 4px solid transparent;"
+        " border-right: 4px solid transparent; border-top: 5px solid #424654; margin-right: 8px; }"
+        "QToolButton#btnPick { background: #e6eeff; border: 1px solid #c3c6d6;"
+        " font-size: 11px; color: #121c2a; }"
+        "QToolButton#btnPick:hover { background: #dee9fc; }"
+        "QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }"
+        "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
+        " background: #ffffff; }"
+        "QCheckBox::indicator:checked { background: #0048af; border-color: #0048af;"
+        " image: url(:/icons/check_white.png); }"
+        "QProgressBar#cvBar { border: none; background: #d9e3f6; height: 6px; }"
+        "QProgressBar#cvBar::chunk { background: #0048af; }"
+        "QPushButton#btnCancel { border: 1px solid #c3c6d6; background: #ffffff;"
+        " color: #121c2a; font-size: 13px; font-weight: 600; padding: 6px 16px; }"
+        "QPushButton#btnCancel:hover { background: #e6eeff; }"
+        "QPushButton#btnGo { border: 1px solid #0048af; background: #0048af; color: #ffffff;"
+        " font-size: 13px; font-weight: 600; padding: 6px 20px; }"
+        "QPushButton#btnGo:hover { background: #1e60d5; }"));
+
+    QVBoxLayout *root = new QVBoxLayout(&dlg);
+    root->setContentsMargins(16, 12, 16, 12);
+    root->setSpacing(10);
+
+    // ---- 源文件 ----
+    QLabel *sec1 = new QLabel(QString::fromUtf8("源文件"), &dlg);
+    sec1->setObjectName(QStringLiteral("secTitle"));
+    root->addWidget(sec1);
+    QWidget *srcRow = new QWidget(&dlg);
+    QHBoxLayout *sr = new QHBoxLayout(srcRow);
+    sr->setContentsMargins(0, 0, 0, 0);
+    sr->setSpacing(4);
+    QLineEdit *srcEd = new QLineEdit(srcRow);
+    srcEd->setReadOnly(true);
+    if (MatIcon::ready()) srcEd->setFont(MatIcon::monoFont(12));
+    QToolButton *btnPick = new QToolButton(srcRow);
+    btnPick->setObjectName(QStringLiteral("btnPick"));
+    if (MatIcon::ready())
+        btnPick->setIcon(MatIcon::icon(QStringLiteral("folder_open"), QColor(0x12, 0x1c, 0x2a),
+                                       QColor(), QColor(), 16));
+    btnPick->setCursor(Qt::PointingHandCursor);
+    sr->addWidget(srcEd, 1);
+    sr->addWidget(btnPick);
+    root->addWidget(srcRow);
+    QLabel *hint = new QLabel(QString::fromUtf8("支持格式: .DZX、DZT"), &dlg);
+    hint->setObjectName(QStringLiteral("hint"));
+    root->addWidget(hint);
+
+    QWidget *sep = new QWidget(&dlg);
+    sep->setFixedHeight(1);
+    sep->setStyleSheet(QStringLiteral("background: #c3c6d6;"));
+    root->addWidget(sep);
+
+    // ---- 目标格式 + 输出目录 ----
+    QWidget *grid = new QWidget(&dlg);
+    QGridLayout *gl = new QGridLayout(grid);
+    gl->setContentsMargins(0, 0, 0, 0);
+    gl->setHorizontalSpacing(12);
+    gl->setVerticalSpacing(8);
+    QLabel *lFmt = new QLabel(QString::fromUtf8("目标格式"), grid);
+    lFmt->setObjectName(QStringLiteral("secTitle"));
+    gl->addWidget(lFmt, 0, 0);
+    QComboBox *fmtBox = new QComboBox(grid);
+    fmtBox->addItem(QStringLiteral("Diting Native Format (.DT)"));
+    fmtBox->addItem(QString::fromUtf8("SEG-Y Standard (.SGY) — 后续版本"));
+    fmtBox->addItem(QString::fromUtf8("ASCII Data (.CSV) — 后续版本"));
+    gl->addWidget(fmtBox, 1, 0);
+    QLabel *lOut = new QLabel(QString::fromUtf8("输出目录"), grid);
+    lOut->setObjectName(QStringLiteral("secTitle"));
+    gl->addWidget(lOut, 0, 1);
+    QWidget *outRow = new QWidget(grid);
+    QHBoxLayout *orr = new QHBoxLayout(outRow);
+    orr->setContentsMargins(0, 0, 0, 0);
+    orr->setSpacing(4);
+    QLineEdit *outEd = new QLineEdit(outRow);
+    outEd->setReadOnly(true);
+    if (MatIcon::ready()) outEd->setFont(MatIcon::monoFont(12));
+    QToolButton *btnOut = new QToolButton(outRow);
+    btnOut->setObjectName(QStringLiteral("btnPick"));
+    if (MatIcon::ready())
+        btnOut->setIcon(MatIcon::icon(QStringLiteral("more_horiz"), QColor(0x12, 0x1c, 0x2a),
+                                      QColor(), QColor(), 16));
+    btnOut->setCursor(Qt::PointingHandCursor);
+    orr->addWidget(outEd, 1);
+    orr->addWidget(btnOut);
+    gl->addWidget(outRow, 1, 1);
+    root->addWidget(grid);
+
+    // ---- 选项: 转换后自动打开 ----
+    QCheckBox *ckOpen = new QCheckBox(QString::fromUtf8("转换后自动打开"), &dlg);
+    ckOpen->setChecked(true);
+    root->addWidget(ckOpen);
+
+    // ---- 处理进度 ----
+    QWidget *progCard = new QWidget(&dlg);
+    progCard->setObjectName(QStringLiteral("cvProgCard"));
+    progCard->setAttribute(Qt::WA_StyledBackground, true);
+    progCard->setStyleSheet(QStringLiteral("#cvProgCard { background: #eff4ff;"
+                                           " border: 1px solid #c3c6d6; }"));
+    QVBoxLayout *pc = new QVBoxLayout(progCard);
+    pc->setContentsMargins(10, 8, 10, 8);
+    pc->setSpacing(5);
+    QWidget *ph = new QWidget(progCard);
+    QHBoxLayout *phl = new QHBoxLayout(ph);
+    phl->setContentsMargins(0, 0, 0, 0);
+    QLabel *lProg = new QLabel(QString::fromUtf8("处理进度"), ph);
+    lProg->setObjectName(QStringLiteral("secTitle"));
+    QLabel *pct = new QLabel(QStringLiteral("0%"), ph);
+    pct->setStyleSheet(QStringLiteral("font-size: 12px; color: #424654; border: none;"
+                                      " background: transparent;"));
+    if (MatIcon::ready()) { pct->setFont(MatIcon::monoFont(12)); lProg->setFont(MatIcon::monoFont(11)); }
+    phl->addWidget(lProg);
+    phl->addStretch(1);
+    phl->addWidget(pct);
+    pc->addWidget(ph);
+    QProgressBar *bar = new QProgressBar(progCard);
+    bar->setObjectName(QStringLiteral("cvBar"));
+    bar->setRange(0, 100);
+    bar->setValue(0);
+    bar->setTextVisible(false);
+    bar->setFixedHeight(6);
+    pc->addWidget(bar);
+    QLabel *status = new QLabel(QString::fromUtf8("等待启动..."), progCard);
+    status->setStyleSheet(QStringLiteral("font-size: 12px; color: #424654; border: none;"
+                                         " background: transparent;"));
+    if (MatIcon::ready()) status->setFont(MatIcon::monoFont(12));
+    pc->addWidget(status);
+    root->addWidget(progCard);
+    root->addStretch(1);
+
+    // ---- 底部: 取消 / 开始转换 ----
+    QWidget *foot = new QWidget(&dlg);
+    foot->setObjectName(QStringLiteral("cvFoot"));
+    foot->setAttribute(Qt::WA_StyledBackground, true);
+    foot->setStyleSheet(QStringLiteral("#cvFoot { background: #eff4ff; border: none; }"));
+    QHBoxLayout *fr = new QHBoxLayout(foot);
+    fr->setContentsMargins(0, 8, 0, 0);
+    fr->addStretch(1);
+    QPushButton *btnCancel = new QPushButton(QString::fromUtf8("取消"), foot);
+    btnCancel->setObjectName(QStringLiteral("btnCancel"));
+    QPushButton *btnGo = new QPushButton(QString::fromUtf8("开始转换"), foot);
+    btnGo->setObjectName(QStringLiteral("btnGo"));
+    if (MatIcon::ready())
+        btnGo->setIcon(MatIcon::icon(QStringLiteral("play_arrow"), QColor(0xff, 0xff, 0xff),
+                                     QColor(), QColor(), 16, 1.0));
+    fr->addWidget(btnCancel);
+    fr->addWidget(btnGo);
+    root->addWidget(foot);
+
+    // ---- 行为 ----
+    if (m_currentTab && !m_currentTab->filePath.isEmpty())
+        outEd->setText(QFileInfo(m_currentTab->filePath).absolutePath());
+    else
+        outEd->setText(defaultOpenDir());
+    connect(btnPick, &QToolButton::clicked, &dlg, [&]() {
+        const QString f = QFileDialog::getOpenFileName(
+            &dlg, QString::fromUtf8("选择源文件"), defaultOpenDir(),
+            QString::fromUtf8("GPR 数据 (*.dzt *.dzx *.DZT *.DZX);;所有文件 (*)"));
+        if (f.isEmpty()) return;
+        srcEd->setText(f);
+        rememberOpenDir(f);
+        outEd->setText(QFileInfo(f).absolutePath());   // 默认输出=源目录
+    });
+    connect(btnOut, &QToolButton::clicked, &dlg, [&]() {
+        const QString d = QFileDialog::getExistingDirectory(
+            &dlg, QString::fromUtf8("选择输出目录"), outEd->text());
+        if (!d.isEmpty()) outEd->setText(d);
+    });
+    connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+    connect(btnGo, &QPushButton::clicked, &dlg, [&]() {
+        const QString src = srcEd->text();
+        const QString outDir = outEd->text();
+        if (src.isEmpty()) {
+            QMessageBox::warning(&dlg, QString::fromUtf8("数据格式转换"),
+                QString::fromUtf8("请先选择源文件。"));
+            return;
+        }
+        if (outDir.isEmpty() || !QDir(outDir).exists()) {
+            QMessageBox::warning(&dlg, QString::fromUtf8("数据格式转换"),
+                QString::fromUtf8("输出目录不存在，请重新选择。"));
+            return;
+        }
+        if (fmtBox->currentIndex() > 0) {
+            QMessageBox::information(&dlg, QString::fromUtf8("数据格式转换"),
+                QString::fromUtf8("该目标格式将在后续版本提供，当前支持 DZT/DZX → DT/DX。"));
+            return;
+        }
+        const QFileInfo fi(src);
+        const QString base = outDir + QLatin1Char('/') + fi.completeBaseName();
+        const bool isDzx = fi.suffix().compare(QStringLiteral("dzx"), Qt::CaseInsensitive) == 0;
+        if (!isDzx
+            && fi.suffix().compare(QStringLiteral("dzt"), Qt::CaseInsensitive) != 0) {
+            QMessageBox::warning(&dlg, QString::fromUtf8("数据格式转换"),
+                QString::fromUtf8("仅支持 .DZT / .DZX 源文件。"));
+            return;
+        }
+        btnGo->setEnabled(false);
+        // 转换 = 字节复制+改后缀(V1完全兼容); DZT源同时转同名DZX
+        struct Item { QString src, dst; };
+        QList<Item> items;
+        if (isDzx) {
+            items.append({ fi.absoluteFilePath(), base + QStringLiteral(".DX") });
+        } else {
+            items.append({ fi.absoluteFilePath(), base + QStringLiteral(".DT") });
+            const QString dzx = dzxPairPath(fi.absoluteFilePath(), false);
+            if (QFile::exists(dzx))
+                items.append({ dzx, base + QStringLiteral(".DX") });
+        }
+        QStringList done;
+        for (int i = 0; i < items.size(); ++i) {
+            const int t0 = i * 100 / items.size();
+            const int t1 = (i + 1) * 100 / items.size();
+            status->setText(QString::fromUtf8("转换中: %1 → %2")
+                                .arg(QFileInfo(items[i].src).fileName(),
+                                     QFileInfo(items[i].dst).fileName()));
+            QCoreApplication::processEvents();
+            if (!copyWithProgress(items[i].src, items[i].dst,
+                                  [&](int p) {
+                                      bar->setValue(t0 + (t1 - t0) * p / 100);
+                                      pct->setText(QString::number(t0 + (t1 - t0) * p / 100)
+                                                       + QLatin1Char('%'));
+                                      QCoreApplication::processEvents();
+                                  })) {
+                QMessageBox::warning(&dlg, QString::fromUtf8("数据格式转换"),
+                    QString::fromUtf8("写入失败: %1").arg(items[i].dst));
+                btnGo->setEnabled(true);
+                return;
+            }
+            done << items[i].dst;
+        }
+        bar->setValue(100);
+        pct->setText(QStringLiteral("100%"));
+        status->setText(QString::fromUtf8("完成: %1").arg(done.join(QStringLiteral(", "))));
+        btnGo->setEnabled(true);
+        if (ckOpen->isChecked()) {
+            const QString openTarget = done.first();   // DT(数据)优先
+            dlg.accept();
+            openDztFile(openTarget);
+        }
+    });
+    dlg.exec();
+}
+
+// ==================== v1.0.135 AI智能检测引擎面板 (按 AI分析-AI检测.html) ====================
+
+// 右侧320px面板: 模型配置 / 检测统计(总数十4类卡片) / 病害列表 / 运行AI检测
+void MainWindow::createAiPanel()
+{
+    m_aiPanel = new QWidget(this);
+    m_aiPanel->setObjectName(QStringLiteral("gprAiPanel"));
+    m_aiPanel->setFixedWidth(320);
+    m_aiPanel->setStyleSheet("#gprAiPanel { background: #f8f9ff; }");
+    QHBoxLayout *shell = new QHBoxLayout(m_aiPanel);
+    shell->setContentsMargins(0, 0, 0, 0);
+    shell->setSpacing(0);
+    QWidget *edge = new QWidget(m_aiPanel);   // 左1px分隔线(同interp面板模式)
+    edge->setFixedWidth(1);
+    edge->setStyleSheet(QStringLiteral("background: #c3c6d6;"));
+    shell->addWidget(edge);
+    QWidget *inner = new QWidget(m_aiPanel);
+    inner->setStyleSheet(QStringLiteral("background: #f8f9ff;"));
+    shell->addWidget(inner, 1);
+    QVBoxLayout *outer = new QVBoxLayout(inner);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(0);
+
+    // 头条 32px
+    QWidget *head = new QWidget(inner);
+    head->setFixedHeight(32);
+    head->setStyleSheet(QStringLiteral("background: #eff4ff; border-bottom: 1px solid #c3c6d6;"));
+    QHBoxLayout *hl = new QHBoxLayout(head);
+    hl->setContentsMargins(12, 0, 12, 0);
+    QLabel *hTitle = new QLabel(QString::fromUtf8("AI智能检测引擎"), head);
+    hTitle->setStyleSheet(QStringLiteral("font-size: 11px; font-weight: bold; color: #424654;"
+                                         " letter-spacing: 1px; border: none; background: transparent;"));
+    hl->addWidget(hTitle);
+    hl->addStretch(1);
+    QLabel *hIcon = new QLabel(head);
+    if (MatIcon::ready())
+        hIcon->setPixmap(MatIcon::pixmap(QStringLiteral("keyboard_double_arrow_right"),
+                                         QColor(0x42, 0x46, 0x54), 16, 0.0, devicePixelRatioF()));
+    hl->addWidget(hIcon);
+    outer->addWidget(head);
+
+    // 可滚动主体
+    QScrollArea *scroll = new QScrollArea(inner);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet(QStringLiteral("QScrollArea { background: transparent; border: none; }"));
+    QWidget *body = new QWidget;
+    body->setStyleSheet(QStringLiteral("background: #f8f9ff;"));
+    QVBoxLayout *bl = new QVBoxLayout(body);
+    bl->setContentsMargins(12, 12, 12, 12);
+    bl->setSpacing(12);
+
+    // 卡片骨架: 边框卡+标题条(icon+标题)+内容
+    auto card = [&](const QString &glyph, const QString &title) -> QVBoxLayout * {
+        QFrame *c = new QFrame(body);
+        c->setFrameShape(QFrame::StyledPanel);
+        c->setStyleSheet(QStringLiteral("QFrame { background: #ffffff; border: 1px solid #c3c6d6;"
+                                        " border-radius: 4px; }"));
+        QVBoxLayout *cl = new QVBoxLayout(c);
+        cl->setContentsMargins(0, 0, 0, 0);
+        cl->setSpacing(0);
+        QWidget *h = new QWidget(c);
+        h->setStyleSheet(QStringLiteral("background: #eff4ff; border-bottom: 1px solid #c3c6d6;"
+                                        " border-top-left-radius: 3px; border-top-right-radius: 3px;"));
+        QHBoxLayout *t = new QHBoxLayout(h);
+        t->setContentsMargins(10, 5, 10, 5);
+        QLabel *ic = new QLabel(h);
+        if (MatIcon::ready())
+            ic->setPixmap(MatIcon::pixmap(glyph, QColor(0x00, 0x48, 0xaf), 16, 0.0, devicePixelRatioF()));
+        t->addWidget(ic);
+        QLabel *tt = new QLabel(title, h);
+        tt->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: 600; color: #121c2a;"
+                                         " border: none; background: transparent;"));
+        t->addWidget(tt);
+        t->addStretch(1);
+        cl->addWidget(h);
+        QWidget *ct = new QWidget(c);
+        ct->setStyleSheet(QStringLiteral("background: #ffffff; border: none;"));
+        QVBoxLayout *ctl = new QVBoxLayout(ct);
+        ctl->setContentsMargins(10, 10, 10, 10);
+        ctl->setSpacing(10);
+        cl->addWidget(ct);
+        bl->addWidget(c);
+        return ctl;
+    };
+
+    // --- 卡1: 模型配置 ---
+    QVBoxLayout *cfgL = card(QStringLiteral("tune"), QString::fromUtf8("模型配置"));
+    QLabel *lModel = new QLabel(QString::fromUtf8("选择模型"), body);
+    lModel->setStyleSheet(QStringLiteral("font-size: 12px; color: #424654; border: none;"
+                                         " background: transparent;"));
+    cfgL->addWidget(lModel);
+    m_aiModelBox = new QComboBox(body);
+    {   // 扫描 AI/ 目录下的 onnx 作为可选模型
+        QStringList dirs = { QCoreApplication::applicationDirPath() + "/AI",
+                             QDir::currentPath() + "/AI",
+                             QStringLiteral("D:/gpr_software/AI") };
+        QSet<QString> seen;
+        for (const QString &d : dirs) {
+            const QStringList f = QDir(d).entryList({ QStringLiteral("*.onnx") }, QDir::Files);
+            for (const QString &n : f)
+                if (!seen.contains(n)) { seen.insert(n); m_aiModelBox->addItem(n); }
+        }
+        if (m_aiModelBox->count() == 0)
+            m_aiModelBox->addItem(QStringLiteral("yolo_gpr_cls.onnx (未找到)"));
+    }
+    cfgL->addWidget(m_aiModelBox);
+
+    QWidget *thRow = new QWidget(body);
+    thRow->setStyleSheet(QStringLiteral("background: transparent; border: none;"));
+    QHBoxLayout *thr = new QHBoxLayout(thRow);
+    thr->setContentsMargins(0, 0, 0, 0);
+    QLabel *lTh = new QLabel(QString::fromUtf8("置信度阈值"), thRow);
+    lTh->setStyleSheet(QStringLiteral("font-size: 12px; color: #424654; border: none;"
+                                      " background: transparent;"));
+    m_aiConfVal = new QLabel(QStringLiteral("0.70"), thRow);
+    m_aiConfVal->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: bold; color: #0048af;"
+                                              " border: none; background: transparent;"));
+    if (MatIcon::ready()) m_aiConfVal->setFont(MatIcon::monoFont(13));
+    thr->addWidget(lTh);
+    thr->addStretch(1);
+    thr->addWidget(m_aiConfVal);
+    cfgL->addWidget(thRow);
+    m_aiConfSlider = new QSlider(Qt::Horizontal, body);
+    m_aiConfSlider->setRange(0, 100);
+    m_aiConfSlider->setValue(70);
+    m_aiConfSlider->setStyleSheet(
+        "QSlider::groove:horizontal { height: 4px; background: #c3c6d6; border-radius: 2px; }"
+        "QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0;"
+        " border-radius: 7px; background: #0048af; }"
+        "QSlider::sub-page:horizontal { background: #0048af; border-radius: 2px; }");
+    connect(m_aiConfSlider, &QSlider::valueChanged, this, [this](int v) {
+        m_aiConfThreshold = v / 100.0;
+        if (m_aiConfVal)
+            m_aiConfVal->setText(QString::number(m_aiConfThreshold, 'f', 2));
+    });
+    cfgL->addWidget(m_aiConfSlider);
+
+    m_aiGpuCheck = new QCheckBox(QString::fromUtf8("启用GPU加速"), body);
+    m_aiGpuCheck->setChecked(true);
+    m_aiGpuCheck->setToolTip(QString::fromUtf8("当前构建使用 CPU 推理 (OpenCV DNN)"));
+    m_aiGpuCheck->setStyleSheet(QStringLiteral("font-size: 12px; color: #121c2a; spacing: 8px;"
+                                               " background: transparent; border: none;"));
+    cfgL->addWidget(m_aiGpuCheck);
+
+    // --- 卡2: 检测统计 ---
+    QVBoxLayout *stL = card(QStringLiteral("donut_small"), QString::fromUtf8("检测统计"));
+    QWidget *totRow = new QWidget(body);
+    totRow->setStyleSheet(QStringLiteral("background: #d9e3f6; border-radius: 4px;"));
+    QHBoxLayout *tr = new QHBoxLayout(totRow);
+    tr->setContentsMargins(10, 8, 10, 8);
+    QLabel *lTot = new QLabel(QString::fromUtf8("总识别数量"), totRow);
+    lTot->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: 600; color: #121c2a;"
+                                       " border: none; background: transparent;"));
+    m_aiTotalLbl = new QLabel(QStringLiteral("0"), totRow);
+    m_aiTotalLbl->setStyleSheet(QStringLiteral("font-size: 22px; font-weight: bold; color: #0048af;"
+                                               " border: none; background: transparent;"));
+    if (MatIcon::ready()) m_aiTotalLbl->setFont(MatIcon::monoFont(22));
+    tr->addWidget(lTot);
+    tr->addStretch(1);
+    tr->addWidget(m_aiTotalLbl);
+    stL->addWidget(totRow);
+    QGridLayout *cg = new QGridLayout;
+    cg->setSpacing(8);
+    static const char *cntHex[4] = { "#3b82f6", "#f59e0b", "#10b981", "#06b6d4" };
+    static const char *cntZh[4] = { "管线", "脱空", "疏松体", "富水区" };
+    for (int i = 0; i < 4; ++i) {
+        QFrame *c = new QFrame(body);
+        c->setFrameShape(QFrame::StyledPanel);
+        c->setObjectName(QStringLiteral("aiCnt%1").arg(i));
+        c->setStyleSheet(QStringLiteral("QFrame { background: #ffffff; border: 1px solid #c3c6d6;"
+                                        " border-radius: 4px; }"));
+        QVBoxLayout *cl = new QVBoxLayout(c);
+        cl->setContentsMargins(4, 8, 4, 8);
+        cl->setSpacing(4);
+        QLabel *dot = new QLabel(c);
+        dot->setFixedSize(8, 8);
+        dot->setStyleSheet(QStringLiteral("background: %1; border-radius: 4px; border: none;")
+                               .arg(QLatin1String(cntHex[i])));
+        dot->setAlignment(Qt::AlignCenter);
+        cl->addWidget(dot, 0, Qt::AlignHCenter);
+        QLabel *nm = new QLabel(QString::fromUtf8(cntZh[i]), c);
+        nm->setAlignment(Qt::AlignHCenter);
+        nm->setStyleSheet(QStringLiteral("font-size: 11px; color: #424654; border: none;"
+                                         " background: transparent;"));
+        cl->addWidget(nm);
+        m_aiCntLbl[i] = new QLabel(QStringLiteral("0"), c);
+        m_aiCntLbl[i]->setAlignment(Qt::AlignHCenter);
+        m_aiCntLbl[i]->setStyleSheet(QStringLiteral("font-size: 14px; font-weight: bold;"
+                                                    " color: #121c2a; border: none;"
+                                                    " background: transparent;"));
+        if (MatIcon::ready()) m_aiCntLbl[i]->setFont(MatIcon::monoFont(14));
+        cl->addWidget(m_aiCntLbl[i]);
+        cg->addWidget(c, i / 2, i % 2);
+    }
+    stL->addLayout(cg);
+
+    // --- 卡3: 病害列表 ---
+    QVBoxLayout *lsL = card(QStringLiteral("list_alt"), QString::fromUtf8("病害列表"));
+    m_aiTable = new QTableWidget(body);
+    m_aiTable->setColumnCount(4);
+    m_aiTable->setHorizontalHeaderLabels({ QString::fromUtf8("序号"),
+                                           QString::fromUtf8("类别"),
+                                           QString::fromUtf8("道号"),
+                                           QString::fromUtf8("深度") });
+    m_aiTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_aiTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_aiTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_aiTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_aiTable->verticalHeader()->setVisible(false);
+    m_aiTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_aiTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_aiTable->setMinimumHeight(160);
+    m_aiTable->setStyleSheet(
+        "QTableWidget { background: #ffffff; border: none; font-size: 12px; }"
+        "QTableWidget::item { padding: 3px 6px; }"
+        "QHeaderView::section { background: #eff4ff; color: #424654; border: none;"
+        " border-bottom: 1px solid #c3c6d6; padding: 4px 6px; font-size: 12px; }"
+        "QTableWidget::item:selected { background: #dee9fc; color: #121c2a; }");
+    lsL->addWidget(m_aiTable);
+
+    bl->addStretch(1);
+    scroll->setWidget(body);
+    outer->addWidget(scroll, 1);
+
+    // 底部: 运行 AI 检测
+    QWidget *foot = new QWidget(inner);
+    foot->setStyleSheet(QStringLiteral("background: #ffffff; border-top: 1px solid #c3c6d6;"));
+    QVBoxLayout *fol = new QVBoxLayout(foot);
+    fol->setContentsMargins(12, 10, 12, 10);
+    QPushButton *btnRun = new QPushButton(QString::fromUtf8("运行 AI 检测"), foot);
+    if (MatIcon::ready())
+        btnRun->setIcon(MatIcon::icon(QStringLiteral("play_arrow"), QColor(0xff, 0xff, 0xff),
+                                      QColor(), QColor(), 18, 1.0));
+    btnRun->setCursor(Qt::PointingHandCursor);
+    btnRun->setStyleSheet(QStringLiteral(
+        "QPushButton { background: #0048af; color: #ffffff; border: 1px solid #0048af;"
+        " border-radius: 4px; padding: 9px 12px; font-size: 14px; font-weight: 600; }"
+        "QPushButton:hover { background: #00419e; }"
+        "QPushButton:disabled { background: #93a8c9; border-color: #93a8c9; }"));
+    connect(btnRun, &QPushButton::clicked, this, [this]() {
+        if (!requireOpenFile()) return;
+        runAiDetection();
+    });
+    fol->addWidget(btnRun);
+    outer->addWidget(foot);
+
+    m_aiPanel->hide();
+}
+
+// 进出AI分析页: 面板显隐 + 图上检测框叠加/清除
+void MainWindow::syncAiUiState()
+{
+    const bool on = m_currentTab != nullptr && ribbonTab
+                    && ribbonTab->currentIndex() == 4;   // 4 = AI分析页
+    if (on && m_btnAiDetect && !m_btnAiDetect->isChecked())
+        m_btnAiDetect->setChecked(true);   // 进AI分析页默认选中AI检测(蓝底, 同编辑标记模式)
+    if (m_aiPanel) {
+        m_aiPanel->setVisible(on);
+        if (on) refreshAiPanel();
+    }
+    if (m_currentTab && m_currentTab->imageLabel) {
+        if (on)
+            m_currentTab->imageLabel->setAiBoxes(m_currentTab->aiRects,
+                                                 m_currentTab->aiIds,
+                                                 m_currentTab->aiConfs);
+        else
+            m_currentTab->imageLabel->setAiBoxes({}, {}, {});   // 离开AI页清框
+    }
+}
+
+// 统计+病害列表刷新(数据=当前tab检测结果; 病害=脱空+管线, 疏松体/富水区模型暂不输出恒0)
+void MainWindow::refreshAiPanel()
+{
+    if (!m_aiTotalLbl || !m_currentTab) return;
+    const double mPerSample = interpMPerSample();
+    int cnt[3] = { 0, 0, 0 };
+    for (int i = 0; i < m_currentTab->aiIds.size(); ++i) {
+        const int id = m_currentTab->aiIds[i];
+        if (id >= 0 && id <= 2) cnt[id]++;
+    }
+    m_aiTotalLbl->setText(QString::number(cnt[0] + cnt[2]));
+    m_aiCntLbl[0]->setText(QString::number(cnt[2]));   // 管线
+    m_aiCntLbl[1]->setText(QString::number(cnt[0]));   // 脱空
+    m_aiCntLbl[2]->setText(QStringLiteral("0"));
+    m_aiCntLbl[3]->setText(QStringLiteral("0"));
+
+    if (!m_aiTable) return;
+    // 行按道号升序
+    QList<int> idxs;
+    for (int i = 0; i < m_currentTab->aiIds.size(); ++i)
+        if (m_currentTab->aiIds[i] == 0 || m_currentTab->aiIds[i] == 2)
+            idxs.append(i);
+    std::sort(idxs.begin(), idxs.end(), [this](int a, int b) {
+        return m_currentTab->aiRects[a].center().x() < m_currentTab->aiRects[b].center().x();
+    });
+    static const QString clsZh[3] = { QString::fromUtf8("脱空"), QString(),
+                                      QString::fromUtf8("管线") };
+    static const QString clsHex[3] = { QStringLiteral("#fff7e0"), QString(),
+                                       QStringLiteral("#e3edff") };
+    m_aiTable->setRowCount(idxs.size());
+    for (int r = 0; r < idxs.size(); ++r) {
+        const int i = idxs[r];
+        const int id = m_currentTab->aiIds[i];
+        auto cell = [](const QString &t, int align = Qt::AlignCenter) {
+            QTableWidgetItem *c = new QTableWidgetItem(t);
+            c->setTextAlignment(align | Qt::AlignVCenter);
+            c->setFlags(c->flags() & ~Qt::ItemIsEditable);
+            return c;
+        };
+        m_aiTable->setItem(r, 0, cell(QString::number(r + 1)));
+        QTableWidgetItem *cc = cell(clsZh[id]);
+        cc->setBackground(QColor(clsHex[id]));
+        m_aiTable->setItem(r, 1, cc);
+        const int trace = m_currentTab->aiRects[i].center().x();
+        const int samp = m_currentTab->aiRects[i].center().y();
+        auto monoCell = [&cell](const QString &t) {
+            QTableWidgetItem *c = cell(t, Qt::AlignRight);
+            if (MatIcon::ready()) c->setFont(MatIcon::monoFont(12));
+            return c;
+        };
+        m_aiTable->setItem(r, 2, monoCell(QString::number(trace)));
+        m_aiTable->setItem(r, 3, monoCell(mPerSample > 0
+            ? QString::number(samp * mPerSample, 'f', 2) + QStringLiteral(" m")
+            : QStringLiteral("-")));
+    }
+}
+
 // 数据解译状态总闸: 进出数据解译页/切tab; 面板显隐+按钮复位+列表刷新
 void MainWindow::syncInterpUiState()
 {
@@ -7253,6 +8854,7 @@ void MainWindow::refreshHeaderPanel()
 void MainWindow::openDztFile(const QString &filePath)
 {
     if (filePath.isEmpty()) return;
+    rememberOpenDir(filePath);   // v1.0.141 记录上次打开目录(工作路径-启动自动加载)
 
     QImage image = loadDZTFile(filePath);
     if (image.isNull()) {
@@ -7270,8 +8872,7 @@ void MainWindow::openDztFile(const QString &filePath)
         m_activeTabGroup = m_docTabWidget;
 
     // 尝试读取同名 DZX,有则自动处理后在新 tab 显示
-    QFileInfo fi(filePath);
-    QString dzxPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".DZX";
+    QString dzxPath = dzxPairPath(filePath, false);
     if (QFile::exists(dzxPath)) {
         // 日期检查:DZX 和 DZT 修改时间必须相同,否则不处理
         QDateTime dztTime = QFileInfo(filePath).lastModified();
@@ -7304,8 +8905,8 @@ void MainWindow::openDztFile(const QString &filePath)
 void MainWindow::onOpenFile()
 {
     QString fileName = QFileDialog::getOpenFileName(this,
-        "Open DZT File", "",
-        "DZT Files (*.dzt);;All Files (*)");
+        "Open DZT File", defaultOpenDir(),
+        "GPR Data (*.dzt *.dt *.DZT *.DT);;All Files (*)");
 
     if (fileName.isEmpty()) return;
     openDztFile(fileName);
@@ -7313,13 +8914,15 @@ void MainWindow::onOpenFile()
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
 {
-    // Accept the drag only if it carries at least one .dzt file
+    // Accept the drag only if it carries at least one .dzt/.dt file
     if (event->mimeData()->hasUrls()) {
         const QList<QUrl> urls = event->mimeData()->urls();
         for (const QUrl &url : urls) {
             QString path = url.toLocalFile();
+            const QString suf = QFileInfo(path).suffix();
             if (!path.isEmpty() &&
-                QFileInfo(path).suffix().compare("dzt", Qt::CaseInsensitive) == 0) {
+                (suf.compare("dzt", Qt::CaseInsensitive) == 0
+                 || suf.compare("dt", Qt::CaseInsensitive) == 0)) {
                 event->acceptProposedAction();
                 return;
             }
@@ -9817,9 +11420,32 @@ void MainWindow::createMenuBar()
         ribbonTab->addTab(interpPage, QString::fromUtf8("数据解译"));
     }
 
-    // --- Tab: AI分析(占位) ---
+    // --- Tab: AI分析(v1.0.135: ribbon组"AI分析", 同数据解译组格式; 不设背景=继承默认灰) ---
     {
         QWidget *aiPage = new QWidget();
+        QHBoxLayout *aiLayout = new QHBoxLayout(aiPage);
+        aiLayout->setContentsMargins(8, 8, 8, 4);
+        aiLayout->setSpacing(0);
+
+        // 组: AI分析 — [model_training AI检测(可选中, 进页默认蓝底)] [analytics AI报告]
+        QHBoxLayout *aiRow = addRibbonGroup(aiLayout, QString::fromUtf8("AI分析"), true);
+        m_btnAiDetect = displayBtn(QStringLiteral("model_training"),
+                                   QString::fromUtf8("AI检测"), 88);
+        QToolButton *btnAiReport = ribbonBtn(QStringLiteral("analytics"),
+                                             QString::fromUtf8("AI报告"), false, 88);
+        connect(m_btnAiDetect, &QToolButton::clicked, this, [this]() {
+            m_btnAiDetect->setChecked(true);   // 运行检测保持选中蓝底
+            if (!requireOpenFile()) return;
+            runAiDetection();
+        });
+        connect(btnAiReport, &QToolButton::clicked, this, [this]() {
+            if (!requireOpenFile()) return;
+            showAiReportDialog();
+        });
+        aiRow->addWidget(m_btnAiDetect);
+        aiRow->addWidget(btnAiReport);
+
+        aiLayout->addStretch(1);
         ribbonTab->addTab(aiPage, QString::fromUtf8("AI分析"));
     }
 
@@ -9828,10 +11454,11 @@ void MainWindow::createMenuBar()
 
 // ==================== AI 识别 (YOLOv8 classification) ====================
 
-void MainWindow::showAIRecognition()
+// v1.0.135 运行AI检测(按AI分析-AI检测.html): 置信度阈值过滤 → 结果入tab → 面板统计/图上框刷新
+void MainWindow::runAiDetection()
 {
     if (!m_currentTab) {
-        QMessageBox::warning(this, QString::fromUtf8("AI识别"),
+        QMessageBox::warning(this, QString::fromUtf8("AI检测"),
                              QString::fromUtf8("请先打开 DZT 文件"));
         return;
     }
@@ -9910,10 +11537,11 @@ void MainWindow::showAIRecognition()
         double uni = a.area() + b.area() - inter;
         return uni > 0 ? inter / uni : 0.0;
     };
-    // 所有有效框按置信度降序
+    // 所有有效框按置信度降序(v1.0.135: 面板置信度阈值过滤)
     QList<int> allIdxs;
     for (int i = 0; i < rects.size(); ++i)
-        if (top1Ids[i] >= 0 && top1Ids[i] < 3) allIdxs.append(i);
+        if (top1Ids[i] >= 0 && top1Ids[i] < 3 && confidences[i] >= m_aiConfThreshold)
+            allIdxs.append(i);
     std::sort(allIdxs.begin(), allIdxs.end(), [&](int a, int b) {
         return confidences[a] > confidences[b];
     });
@@ -9947,14 +11575,27 @@ void MainWindow::showAIRecognition()
         fConfs.append(confidences[idx]);
     }
 
-    cv::Mat annotated;
-    drawResultOverlay(full, fRects, fIds, fConfs, annotated);
+    // v1.0.134: 结果存入tab(AI报告数据源; 图像像素坐标=trace/sample 1:1)
+    m_currentTab->aiRects.clear();
+    m_currentTab->aiIds.clear();
+    m_currentTab->aiConfs.clear();
+    for (int i = 0; i < fRects.size(); ++i) {
+        m_currentTab->aiRects.append(QRect(fRects[i].x, fRects[i].y,
+                                           fRects[i].width, fRects[i].height));
+        m_currentTab->aiIds.append(fIds[i]);
+        m_currentTab->aiConfs.append(fConfs[i]);
+    }
 
     m_progressBar->setValue(100);
-    m_progressBar->setFormat(QString::fromUtf8("AI识别: 完成"));
+    m_progressBar->setFormat(QString::fromUtf8("AI检测: 完成"));
     QCoreApplication::processEvents();
 
-    showAIResultDialog(annotated, fRects, fIds, fConfs);
+    // v1.0.135: 面板统计+病害列表刷新, 主图画检测框(替代旧弹窗)
+    refreshAiPanel();
+    if (m_currentTab->imageLabel)
+        m_currentTab->imageLabel->setAiBoxes(m_currentTab->aiRects,
+                                             m_currentTab->aiIds,
+                                             m_currentTab->aiConfs);
 
     // 1 秒后重置进度条
     QTimer::singleShot(1000, this, [this]() {

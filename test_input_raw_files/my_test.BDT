@@ -1,0 +1,8 @@
+; BDT V1 - 劳雷GPR 数据组装清单
+[BDT]
+Version=1
+Name=my_test
+Count=3
+File=D:/gpr_software/test_input_raw_files/PRV01__072 P_1.DZT
+File=D:/gpr_software/test_input_raw_files/PRV01__072.DZT
+File=D:/gpr_software/test_input_raw_files/PRV01__073 P_1.DZT

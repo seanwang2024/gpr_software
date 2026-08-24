@@ -26,6 +26,9 @@ signals:
     void openFileRequested();        // 品牌下拉-打开
     void closeFileRequested();       // 品牌下拉-关闭
     void saveFileRequested();        // 品牌下拉-保存
+    void assembleRequested();        // 品牌下拉-数据组装
+    void workPathRequested();        // 品牌下拉-工作路径
+    void convertRequested();         // 品牌下拉-格式转换
     void aboutRequested();           // 齿轮菜单-关于
     void upgradeRequested();         // 齿轮菜单-检查升级
     void helpRequested();            // 帮助-帮助文档

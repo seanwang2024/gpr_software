@@ -159,10 +159,14 @@ TopBar::TopBar(QWidget *parent)
            [this] { emit saveFileRequested(); });
     brandMenu->addSeparator();
     addRow(QStringLiteral("account_tree"), QStringLiteral("数据组装"),
-           QStringLiteral("批量处理多个文件"), false, nullptr);
-    addRow(QStringLiteral("folder_shared"), QStringLiteral("工作路径"), QString(), false, nullptr);
+           QStringLiteral("批量处理多个文件"), true,
+           [this] { emit assembleRequested(); });
+    addRow(QStringLiteral("folder_shared"), QStringLiteral("工作路径"),
+           QStringLiteral("默认打开/保存目录"), true,
+           [this] { emit workPathRequested(); });
     addRow(QStringLiteral("transform"), QStringLiteral("格式转换"),
-           QStringLiteral("DZX/DZT 转原生格式"), false, nullptr);
+           QStringLiteral("DZT/DZX → DT/DX"), true,
+           [this] { emit convertRequested(); });
 
     auto popupBrandMenu = [this, brandMenu]() {
         brandMenu->popup(mapToGlobal(QPoint(8, height())));

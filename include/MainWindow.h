@@ -180,6 +180,9 @@ public:
                            const QVector<QPointF> &seeds,
                            double mPerSample, int selectedAnomaly = -1);
     void setRadanLayers(const QVector<HorizonLayer> &layers);   // RADAN原生层位点(彩色圆点)
+    // v1.0.135 AI检测框叠加(图像像素=trace/sample 1:1; 空=清除; 仅AI分析页显示)
+    void setAiBoxes(const QVector<QRect> &rects, const QVector<int> &ids,
+                    const QVector<float> &confs);
     bool hasInterpOverlay() const;
     // v1.0.116 异常编辑拖动: 返回编辑态异常索引(有编辑态异常时鼠标事件优先处理拖动)
     int editingAnomalyIndex() const;
@@ -273,7 +276,11 @@ private:
     // v1.0.108 解译叠加
     QVector<HorizonLayer> m_horizons;
     QVector<AnomalyMark> m_anomalies;
-    QVector<QPointF> m_seeds;         // 追踪参考点(选中层)
+    QVector<QPointF> m_seeds;
+    // v1.0.135 AI检测框
+    QVector<QRect> m_aiRects;
+    QVector<int> m_aiIds;
+    QVector<float> m_aiConfs;         // 追踪参考点(选中层)
     QVector<HorizonLayer> m_radanLayers;   // RADAN原生层位点(彩色圆点)
     int m_anomalyDragIdx = -1;             // 正在拖动的编辑态异常索引
     // v1.0.120 流动虚线动画
@@ -358,6 +365,10 @@ struct TabData {
     QVector<AnomalyMark> anomalies;   // 异常标注
     QVector<QPointF> trackSeeds;      // 追踪参考点(会话内)
     QVector<HorizonLayer> radanLayers;  // RADAN原生LayerGroup层位点(只读展示, 不进面板)
+    // v1.0.134 AI检测结果(会话内, AI检测按钮运行后填充; 坐标=图像像素 trace/sample)
+    QVector<QRect> aiRects;
+    QVector<int> aiIds;               // 0=cavities(脱空) 1=intact(完好) 2=utilities(管线)
+    QVector<float> aiConfs;
 
     QWidget *page = nullptr;
     QScrollArea *scrollArea = nullptr;
@@ -480,6 +491,28 @@ private:
     QImage buildRawGrayImage(TabData *tab, const QSize &outSize);     // 原始数据灰度基图(不含滤波处理)
     bool saveExportImage(const QImage &img, const QString &path,      // 按格式落盘(png/jpg/pdf/tiff+DPI元数据)
                          const QString &fmt, int dpi);
+    // v1.0.134 AI分析模块
+    void showAiReportDialog();                                        // AI智能报告导出配置模态框(按AI分析-AI报告.html)
+    bool generateAiReport(const QString &outPath, const QString &fmt, // 一键生成报告(pdf/html/doc)
+                          bool ckModel, bool ckConf, bool ckGpu, bool ckChart,
+                          bool ckRaw, bool ckAnno, bool ckList, bool ckStat);
+    QImage buildAiStatsChart(int total, const int counts[3]);         // 统计图表(饼图+柱状图)
+    // v1.0.135 AI检测(按AI分析-AI检测.html)
+    void createAiPanel();                                             // 右侧320px AI智能检测引擎面板
+    void syncAiUiState();                                             // 进出AI分析页: 面板显隐+检测框叠加
+    void refreshAiPanel();                                            // 检测统计+病害列表刷新(数据=tab.aiRects)
+    void runAiDetection();                                            // 运行AI检测(置信度阈值过滤+结果入tab+面板/图上刷新)
+    // v1.0.139 数据组装(按地听-数据组装.html): 生成 *.BDT 组装清单(格式见 BDT格式.md)
+    void showAssemblyDialog();
+    // v1.0.141 工作路径(按地听-工作路径.html): 默认工作目录+启动加载上次路径(QSettings持久化)
+    void showWorkPathDialog();
+    // v1.0.142 格式转换(按地听-数据格式转换.html): DZT→DT(同名DZX一并→DX), 字节复制改后缀(DT和DX格式.md)
+    void showConvertDialog();
+    QString defaultOpenDir();                       // 生效目录: 自动加载上次?上次目录:工作路径
+    void rememberOpenDir(const QString &filePath);  // 打开文件后记录上次目录
+    QString m_workPath;
+    bool m_autoLoadLastPath = true;
+    QString m_lastOpenDir;
     void refreshSelectionInfo();            // 选区几何4字段刷新(道号/时间/尺寸)
     void clearEditBlocks();                 // 删除/重置: 清空全部数据块
     void createNewEditBlock();              // 新建数据块(自动找不重叠位置; 进块模式默认建一个)
@@ -569,6 +602,17 @@ private:
     QWidget *m_interpPanel = nullptr;         // 右侧320px解译与管理面板
     QTreeWidget *m_horizonTree = nullptr;     // 层位列表(2层)
     QListWidget *m_anomalyList = nullptr;     // 异常标注列表
+    // v1.0.135 AI智能检测引擎面板(右侧320px, 仅AI分析页)
+    QWidget *m_aiPanel = nullptr;
+    QComboBox *m_aiModelBox = nullptr;
+    QSlider *m_aiConfSlider = nullptr;
+    QLabel *m_aiConfVal = nullptr;
+    QCheckBox *m_aiGpuCheck = nullptr;
+    QLabel *m_aiTotalLbl = nullptr;
+    QLabel *m_aiCntLbl[4] = { nullptr, nullptr, nullptr, nullptr };   // 管线/脱空/疏松体/富水区
+    QTableWidget *m_aiTable = nullptr;
+    double m_aiConfThreshold = 0.70;
+    QToolButton *m_btnAiDetect = nullptr;   // AI检测按钮(进AI分析页默认选中=蓝底, 同编辑标记模式)
     QPushButton *m_btnPickSeed = nullptr;     // 拾取参考点
     QPushButton *m_btnTrackStart = nullptr;   // 开始
     QPushButton *m_btnTrackStop = nullptr;    // 停止
@@ -726,7 +770,7 @@ private:
     cv::dnn::Net m_yoloNet;
     bool m_yoloNetLoaded = false;
     QStringList m_yoloClasses = {"cavities", "intact", "utilities"};
-    void showAIRecognition();
+    void showAIRecognition();   // 兼容声明(v1.0.135起内部由runAiDetection替代)
     void buildRadarCVMat(cv::Mat &out);
     void sliceAndSaveCrops(const cv::Mat &full, QList<cv::Rect> &rects);
     void runInference(const cv::Mat &full, const QList<cv::Rect> &rects, QList<int> &top1Ids, QList<float> &confidences);
