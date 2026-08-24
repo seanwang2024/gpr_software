@@ -2406,8 +2406,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     createMenuBar();
 
-    // 渲染自检: 布局稳定后保存顶栏/整窗/编辑页ribbon离屏渲染图(QWidget::grab, 不受DPI/截屏干扰)
+    // 渲染自检(仅 GPR_SELF_RENDER=1 时启用): 布局稳定后保存顶栏/整窗/各模块页离屏渲染图。
+    // v1.0.144: 之前无条件执行, 启动时页面轮流切换(编辑→解译→AI)再回主页 = "启动不先进主页"BUG
     QTimer::singleShot(800, this, [this]() {
+        if (!qEnvironmentVariableIsSet("GPR_SELF_RENDER")) return;   // 正常启动: 停留主页, 不渲染不切页
         const QString dir = QCoreApplication::applicationDirPath();
         // 导出对话框自检: GPR_EXPORT_RENDER=1 → showExportDialog内离屏渲染后直接返回(不弹窗)
         if (qEnvironmentVariableIsSet("GPR_EXPORT_RENDER"))
