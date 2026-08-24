@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(MyQtApp)
+project(depro)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -45,16 +45,16 @@ set(RESOURCES
     resources.qrc
 )
 
-# Windows 应用图标(嵌入劳雷 logo):用绝对路径生成 app.rc,windres 编译进 exe
-set(APP_ICON "${CMAKE_CURRENT_SOURCE_DIR}/installer/laurel_logo.ico")
+# Windows 应用图标(地听 logo): 用绝对路径生成 app.rc, windres 编译进 exe
+set(APP_ICON "${CMAKE_CURRENT_SOURCE_DIR}/installer/diting_logo.ico")
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/app.rc.in ${CMAKE_CURRENT_BINARY_DIR}/app.rc @ONLY)
 
-add_executable(MyQtApp ${SOURCES} ${HEADERS} ${RESOURCES} ${CMAKE_CURRENT_BINARY_DIR}/app.rc)
+add_executable(depro ${SOURCES} ${HEADERS} ${RESOURCES} ${CMAKE_CURRENT_BINARY_DIR}/app.rc)
 
-target_include_directories(MyQtApp PRIVATE include ${OpenCV_INCLUDE_DIRS})
+target_include_directories(depro PRIVATE include ${OpenCV_INCLUDE_DIRS})
 
-target_link_libraries(MyQtApp PRIVATE Qt6::Core Qt6::Widgets Qt6::Charts Qt6::Quick Qt6::QuickWidgets Qt6::Quick3D Qt6::PrintSupport Qt6::Network ${OpenCV_LIBS})
+target_link_libraries(depro PRIVATE Qt6::Core Qt6::Widgets Qt6::Charts Qt6::Quick Qt6::QuickWidgets Qt6::Quick3D Qt6::PrintSupport Qt6::Network ${OpenCV_LIBS})
 
 if(WIN32)
-    set_target_properties(MyQtApp PROPERTIES WIN32_EXECUTABLE TRUE)
+    set_target_properties(depro PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()

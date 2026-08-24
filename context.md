@@ -1,7 +1,7 @@
 # 项目上下文 (2026-08-20)
 
 ## 项目概述
-劳雷GPR(探地雷达)数据处理软件,Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, 当前版本 v1.0.131
+地听(探地雷达)数据处理软件(原劳雷, v1.0.148起品牌=地听/LOGO=specs地听logo.jpg),Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, 当前版本 v1.0.131
 
 ## 当前工作: 数据解译模块(已完成 v1.0.108-109, 待用户验收)
 按 specs/软件需求20260817/.../数据解译-追踪异常.html 实现:
@@ -121,11 +121,11 @@
 
 ## 发布流程
 1. 改 version.h APP_VERSION
-2. cmake --build . --target MyQtApp
-3. cp MyQtApp.exe /d/gpr_test/
+2. cmake --build . --target depro (产物 depro.exe)
+3. cp depro.exe /d/gpr_test/ (先删旧 MyQtApp.exe)
 4. git add -A && git commit && git push
-5. curl FTP上传 exe + version.json 到 seanwang.gotoftp5.com/wwwroot/
+5. curl FTP上传 depro.exe + version.json(downloadUrl/fileName=depro.exe) 到 seanwang.gotoftp5.com/wwwroot/
 6. FTP密码: sean2020
 
 ## 安装包
-installer/MyQtApp.iss → ISCC.exe → D:\gpr_release\MyQtApp_Setup_<ver>.exe
+installer/depro.iss → ISCC.exe → D:\gpr_release\MyQtApp_Setup_<ver>.exe

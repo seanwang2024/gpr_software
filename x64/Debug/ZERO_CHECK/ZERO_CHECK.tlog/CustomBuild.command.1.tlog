@@ -1,0 +1,10 @@
+^D:\GPR_SOFTWARE\CMAKEFILES\1F68C049237E69588F850398477DC6C8\GENERATE.STAMP.RULE
+setlocal
+C:\Qt\Tools\CMake_64\bin\cmake.exe -SD:/gpr_software -BD:/gpr_software --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/gpr_software/depro.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

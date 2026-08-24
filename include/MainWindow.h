@@ -508,6 +508,30 @@ private:
     void showWorkPathDialog();
     // v1.0.142 格式转换(按地听-数据格式转换.html): DZT→DT(同名DZX一并→DX), 字节复制改后缀(DT和DX格式.md)
     void showConvertDialog();
+    // v1.0.145 一键处理(按数据处理-一键处理.html): 350px流水线面板(预设方案+可展开条目,
+    // 无距离归一化); 开始=内存执行流水线 应用=保存输出DZT 恢复=还原原始数据
+    void createOneClickPanel();
+    void syncOneClickUiState();
+    void runOneClickPipeline();
+    QWidget *m_oneClickPanel = nullptr;
+    QToolButton *m_btnOneClick = nullptr;          // ribbon 一键处理按钮(切换面板)
+    QComboBox *m_ocPresetBox = nullptr;
+    QCheckBox *m_ocZero = nullptr;    QSpinBox *m_ocZeroThresh = nullptr;        // 时间零点校正(判定阈值%)
+    QCheckBox *m_ocDewow = nullptr;   QDoubleSpinBox *m_ocDewowWin = nullptr;   // 校正零偏(时窗ns)
+    QCheckBox *m_ocBg = nullptr;      QSpinBox *m_ocBgWin = nullptr;            // 背景去除(窗口道)
+    QCheckBox *m_ocBp = nullptr;      QDoubleSpinBox *m_ocBpLo = nullptr;       // 带通滤波(MHz)
+    QDoubleSpinBox *m_ocBpHi = nullptr;
+    QCheckBox *m_ocGain = nullptr;    QDoubleSpinBox *m_ocGainSlope = nullptr;  // 指数/能量增益(dB/m)
+    QCheckBox *m_ocAgc = nullptr;     QSpinBox *m_ocAgcWin = nullptr;           // 增益AGC(窗口采样)
+    QCheckBox *m_ocMig = nullptr;     QDoubleSpinBox *m_ocMigVel = nullptr;     // 偏移归位(速度,后续版本)
+    QLabel *m_ocZeroSum = nullptr;    // 各条目参数摘要行(mono)
+    QLabel *m_ocDewowSum = nullptr;
+    QLabel *m_ocBgSum = nullptr;
+    QLabel *m_ocBpSum = nullptr;
+    QLabel *m_ocGainSum = nullptr;
+    QLabel *m_ocAgcSum = nullptr;
+    QLabel *m_ocMigSum = nullptr;
+    bool m_pipelineApplied = false;
     QString defaultOpenDir();                       // 生效目录: 自动加载上次?上次目录:工作路径
     void rememberOpenDir(const QString &filePath);  // 打开文件后记录上次目录
     QString m_workPath;
@@ -562,7 +586,7 @@ private:
     QStringList m_welcomeTips;          // 4 个功能说明(悬停显示在右上角)
     QList<QPixmap> m_welcomeIconPix;    // 预切的 4 个图标(放大用)
     QTabWidget *m_docTabWidget;
-    TopBar *m_topBar = nullptr;              // v1.0.87 顶栏(劳雷▾+5模块标签+齿轮/帮助/账号+窗口控制)
+    TopBar *m_topBar = nullptr;              // v1.0.87 顶栏(地听▾+5模块标签+齿轮/帮助/账号+窗口控制)
     QToolButton *m_btnHeaderToggle = nullptr; // 主页"文件头"按钮(与右侧文件头栏开合联动)
     bool m_showAscan = false;                 // 线扫描+波形模式(默认false=线扫描,仅B-SCAN)
     QButtonGroup *m_displayGroup = nullptr;   // 图像显示三按钮互斥组(0线扫描/1线扫描+波形/2波列图)

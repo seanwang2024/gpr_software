@@ -1,6 +1,6 @@
 #pragma once
 // TopBar — 40px 顶部导航栏(严格按 specs/软件需求20260817/.../主页-文件头.png 设计)
-//   [劳雷▾ 品牌下拉] [主页|编辑|数据处理|数据解译|AI分析] ...stretch... [⚙设置][?帮助][◯账号] [—□×]
+//   [地听▾ 品牌下拉] [主页|编辑|数据处理|数据解译|AI分析] ...stretch... [⚙设置][?帮助][◯账号] [—□×]
 // 图标全部来自内嵌 Material Symbols Outlined 字体(MatIcon)。
 
 #include <QWidget>

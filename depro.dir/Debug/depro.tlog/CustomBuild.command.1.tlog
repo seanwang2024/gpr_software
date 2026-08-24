@@ -1,0 +1,24 @@
+^D:\GPR_SOFTWARE\CMAKEFILES\B912FE8389A4B70D465B5B29DADFA697\QRC_RESOURCES.CPP.RULE
+setlocal
+cd D:\gpr_software
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+C:\Qt\Tools\CMake_64\bin\cmake.exe -E cmake_autorcc D:/gpr_software/CMakeFiles/depro_autogen.dir/AutoRcc_resources_EWIEGA46WW_Info.json Debug
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\GPR_SOFTWARE\CMAKELISTS.TXT
+setlocal
+C:\Qt\Tools\CMake_64\bin\cmake.exe -SD:/gpr_software -BD:/gpr_software --check-stamp-file D:/gpr_software/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

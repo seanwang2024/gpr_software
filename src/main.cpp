@@ -58,6 +58,7 @@ int main(int argc, char *argv[])
     qInstallMessageHandler(silentMessageHandler); // 屏蔽其他 qDebug
 
     QApplication app(argc, argv);
+    app.setWindowIcon(QIcon(QStringLiteral(":/icons/diting_logo.png")));   // v1.0.148 地听logo
 
     // Material Symbols 矢量图标字体(设计稿同款) — 失败仅告警, UI 回退 PNG
     if (MatIcon::init()) {
@@ -73,7 +74,7 @@ int main(int argc, char *argv[])
 
 #ifdef Q_OS_WIN
     if (hasConsole) {
-        diagPrint("==== 劳雷AI数据处理 [诊断版 " APP_VERSION "] ====");
+        diagPrint("==== 地听AI数据处理 [诊断版 " APP_VERSION "] ====");
         diagPrint("本终端只显示 DZX 处理信息。");
         diagPrint("复制方法:①终端内鼠标选中文字 -> 按 回车 或 右键 复制;");
         diagPrint("          ②或直接用记事本打开下面的日志文件,Ctrl+C/Ctrl+A 正常复制:");

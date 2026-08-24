@@ -131,6 +131,7 @@ static void relockLineEditEdit(QLineEdit *ed)
 #include <QTextDocument>
 #include <QBuffer>
 #include <QSettings>
+#include <QGraphicsOpacityEffect>
 #include <QTextDocument>
 #include <QXmlStreamReader>
 #include <functional>
@@ -1931,7 +1932,7 @@ MainWindow::MainWindow(QWidget *parent)
         "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
         "stop:0 #0a1929, stop:0.5 #14304f, stop:1 #1a4a7a);"
     );
-    m_welcomePix = QPixmap(":/icons/resources/welcome.png");
+    m_welcomePix = QPixmap(QStringLiteral(":/icons/diting_logo.png"));   // v1.0.148 地听logo
     welcomeLabel->setPixmap(m_welcomePix);
     welcomeLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);  // 占满整个内容区
     // 保持比例铺满:updateWelcomePixmap() 按 KeepAspectRatio 缩放原图,居中显示
@@ -2321,6 +2322,11 @@ MainWindow::MainWindow(QWidget *parent)
     contentLayout->addWidget(m_aiPanel);
     m_aiPanel->hide();
 
+    // v1.0.145: 右侧 350px 一键处理流水线面板(数据处理模块, 默认隐藏)
+    createOneClickPanel();
+    contentLayout->addWidget(m_oneClickPanel);
+    m_oneClickPanel->hide();
+
     // --- 状态栏 (v1.0.87 28px,按设计稿: 左 ●就绪 | 右 道号/深度 等宽 + 进度条) ---
     m_progressBar = new QProgressBar(this);
     m_net = new QNetworkAccessManager(this);
@@ -2394,7 +2400,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 文档区尺寸/可见性变化时重定位三角按钮
     if (m_docSplitter) m_docSplitter->installEventFilter(this);
 
-    setWindowTitle("劳雷");
+    setWindowTitle("地听");
     setAcceptDrops(true);
 
     // 自定义标题栏 + 无边框窗口 (v1.0.87: TopBar 40px 品牌栏, 严格按 主页-文件头.png)
@@ -2462,6 +2468,7 @@ MainWindow::MainWindow(QWidget *parent)
     // v1.0.100: 进入编辑页默认激活"编辑标记"; 切走自动收起编辑工具面板
     connect(ribbonTab, &QTabWidget::currentChanged, this, [this](int idx) {
         syncAiUiState();   // v1.0.135: 进出AI分析页 面板显隐+检测框叠加/清除(含离开时收起)
+        syncOneClickUiState();   // v1.0.145: 离开数据处理页收起流水线面板
         if (idx == 1) {   // 1 = 编辑页
             if (!m_tabs.isEmpty()
                 && (!m_btnEditMarker || !m_btnEditMarker->isChecked())
@@ -2494,7 +2501,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // v1.0.141 工作路径设置(QSettings持久化)
     {
-        QSettings st(QStringLiteral("LaoreiGPR"), QStringLiteral("MyQtApp"));
+        QSettings st(QStringLiteral("Diting"), QStringLiteral("depro"));
         m_workPath = st.value(QStringLiteral("workPath")).toString();
         m_autoLoadLastPath = st.value(QStringLiteral("autoLoadLastPath"), true).toBool();
         m_lastOpenDir = st.value(QStringLiteral("lastOpenDir")).toString();
@@ -2515,7 +2522,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_topBar, &TopBar::helpRequested, this, [this]() {
         QMessageBox::information(this, QString::fromUtf8("帮助"), QString::fromUtf8(
             "基本操作指引:\n"
-            "1. 打开数据: 左上角\"劳雷▾\"菜单或主页\"打开\"按钮, 选择 DZT/DZX 文件\n"
+            "1. 打开数据: 左上角\"地听▾\"菜单或主页\"打开\"按钮, 选择 DZT/DZX 文件\n"
             "2. 图像显示: 主页-图像显示组 切换 线扫描 / 线扫描+波形 / 波列图\n"
             "3. 色彩渲染: 主页-色彩渲染组, 彩虹色调色板与线性变换表叠加生效(RADAN规律)\n"
             "4. 文件头: 主页\"文件头\"按钮 在右侧栏查看当前文件元数据\n"
@@ -2530,7 +2537,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 账号: 账号信息
     connect(m_topBar, &TopBar::accountRequested, this, [this]() {
         QMessageBox::information(this, QString::fromUtf8("账号信息"),
-            QString::fromUtf8("劳雷探地雷达数据处理软件\n版本: v%1\n\n账号登录与授权管理将在后续版本提供。")
+            QString::fromUtf8("地听探地雷达数据处理软件\n版本: v%1\n\n账号登录与授权管理将在后续版本提供。")
                 .arg(APP_VERSION));
     });
     loadLUT(12);
@@ -3412,16 +3419,16 @@ void MainWindow::showAbout()
     QHBoxLayout *top = new QHBoxLayout();
     top->setSpacing(16);
     QLabel *logo = new QLabel;
-    logo->setPixmap(QIcon(":/icons/resources/icon_fileheader_64.png").pixmap(64, 64));
+    logo->setPixmap(QIcon(QStringLiteral(":/icons/diting_logo.png")).pixmap(64, 64));
     logo->setFixedSize(64, 64);
     top->addWidget(logo, 0, Qt::AlignTop);
 
     QVBoxLayout *txt = new QVBoxLayout();
     txt->setSpacing(4);
-    QLabel *name = new QLabel(QString::fromUtf8("劳雷"));
+    QLabel *name = new QLabel(QString::fromUtf8("地听"));
     QFont nf = name->font(); nf.setPointSize(15); nf.setBold(true); name->setFont(nf);
     QLabel *ver = new QLabel(QString::fromUtf8("版本 ") + APP_VERSION);
-    QLabel *cpy = new QLabel(QString::fromUtf8("版权 © 2026 劳雷"));
+    QLabel *cpy = new QLabel(QString::fromUtf8("版权 © 2026 地听"));
     QLabel *url = new QLabel(QString::fromUtf8("<a href=\"https://www.laurel.com.cn\">https://www.laurel.com.cn</a>"));
     url->setOpenExternalLinks(true);
     url->setTextInteractionFlags(Qt::TextBrowserInteraction);
@@ -7284,7 +7291,7 @@ bool MainWindow::generateAiReport(const QString &outPath, const QString &fmt,
         html += QStringLiteral("<h3>%1、位置/深度统计表</h3>%2")
                     .arg(cnN[qBound(0, secNext - 1 + int(ckList), 9)]).arg(statTbl);
     html += QStringLiteral("<br><p align='center'><font color='#737785' size='2'>"
-                           "劳雷 GPR 智能检测 · 自动生成</font></p></body></html>");
+                           "地听 GPR 智能检测 · 自动生成</font></p></body></html>");
 
     // 落盘
     QFile f(outPath);
@@ -7754,7 +7761,7 @@ void MainWindow::showAssemblyDialog()
                 QString::fromUtf8("无法写入 %1").arg(sel));
             return;
         }
-        QString txt = QStringLiteral("; BDT V1 - 劳雷GPR 数据组装清单\r\n"
+        QString txt = QStringLiteral("; BDT V1 - 地听GPR 数据组装清单\r\n"
                                      "[BDT]\r\n"
                                      "Version=1\r\n"
                                      "Name=%1\r\n"
@@ -7797,7 +7804,7 @@ void MainWindow::rememberOpenDir(const QString &filePath)
     const QString d = QFileInfo(filePath).absolutePath();
     if (d.isEmpty() || d == m_lastOpenDir) return;
     m_lastOpenDir = d;
-    QSettings st(QStringLiteral("LaoreiGPR"), QStringLiteral("MyQtApp"));
+    QSettings st(QStringLiteral("Diting"), QStringLiteral("depro"));
     st.setValue(QStringLiteral("lastOpenDir"), d);
 }
 
@@ -7904,7 +7911,7 @@ void MainWindow::showWorkPathDialog()
         }
         m_workPath = d;
         m_autoLoadLastPath = ckAuto->isChecked();
-        QSettings st(QStringLiteral("LaoreiGPR"), QStringLiteral("MyQtApp"));
+        QSettings st(QStringLiteral("Diting"), QStringLiteral("depro"));
         st.setValue(QStringLiteral("workPath"), m_workPath);
         st.setValue(QStringLiteral("autoLoadLastPath"), m_autoLoadLastPath);
         dlg.accept();
@@ -8195,6 +8202,574 @@ void MainWindow::showConvertDialog()
         }
     });
     dlg.exec();
+}
+
+// ==================== v1.0.145 一键处理流水线 (按 数据处理-一键处理.html) ====================
+// 350px右侧面板: 预设方案 + 可展开流水线条目(无距离归一化) + 开始/应用/恢复
+// 处理链: 时间零点校正(阈值)→校正零偏(dewow)→背景去除(滑动)→带通滤波(FFT)→指数/能量增益→AGC
+
+// 流水线条目(可展开): [☑|图标|标题+参数摘要|v]
+static QWidget *makeOneClickItem(QWidget *parent, const QString &glyph, const QString &title,
+                                 QCheckBox *&ckOut, QWidget *&paramBox, QLabel *&sumOut,
+                                 std::function<void()> onParam, bool dimmed = false)
+{
+    QWidget *item = new QWidget(parent);
+    QVBoxLayout *il = new QVBoxLayout(item);
+    il->setContentsMargins(0, 0, 0, 0);
+    il->setSpacing(0);
+    QWidget *head = new QWidget(item);
+    head->setStyleSheet(QStringLiteral("QWidget { background: transparent; border: none; }"));
+    QHBoxLayout *hl = new QHBoxLayout(head);
+    hl->setContentsMargins(8, 6, 8, 6);
+    hl->setSpacing(8);
+    QCheckBox *ck = new QCheckBox(head);
+    ck->setChecked(!dimmed);
+    ck->setEnabled(!dimmed);
+    if (dimmed) ck->setToolTip(QString::fromUtf8("后续版本提供"));
+    hl->addWidget(ck);
+    QLabel *ic = new QLabel(head);
+    if (MatIcon::ready())
+        ic->setPixmap(MatIcon::pixmap(glyph, QColor(0x00, 0x48, 0xaf), 18, 0.0,
+                                      qApp->devicePixelRatio()));
+    hl->addWidget(ic);
+    QLabel *name = new QLabel(title, head);
+    name->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: 600; color: #121c2a;"
+                                       " border: none; background: transparent;"));
+    hl->addWidget(name, 1);
+    QLabel *sum = new QLabel(head);
+    sum->setStyleSheet(QStringLiteral("font-size: 11px; color: #424654; border: none;"
+                                      " background: transparent;"));
+    if (MatIcon::ready()) sum->setFont(MatIcon::monoFont(11));
+    hl->addWidget(sum, 0, Qt::AlignVCenter);
+    QToolButton *exp = new QToolButton(head);
+    if (MatIcon::ready())
+        exp->setIcon(MatIcon::icon(QStringLiteral("expand_more"), QColor(0x73, 0x77, 0x85)));
+    exp->setCheckable(true);
+    exp->setCursor(Qt::PointingHandCursor);
+    exp->setStyleSheet(QStringLiteral("QToolButton { border: none; background: transparent; }"));
+    hl->addWidget(exp);
+    paramBox = new QWidget(item);
+    paramBox->setStyleSheet(QStringLiteral("QWidget { background: #f8f9ff; border: none; }"));
+    paramBox->hide();
+    QVBoxLayout *pl = new QVBoxLayout(paramBox);
+    pl->setContentsMargins(36, 6, 10, 8);
+    pl->setSpacing(6);
+    QObject::connect(exp, &QToolButton::toggled, item, [paramBox, onParam](bool on) {
+        paramBox->setVisible(on);
+        if (on && onParam) onParam();
+    });
+    ckOut = ck;
+    sumOut = sum;
+    if (dimmed) {
+        item->setStyleSheet(QStringLiteral("QWidget { background: transparent; border: none; }"));
+        // 半透明整条
+        QGraphicsOpacityEffect *op = new QGraphicsOpacityEffect(item);
+        op->setOpacity(0.5);
+        item->setGraphicsEffect(op);
+    }
+    il->addWidget(head);
+    il->addWidget(paramBox);
+    return item;
+}
+
+void MainWindow::createOneClickPanel()
+{
+    m_oneClickPanel = new QWidget(this);
+    m_oneClickPanel->setObjectName(QStringLiteral("gprOneClickPanel"));
+    m_oneClickPanel->setFixedWidth(350);
+    m_oneClickPanel->setStyleSheet("#gprOneClickPanel { background: #f8f9ff; }");
+    QHBoxLayout *shell = new QHBoxLayout(m_oneClickPanel);
+    shell->setContentsMargins(0, 0, 0, 0);
+    shell->setSpacing(0);
+    QWidget *edge = new QWidget(m_oneClickPanel);
+    edge->setFixedWidth(1);
+    edge->setStyleSheet(QStringLiteral("background: #c3c6d6;"));
+    shell->addWidget(edge);
+    QWidget *inner = new QWidget(m_oneClickPanel);
+    inner->setStyleSheet(QStringLiteral("background: #f8f9ff;"));
+    shell->addWidget(inner, 1);
+    QVBoxLayout *outer = new QVBoxLayout(inner);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(0);
+
+    // 头条 40px
+    QWidget *head = new QWidget(inner);
+    head->setFixedHeight(40);
+    head->setStyleSheet(QStringLiteral("background: #eff4ff; border-bottom: 1px solid #c3c6d6;"));
+    QHBoxLayout *hl = new QHBoxLayout(head);
+    hl->setContentsMargins(12, 0, 12, 0);
+    hl->setSpacing(8);
+    QLabel *hIcon = new QLabel(head);
+    if (MatIcon::ready())
+        hIcon->setPixmap(MatIcon::pixmap(QStringLiteral("account_tree"),
+                                         QColor(0x00, 0x48, 0xaf), 20, 0.0, devicePixelRatioF()));
+    hl->addWidget(hIcon);
+    QLabel *hTitle = new QLabel(QString::fromUtf8("一键处理流水线"), head);
+    hTitle->setStyleSheet(QStringLiteral("font-size: 14px; font-weight: bold; color: #121c2a;"
+                                         " border: none; background: transparent;"));
+    hl->addWidget(hTitle);
+    outer->addWidget(head);
+
+    // 可滚动主体
+    QScrollArea *scroll = new QScrollArea(inner);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet(QStringLiteral("QScrollArea { background: transparent; border: none; }"));
+    QWidget *body = new QWidget;
+    body->setStyleSheet(QStringLiteral("background: #f8f9ff;"));
+    QVBoxLayout *bl = new QVBoxLayout(body);
+    bl->setContentsMargins(12, 12, 12, 12);
+    bl->setSpacing(12);
+
+    // 预设方案
+    QLabel *lPre = new QLabel(QString::fromUtf8("预设方案"), body);
+    lPre->setStyleSheet(QStringLiteral("font-size: 11px; font-weight: bold; color: #424654;"
+                                       " letter-spacing: 1px; border: none; background: transparent;"));
+    bl->addWidget(lPre);
+    m_ocPresetBox = new QComboBox(body);
+    m_ocPresetBox->addItem(QString::fromUtf8("隧道衬砌标准流程"));
+    m_ocPresetBox->addItem(QString::fromUtf8("城市管线探测标准流程"));
+    m_ocPresetBox->addItem(QString::fromUtf8("道路空洞普查方案"));
+    m_ocPresetBox->addItem(QString::fromUtf8("混凝土钢筋定位"));
+    m_ocPresetBox->addItem(QString::fromUtf8("自定义"));
+    m_ocPresetBox->setStyleSheet(
+        "QComboBox { border: 1px solid #c3c6d6; border-radius: 4px; background: #ffffff;"
+        " padding: 6px 26px 6px 10px; font-size: 13px; color: #121c2a; }"
+        "QComboBox::drop-down { border: none; width: 22px; }"
+        "QComboBox::down-arrow { image: url(none); border-left: 4px solid transparent;"
+        " border-right: 4px solid transparent; border-top: 5px solid #424654; margin-right: 8px; }");
+    bl->addWidget(m_ocPresetBox);
+
+    // 参数摘要统一刷新
+    auto refreshSums = [&]() {
+        if (m_ocZero && m_ocZeroThresh)
+            m_ocZeroSum->setText(QStringLiteral("Threshold: %1%").arg(m_ocZeroThresh->value()));
+        if (m_ocDewow && m_ocDewowWin)
+            m_ocDewowSum->setText(QStringLiteral("Window: %1ns").arg(m_ocDewowWin->value(), 0, 'f', 1));
+        if (m_ocBg && m_ocBgWin)
+            m_ocBgSum->setText(QStringLiteral("Window: %1 traces").arg(m_ocBgWin->value()));
+        if (m_ocBp && m_ocBpLo && m_ocBpHi)
+            m_ocBpSum->setText(QStringLiteral("%1MHz - %2MHz")
+                                   .arg(m_ocBpLo->value(), 0, 'f', 0)
+                                   .arg(m_ocBpHi->value(), 0, 'f', 0));
+        if (m_ocGain && m_ocGainSlope)
+            m_ocGainSum->setText(QStringLiteral("Slope: %1 dB/m").arg(m_ocGainSlope->value(), 0, 'f', 1));
+        if (m_ocAgc && m_ocAgcWin)
+            m_ocAgcSum->setText(QStringLiteral("AGC Win: %1").arg(m_ocAgcWin->value()));
+        if (m_ocMig && m_ocMigVel)
+            m_ocMigSum->setText(QStringLiteral("Velocity: %1 m/ns").arg(m_ocMigVel->value(), 0, 'f', 2));
+    };
+
+    // 流水线卡片
+    QFrame *card = new QFrame(body);
+    card->setFrameShape(QFrame::StyledPanel);
+    card->setStyleSheet(QStringLiteral("QFrame { background: #ffffff; border: 1px solid #c3c6d6;"
+                                       " border-radius: 4px; }"));
+    QVBoxLayout *cl = new QVBoxLayout(card);
+    cl->setContentsMargins(0, 0, 0, 0);
+    cl->setSpacing(0);
+
+    auto subRow = [](QWidget *box, const QString &label, QWidget *w, const QString &suffix = QString()) {
+        QWidget *r = new QWidget(box);
+        QHBoxLayout *rl = new QHBoxLayout(r);
+        rl->setContentsMargins(0, 0, 0, 0);
+        rl->setSpacing(8);
+        QLabel *l = new QLabel(label, r);
+        l->setStyleSheet(QStringLiteral("font-size: 12px; color: #424654; border: none;"
+                                        " background: transparent;"));
+        rl->addWidget(l);
+        rl->addStretch(1);
+        if (!suffix.isEmpty()) {
+            QLabel *sl = new QLabel(suffix, r);
+            sl->setStyleSheet(QStringLiteral("font-size: 12px; color: #424654; border: none;"
+                                             " background: transparent;"));
+            rl->addWidget(sl);
+        }
+        rl->addWidget(w);
+        box->layout()->addWidget(r);
+    };
+    auto spin = [](int lo, int hi, int val, QWidget *p) {
+        QSpinBox *s = new QSpinBox(p);
+        s->setRange(lo, hi);
+        s->setValue(val);
+        s->setFixedWidth(86);
+        s->setStyleSheet(QStringLiteral("QSpinBox { border: 1px solid #c3c6d6; background: #ffffff;"
+                                        " padding: 3px 6px; font-size: 12px; color: #121c2a; }"));
+        return s;
+    };
+    auto dspin = [](double lo, double hi, double val, int dec, QWidget *p) {
+        QDoubleSpinBox *s = new QDoubleSpinBox(p);
+        s->setRange(lo, hi);
+        s->setValue(val);
+        s->setDecimals(dec);
+        s->setFixedWidth(86);
+        s->setStyleSheet(QStringLiteral("QDoubleSpinBox { border: 1px solid #c3c6d6;"
+                                        " background: #ffffff; padding: 3px 6px;"
+                                        " font-size: 12px; color: #121c2a; }"));
+        return s;
+    };
+
+    QWidget *it;
+    QLabel *sum;
+    QWidget *pb;
+
+    // 1 时间零点校正(判定阈值%)
+    it = makeOneClickItem(card, QStringLiteral("timer"), QString::fromUtf8("时间零点校正"),
+                          m_ocZero, pb, sum, refreshSums);
+    m_ocZeroSum = sum;
+    m_ocZeroThresh = spin(1, 90, 5, pb);
+    subRow(pb, QString::fromUtf8("判定阈值"), m_ocZeroThresh, QStringLiteral("%"));
+    cl->addWidget(it);
+    // 2 校正零偏(dewow 时窗ns)
+    it = makeOneClickItem(card, QStringLiteral("graphic_eq"), QString::fromUtf8("校正零偏"),
+                          m_ocDewow, pb, sum, refreshSums);
+    m_ocDewowSum = sum;
+    m_ocDewowWin = dspin(0.5, 999, 5.0, 1, pb);
+    subRow(pb, QString::fromUtf8("时窗"), m_ocDewowWin, QStringLiteral("ns"));
+    cl->addWidget(it);
+    // 3 背景去除(窗口道)
+    it = makeOneClickItem(card, QStringLiteral("layers_clear"), QString::fromUtf8("背景去除"),
+                          m_ocBg, pb, sum, refreshSums);
+    m_ocBgSum = sum;
+    m_ocBgWin = spin(3, 9999, 50, pb);
+    subRow(pb, QString::fromUtf8("窗口"), m_ocBgWin, QString::fromUtf8("道"));
+    cl->addWidget(it);
+    // 4 带通滤波(MHz)
+    it = makeOneClickItem(card, QStringLiteral("filter_alt"), QString::fromUtf8("带通滤波"),
+                          m_ocBp, pb, sum, refreshSums);
+    m_ocBpSum = sum;
+    m_ocBpLo = dspin(1, 4000, 100, 0, pb);
+    m_ocBpHi = dspin(1, 8000, 800, 0, pb);
+    subRow(pb, QString::fromUtf8("低频截止"), m_ocBpLo, QStringLiteral("MHz"));
+    subRow(pb, QString::fromUtf8("高频截止"), m_ocBpHi, QStringLiteral("MHz"));
+    cl->addWidget(it);
+    // 5 指数/能量增益(dB/m)
+    it = makeOneClickItem(card, QStringLiteral("signal_cellular_alt"), QString::fromUtf8("指数/能量增益"),
+                          m_ocGain, pb, sum, refreshSums);
+    m_ocGainSum = sum;
+    m_ocGainSlope = dspin(0.1, 30, 1.5, 1, pb);
+    subRow(pb, QString::fromUtf8("斜率"), m_ocGainSlope, QStringLiteral("dB/m"));
+    cl->addWidget(it);
+    // 6 增益AGC(窗口采样)
+    it = makeOneClickItem(card, QStringLiteral("signal_cellular_alt"), QString::fromUtf8("增益"),
+                          m_ocAgc, pb, sum, refreshSums);
+    m_ocAgcSum = sum;
+    m_ocAgc->setChecked(false);
+    m_ocAgcWin = spin(8, 2048, 64, pb);
+    subRow(pb, QString::fromUtf8("AGC窗口"), m_ocAgcWin, QString::fromUtf8("采样"));
+    cl->addWidget(it);
+    // 7 偏移归位(速度, 后续版本)
+    it = makeOneClickItem(card, QStringLiteral("compare_arrows"), QString::fromUtf8("偏移归位"),
+                          m_ocMig, pb, sum, refreshSums);
+    m_ocMigSum = sum;
+    m_ocMig->setChecked(false);
+    m_ocMig->setToolTip(QString::fromUtf8("后续版本提供；当前请使用「克西霍夫」交互拟合"));
+    m_ocMigVel = dspin(0.01, 0.30, 0.10, 2, pb);
+    m_ocMigVel->setEnabled(false);
+    subRow(pb, QString::fromUtf8("速度"), m_ocMigVel, QStringLiteral("m/ns"));
+    cl->addWidget(it);
+    // 8 高级滤波(占位, 半透明未勾选)
+    {
+        QCheckBox *ckDummy;
+        it = makeOneClickItem(card, QStringLiteral("tune"), QString::fromUtf8("高级滤波"),
+                              ckDummy, pb, sum, refreshSums, true);
+        sum->setText(QStringLiteral("Not Configured"));
+        Q_UNUSED(pb);
+        cl->addWidget(it);
+    }
+    bl->addWidget(card);
+    bl->addStretch(1);
+    scroll->setWidget(body);
+    outer->addWidget(scroll, 1);
+
+    // 底部: 开始 + 应用/恢复
+    QWidget *foot = new QWidget(inner);
+    foot->setStyleSheet(QStringLiteral("background: #ffffff; border-top: 1px solid #c3c6d6;"));
+    QVBoxLayout *fol = new QVBoxLayout(foot);
+    fol->setContentsMargins(12, 10, 12, 10);
+    fol->setSpacing(8);
+    QPushButton *btnRun = new QPushButton(QString::fromUtf8("开始"), foot);
+    if (MatIcon::ready())
+        btnRun->setIcon(MatIcon::icon(QStringLiteral("play_arrow"), QColor(0xff, 0xff, 0xff),
+                                      QColor(), QColor(), 20, 1.0));
+    btnRun->setCursor(Qt::PointingHandCursor);
+    btnRun->setStyleSheet(QStringLiteral(
+        "QPushButton { background: #0048af; color: #ffffff; border: 1px solid #0048af;"
+        " border-radius: 4px; padding: 8px; font-size: 14px; font-weight: 600; }"
+        "QPushButton:hover { background: #00419e; }"));
+    fol->addWidget(btnRun);
+    QWidget *row2 = new QWidget(foot);
+    QHBoxLayout *r2 = new QHBoxLayout(row2);
+    r2->setContentsMargins(0, 0, 0, 0);
+    r2->setSpacing(8);
+    QPushButton *btnApply = new QPushButton(QString::fromUtf8("应用"), row2);
+    QPushButton *btnReset = new QPushButton(QString::fromUtf8("恢复"), row2);
+    for (QPushButton *b : { btnApply, btnReset }) {
+        b->setCursor(Qt::PointingHandCursor);
+        b->setStyleSheet(QStringLiteral(
+            "QPushButton { background: #e6eeff; color: #121c2a; border: 1px solid #c3c6d6;"
+            " border-radius: 4px; padding: 6px; font-size: 13px; }"
+            "QPushButton:hover { background: #dee9fc; }"));
+    }
+    if (MatIcon::ready())
+        btnReset->setIcon(MatIcon::icon(QStringLiteral("restart_alt"), QColor(0xba, 0x1a, 0x1a),
+                                        QColor(), QColor(), 14));
+    r2->addWidget(btnApply, 1);
+    r2->addWidget(btnReset, 1);
+    fol->addWidget(row2);
+    outer->addWidget(foot);
+
+    // 参数变化 → 刷新摘要 + 切到"自定义"
+    // 注意: refreshSums 必须"按值"捕获进 markCustom — 它是栈上局部 lambda,
+    // [&]引用捕获在 createOneClickPanel 返回后悬垂 → 点击复选框用后释放闪退(v1.0.145实测)
+    auto markCustom = [this, refreshSums]() {
+        if (m_ocPresetBox && m_ocPresetBox->currentIndex() != 4)
+            m_ocPresetBox->setCurrentIndex(4);
+        refreshSums();
+    };
+    QObject::connect(m_ocZeroThresh, &QSpinBox::valueChanged, body, markCustom);
+    QObject::connect(m_ocBgWin, &QSpinBox::valueChanged, body, markCustom);
+    QObject::connect(m_ocAgcWin, &QSpinBox::valueChanged, body, markCustom);
+    QObject::connect(m_ocDewowWin, &QDoubleSpinBox::valueChanged, body, markCustom);
+    QObject::connect(m_ocBpLo, &QDoubleSpinBox::valueChanged, body, markCustom);
+    QObject::connect(m_ocBpHi, &QDoubleSpinBox::valueChanged, body, markCustom);
+    QObject::connect(m_ocGainSlope, &QDoubleSpinBox::valueChanged, body, markCustom);
+    for (auto c : { m_ocZero, m_ocDewow, m_ocBg, m_ocBp, m_ocGain, m_ocAgc, m_ocMig })
+        QObject::connect(c, &QCheckBox::toggled, body, markCustom);
+
+    // 预设方案
+    QObject::connect(m_ocPresetBox, &QComboBox::currentIndexChanged, body, [this](int idx) {
+        if (!m_ocZero || idx < 0 || idx > 3) return;   // 4=自定义不改
+        //            零点阈值  dewow时窗  背景窗  带通lo  带通hi  增益斜率  勾选: 零/偏/背/带/指/AGC/偏移
+        static const int th[4] = { 5, 5, 8, 3 };
+        static const double dw[4] = { 5.0, 5.0, 8.0, 3.0 };
+        static const int bw[4] = { 50, 80, 50, 30 };
+        static const double lo[4] = { 100, 80, 100, 300 };
+        static const double hi[4] = { 800, 1000, 600, 2500 };
+        static const double sl[4] = { 1.5, 2.0, 1.0, 0.5 };
+        static const bool on[4][7] = { { 1, 1, 1, 1, 1, 0, 0 },   // 隧道衬砌
+                                       { 1, 1, 1, 1, 1, 0, 1 },   // 城市管线(+偏移)
+                                       { 1, 1, 1, 1, 1, 0, 0 },   // 道路空洞
+                                       { 1, 1, 0, 1, 0, 0, 0 } }; // 混凝土钢筋(高通重)
+        m_ocZeroThresh->setValue(th[idx]);
+        m_ocDewowWin->setValue(dw[idx]);
+        m_ocBgWin->setValue(bw[idx]);
+        m_ocBpLo->setValue(lo[idx]);
+        m_ocBpHi->setValue(hi[idx]);
+        m_ocGainSlope->setValue(sl[idx]);
+        m_ocZero->setChecked(on[idx][0]);
+        m_ocDewow->setChecked(on[idx][1]);
+        m_ocBg->setChecked(on[idx][2]);
+        m_ocBp->setChecked(on[idx][3]);
+        m_ocGain->setChecked(on[idx][4]);
+        m_ocAgc->setChecked(on[idx][5]);
+        m_ocMig->setChecked(on[idx][6]);
+        // 预设写入时 valueChanged 会把索引弹回"自定义", 恢复预设名
+        QSignalBlocker blk(m_ocPresetBox);
+        m_ocPresetBox->setCurrentIndex(idx);
+    });
+
+    // 开始: 执行流水线(内存)
+    QObject::connect(btnRun, &QPushButton::clicked, this, [this]() {
+        if (!requireOpenFile()) return;
+        runOneClickPipeline();
+    });
+    // 应用: 执行(如未) + 保存输出DZT
+    QObject::connect(btnApply, &QPushButton::clicked, this, [this]() {
+        if (!requireOpenFile()) return;
+        if (!m_pipelineApplied)
+            runOneClickPipeline();
+        if (m_pipelineApplied)
+            saveProcessedFile();
+    });
+    // 恢复: 还原原始数据
+    QObject::connect(btnReset, &QPushButton::clicked, this, [this]() {
+        if (!m_currentTab || m_currentTab->originalRawData.isEmpty()) return;
+        m_rawData = m_currentTab->originalRawData;
+        m_currentTab->rawData = m_rawData;
+        m_pipelineApplied = false;
+        m_oneClickApplied = false;
+        refreshImage();
+        updateChart(m_lastChartX);
+    });
+
+    refreshSums();
+    m_oneClickPanel->hide();
+}
+
+// 面板显隐: 数据处理页(idx2)且一键处理按钮按下; 进页默认激活一键处理(同编辑/AI页模式)
+void MainWindow::syncOneClickUiState()
+{
+    const bool onIdx = ribbonTab && ribbonTab->currentIndex() == 2;
+    if (onIdx && m_btnOneClick && !m_btnOneClick->isChecked())
+        m_btnOneClick->setChecked(true);   // v1.0.147: 进数据处理页默认显示一键处理流水线
+    const bool on = m_currentTab != nullptr && m_btnOneClick && onIdx
+                    && m_btnOneClick->isChecked();
+    if (m_oneClickPanel)
+        m_oneClickPanel->setVisible(on);
+}
+
+// 执行流水线: 按勾选顺序处理 m_rawData (32bit采样), 完成刷新显示
+void MainWindow::runOneClickPipeline()
+{
+    if (!m_currentTab) return;
+    const int nsamp = m_currentTab->nsamp > 0 ? m_currentTab->nsamp : m_pixelsPerRow;
+    const qint64 totalSamples = m_rawData.size() / 4;
+    const int numTraces = int(totalSamples / nsamp);
+    if (numTraces == 0 || nsamp == 0) return;
+
+    // 备份原始数据(仅首次)
+    if (m_currentTab->originalRawData.isEmpty() || !m_pipelineApplied)
+        m_currentTab->originalRawData = m_rawData;
+
+    auto sample = [&](int t, int s) -> qint32 {
+        int idx = (t * nsamp + s) * 4;
+        return (static_cast<quint8>(m_rawData[idx + 3]) << 24)
+               | (static_cast<quint8>(m_rawData[idx + 2]) << 16)
+             | (static_cast<quint8>(m_rawData[idx + 1]) << 8)
+             | static_cast<quint8>(m_rawData[idx]);
+    };
+    auto setSample = [&](int t, int s, qint32 v) {
+        int idx = (t * nsamp + s) * 4;
+        m_rawData[idx] = char(v & 0xFF);
+        m_rawData[idx + 1] = char((v >> 8) & 0xFF);
+        m_rawData[idx + 2] = char((v >> 16) & 0xFF);
+        m_rawData[idx + 3] = char((v >> 24) & 0xFF);
+    };
+    const double rangeNs = m_currentTab->headerRange > 0 ? double(m_currentTab->headerRange) : 100.0;
+
+    // ---- 1 时间零点校正: 全局最大幅值×阈值% 的初至(逐道首超阈值采样, 取中位数) 上移 ----
+    if (m_ocZero && m_ocZero->isChecked() && m_ocZeroThresh) {
+        qint32 gmax = 1;
+        for (int t = 0; t < numTraces; ++t)
+            for (int s = 0; s < nsamp; ++s) {
+                const qint32 v = qAbs(sample(t, s));
+                if (v > gmax) gmax = v;
+            }
+        const qint32 thr = qMax<qint32>(1, qint32(double(gmax) * m_ocZeroThresh->value() / 100.0));
+        QVector<int> firsts;
+        firsts.reserve(numTraces);
+        for (int t = 0; t < numTraces; ++t) {
+            for (int s = 0; s < nsamp; ++s)
+                if (qAbs(sample(t, s)) >= thr) { firsts.append(s); break; }
+        }
+        if (!firsts.isEmpty()) {
+            std::sort(firsts.begin(), firsts.end());
+            const int skip = qBound(0, firsts[firsts.size() / 2], nsamp - 2);
+            if (skip > 0) {
+                for (int t = 0; t < numTraces; ++t) {
+                    for (int s = 0; s < nsamp - skip; ++s)
+                        setSample(t, s, sample(t, s + skip));
+                    for (int s = nsamp - skip; s < nsamp; ++s)
+                        setSample(t, s, 0);
+                }
+                m_currentTab->zeroApplied = true;
+                m_currentTab->zeroSkipRows = skip;
+            }
+        }
+    }
+
+    // ---- 2 校正零偏(dewow): 滑动窗均值去除 ----
+    if (m_ocDewow && m_ocDewow->isChecked() && m_ocDewowWin) {
+        const double sampleIntervalNs = rangeNs / nsamp;
+        const int windowSamples = qMax(1, int(m_ocDewowWin->value() / sampleIntervalNs));
+        const int halfWin = windowSamples / 2;
+        for (int t = 0; t < numTraces; ++t) {
+            QVector<double> trace(nsamp), cum(nsamp + 1, 0.0);
+            for (int s = 0; s < nsamp; ++s) trace[s] = double(sample(t, s));
+            for (int s = 0; s < nsamp; ++s) cum[s + 1] = cum[s] + trace[s];
+            for (int s = 0; s < nsamp; ++s) {
+                const int left = qMax(0, s - halfWin);
+                const int right = qMin(nsamp - 1, s + halfWin);
+                const double mean = (cum[right + 1] - cum[left]) / (right - left + 1);
+                setSample(t, s, qint32(trace[s] - mean));
+            }
+        }
+    }
+
+    // ---- 3 背景去除: 滑动窗(道方向)均值 ----
+    if (m_ocBg && m_ocBg->isChecked() && m_ocBgWin) {
+        const int W = qMax(3, m_ocBgWin->value() | 1);   // 奇数窗
+        QByteArray snap = m_rawData;
+        auto rd = [&](int t, int s) -> qint32 {
+            int idx = (t * nsamp + s) * 4;
+            return (static_cast<quint8>(snap[idx + 3]) << 24)
+                   | (static_cast<quint8>(snap[idx + 2]) << 16)
+                   | (static_cast<quint8>(snap[idx + 1]) << 8)
+                   | static_cast<quint8>(snap[idx]);
+        };
+        for (int t = 0; t < numTraces; ++t) {
+            const int t0 = qMax(0, t - W / 2), t1 = qMin(numTraces - 1, t + W / 2);
+            for (int s = 0; s < nsamp; ++s) {
+                double sum = 0;
+                for (int k = t0; k <= t1; ++k) sum += rd(k, s);
+                setSample(t, s, qint32(double(sample(t, s)) - sum / (t1 - t0 + 1)));
+            }
+        }
+    }
+
+    // ---- 4 带通滤波: 逐道FFT(cv::dft) 频带置零 ----
+    if (m_ocBp && m_ocBp->isChecked() && m_ocBpLo && m_ocBpHi && m_ocBpHi->value() > m_ocBpLo->value()) {
+        const double fLo = m_ocBpLo->value(), fHi = m_ocBpHi->value();
+        const double mhzPerBin = 1000.0 / rangeNs;   // bin k ↔ k*1000/range MHz
+        const int keepLo = qMax(0, int(fLo / mhzPerBin));
+        const int keepHi = qMin(nsamp / 2, int(fHi / mhzPerBin + 0.5));
+        cv::Mat row(1, nsamp, CV_32F);
+        for (int t = 0; t < numTraces; ++t) {
+            for (int s = 0; s < nsamp; ++s) row.at<float>(s) = float(sample(t, s));
+            cv::Mat spec;
+            cv::dft(row, spec, cv::DFT_COMPLEX_OUTPUT);
+            for (int k = 0; k <= nsamp / 2; ++k) {
+                const bool keep = (k >= keepLo && k <= keepHi);
+                if (!keep) {
+                    spec.at<cv::Vec2f>(k) = cv::Vec2f(0, 0);
+                    if (k > 0 && k < nsamp - k)
+                        spec.at<cv::Vec2f>(nsamp - k) = cv::Vec2f(0, 0);
+                }
+            }
+            cv::idft(spec, row, cv::DFT_REAL_OUTPUT | cv::DFT_SCALE);
+            for (int s = 0; s < nsamp; ++s)
+                setSample(t, s, qint32(row.at<float>(s)));
+        }
+    }
+
+    // ---- 5 指数/能量增益: g(d)=10^(slope·d/20) 按深度 ----
+    if (m_ocGain && m_ocGain->isChecked() && m_ocGainSlope) {
+        const double mPerSample = interpMPerSample();
+        const double slope = m_ocGainSlope->value();
+        QVector<double> g(nsamp);
+        for (int s = 0; s < nsamp; ++s) {
+            g[s] = mPerSample > 0 ? qPow(10.0, slope * s * mPerSample / 20.0) : 1.0;
+            if (g[s] > 5000.0) g[s] = 5000.0;   // 上限防溢出
+        }
+        for (int t = 0; t < numTraces; ++t)
+            for (int s = 0; s < nsamp; ++s)
+                setSample(t, s, qint32(double(sample(t, s)) * g[s]));
+    }
+
+    // ---- 6 增益AGC: 时间方向滑动RMS归一 ----
+    if (m_ocAgc && m_ocAgc->isChecked() && m_ocAgcWin) {
+        const int W = qMax(8, m_ocAgcWin->value());
+        for (int t = 0; t < numTraces; ++t) {
+            QVector<double> sq(nsamp + 1, 0.0);
+            for (int s = 0; s < nsamp; ++s) {
+                const double v = sample(t, s);
+                sq[s + 1] = sq[s] + v * v;
+            }
+            for (int s = 0; s < nsamp; ++s) {
+                const int a = qMax(0, s - W / 2), b = qMin(nsamp - 1, s + W / 2);
+                const double rms = std::sqrt((sq[b + 1] - sq[a]) / (b - a + 1));
+                if (rms > 1.0)
+                    setSample(t, s, qint32(double(sample(t, s)) * 32768.0 / rms / 8.0));
+            }
+        }
+    }
+
+    m_pipelineApplied = true;
+    m_oneClickApplied = false;
+    m_currentTab->rawData = m_rawData;
+    refreshImage();
+    updateChart(m_lastChartX);
 }
 
 // ==================== v1.0.135 AI智能检测引擎面板 (按 AI分析-AI检测.html) ====================
@@ -9646,7 +10221,7 @@ void MainWindow::saveProcessedFile()
     if (!requireOpenFile()) return;
 
     // 确保增益已应用（仅旧的增益系统；一键处理已自己处理数据）
-    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied && !m_deconvApplied && !m_hilbertApplied && !m_kirchhoffApplied && !m_filterApplied) {
+    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_pipelineApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied && !m_deconvApplied && !m_hilbertApplied && !m_kirchhoffApplied && !m_filterApplied) {
         // 先应用增益
         m_currentTab->originalRawData = m_rawData;
         bool isLinear2 = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
@@ -10654,12 +11229,12 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
 
 void MainWindow::updateWindowTitle()
 {
-    QString text = QString::fromUtf8("劳雷");
+    QString text = QString::fromUtf8("地听");
     if (m_currentTab && !m_currentTab->filePath.isEmpty()) {
         QString fname = QFileInfo(m_currentTab->filePath).completeBaseName();
-        text = QString::fromUtf8("劳雷AI数据处理-%1").arg(fname);
+        text = QString::fromUtf8("地听AI数据处理-%1").arg(fname);
     }
-    setWindowTitle(text);  // 同步 OS 任务栏标题(顶栏品牌固定为"劳雷",不随文件变)
+    setWindowTitle(text);  // 同步 OS 任务栏标题(顶栏品牌固定为"地听",不随文件变)
 }
 
 bool MainWindow::requireOpenFile()
@@ -11189,6 +11764,42 @@ void MainWindow::createMenuBar()
     dataLayout->setContentsMargins(4, 2, 4, 2);
     dataLayout->setSpacing(8);
 
+    // v1.0.145 组1: 一键处理(显著主按钮, 按HTML: bolt图标+primary底, 点击切换右侧流水线面板)
+    {
+        QWidget *grp = new QWidget();
+        QVBoxLayout *gl = new QVBoxLayout(grp);
+        gl->setContentsMargins(6, 4, 6, 2);
+        gl->setSpacing(2);
+        m_btnOneClick = new QToolButton();
+        if (MatIcon::ready())
+            m_btnOneClick->setIcon(MatIcon::icon(QStringLiteral("bolt"), QColor(0xff, 0xff, 0xff),
+                                                 QColor(), QColor(), 28, 1.0));
+        m_btnOneClick->setText(QString::fromUtf8("一键处理"));
+        m_btnOneClick->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+        m_btnOneClick->setIconSize(QSize(28, 28));
+        m_btnOneClick->setFixedSize(76, 76);
+        m_btnOneClick->setCheckable(true);
+        m_btnOneClick->setCursor(Qt::PointingHandCursor);
+        m_btnOneClick->setStyleSheet(
+            "QToolButton { background: #1e60d5; border: 1px solid #0048af; border-radius: 4px;"
+            " color: #ffffff; font-size: 11px; padding: 4px; }"
+            "QToolButton:hover { background: #0048af; }"
+            "QToolButton:checked { background: #0048af; border: 2px solid #00419e; }");
+        connect(m_btnOneClick, &QToolButton::toggled, this, [this](bool) { syncOneClickUiState(); });
+        gl->addWidget(m_btnOneClick, 0, Qt::AlignHCenter);
+        QLabel *grpLbl = new QLabel(QString::fromUtf8("一键处理"));
+        grpLbl->setAlignment(Qt::AlignCenter);
+        grpLbl->setStyleSheet("color: #424654; font-size: 11px; font-weight: bold;"
+                              " letter-spacing: 1px; border: none; background: transparent;");
+        gl->addWidget(grpLbl);
+        dataLayout->addWidget(grp);
+        QFrame *ocSep = new QFrame();
+        ocSep->setFrameShape(QFrame::NoFrame);
+        ocSep->setFixedWidth(1);
+        ocSep->setStyleSheet("background: #c3c6d6; border: none;");
+        dataLayout->addWidget(ocSep);
+    }
+
     // Text-only button maker (no icons yet)
     auto makeTextBtn = [](const QString &text) -> QToolButton* {
         QToolButton *btn = new QToolButton();
@@ -11287,9 +11898,6 @@ void MainWindow::createMenuBar()
     QToolButton *btnKirchhoff = makeTextBtn("克西霍夫");
     connect(btnKirchhoff, &QToolButton::clicked, this, &MainWindow::showKirchhoffMigration);
     g3row2->addWidget(btnKirchhoff);
-    QToolButton *btnOneClickData = makeTextBtn("一键处理");
-    connect(btnOneClickData, &QToolButton::clicked, this, &MainWindow::showOneClickProcess);
-    g3row2->addWidget(btnOneClickData);
     g3row2->addWidget(makeTextBtn("批处理"));
     g3->insertLayout(1, g3row2);
 

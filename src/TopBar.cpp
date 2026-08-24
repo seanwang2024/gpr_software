@@ -99,7 +99,7 @@ TopBar::TopBar(QWidget *parent)
     setFixedHeight(40);   // 设计稿 toolbar-height
     setAttribute(Qt::WA_StyledBackground, true);
     // 注意必须用类选择器限定: 裸声明会传播给所有子控件, brandBox 曾继承 border-bottom
-    // 在劳雷下方画出一条 70px 灰线(y=31, 实测 #c3c6d6)
+    // 在地听下方画出一条 70px 灰线(y=31, 实测 #c3c6d6)
     setStyleSheet("TopBar { background-color: #f8f9ff; border-bottom: 1px solid #c3c6d6; }");
 
     // 间距常量(参考PNG实测: 文字间距设计值≈34px, 按窗口1440/设计1280放大1.125→取整)
@@ -111,13 +111,15 @@ TopBar::TopBar(QWidget *parent)
     lay->setContentsMargins(8, 0, 0, 0);
     lay->setSpacing(kBrandTabGap);
 
-    // ---- 左: 品牌按钮 "劳雷" + ▾ (space-x-1=4px, 独立容器) ----
+    // ---- 左: 品牌按钮 "地听" + ▾ (space-x-1=4px, 独立容器) ----
     QWidget *brandBox = new QWidget(this);
     QHBoxLayout *brandLay = new QHBoxLayout(brandBox);
     brandLay->setContentsMargins(0, 0, 0, 0);
     brandLay->setSpacing(2);
 
-    QPushButton *brand = new QPushButton(QStringLiteral("劳雷"), brandBox);
+    QPushButton *brand = new QPushButton(QStringLiteral("地听"), brandBox);
+    brand->setIcon(QIcon(QStringLiteral(":/icons/diting_logo.png")));   // v1.0.148 地听logo
+    brand->setIconSize(QSize(22, 22));
     brand->setCursor(Qt::PointingHandCursor);
     brand->setFocusPolicy(Qt::NoFocus);   // 去除点击后的虚线焦点框(灰色一条线)
     brand->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);   // 防拉伸: 品牌按钮钉死自然宽度

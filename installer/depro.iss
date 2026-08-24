@@ -1,15 +1,15 @@
-; MyQtApp(劳雷AI数据处理)Inno Setup 安装脚本
-; 编译: ISCC.exe D:\gpr_software\installer\MyQtApp.iss
+; depro(地听AI数据处理)Inno Setup 安装脚本
+; 编译: ISCC.exe D:\gpr_software\installer\depro.iss
 ; 发布新版本时:改下面 AppVersion + OutputBaseFilename,并确保 D:\gpr_test 是最新 Release 部署。
 
-#define MyAppName "劳雷AI数据处理"
-#define MyAppNameEn "MyQtApp"
+#define MyAppName "地听AI数据处理"
+#define MyAppNameEn "depro"
 #define MyAppVersion "1.0.69"
-#define MyAppPublisher "劳雷"
-#define MyAppExeName "MyQtApp.exe"
+#define MyAppPublisher "地听"
+#define MyAppExeName "depro.exe"
 
 [Setup]
-AppId={{8F3B2A1C-MyQtApp-GPR-LAUREL}}
+AppId={{8F3B2A1C-depro-GPR-DITING}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -20,8 +20,8 @@ DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
 OutputDir=D:\gpr_release
-OutputBaseFilename=MyQtApp_Setup_{#MyAppVersion}
-SetupIconFile=laurel_logo.ico
+OutputBaseFilename=depro_Setup_{#MyAppVersion}
+SetupIconFile=diting_logo.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

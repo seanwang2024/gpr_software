@@ -25,7 +25,7 @@
     <Setting>
       <name>RibbonCategory</name>
       <state>0</state>
-      <value>2</value>
+      <value>4</value>
     </Setting>
     <Setting>
       <name>DisplayViews</name>
@@ -65,7 +65,7 @@
   </GlobalProperties>
   <File>
     <scanRange>0,1732</scanRange>
-    <name>PRV01__072 P_I.DZT</name>
+    <name>PRV01__072 P_J.DZT</name>
     <Profile>
       <scanRange>0,1732</scanRange>
       <WayPt>
