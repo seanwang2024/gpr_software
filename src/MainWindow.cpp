@@ -1932,7 +1932,7 @@ MainWindow::MainWindow(QWidget *parent)
         "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
         "stop:0 #0a1929, stop:0.5 #14304f, stop:1 #1a4a7a);"
     );
-    m_welcomePix = QPixmap(QStringLiteral(":/icons/diting_logo.png"));   // v1.0.148 地听logo
+    m_welcomePix = QPixmap(":/icons/resources/welcome.png");   // 欢迎页保持原画面(暂不换logo, 用户指示)
     welcomeLabel->setPixmap(m_welcomePix);
     welcomeLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);  // 占满整个内容区
     // 保持比例铺满:updateWelcomePixmap() 按 KeepAspectRatio 缩放原图,居中显示
