@@ -1,9 +1,0 @@
-MatIcon OK: family=Material Symbols Outlined mono=JetBrains Mono
-==== 地听AI数据处理 [诊断版 1.0.148] ====
-本终端只显示 DZX 处理信息。
-复制方法:①终端内鼠标选中文字 -> 按 回车 或 右键 复制;
-          ②或直接用记事本打开下面的日志文件,Ctrl+C/Ctrl+A 正常复制:
-          D:/gpr_software/debug/dzx_diag.log
-请打开带 DZX 的 DZT 文件,下方会打印该文件的处理步骤,再与 RADAN 逐项对照。
-=====================================
-[TopBar几何] brand=72 brandBox=96 tab0=48 tab1=48 tab2=76 tab3=76 tab4=62 ⚙@1156 ◯@1232 winBox@1302..1440(宽138)

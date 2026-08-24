@@ -431,7 +431,9 @@ private:
 
     // Tab management
     TabData* createTab(const QString &filePath, const QImage &image);
-    void closeTab(int index);
+    void closeTab(int index);          // 信号入口(tabCloseRequested, 组=sender)
+    void closeTabInGroup(QTabWidget *grp, int index);   // 核心: 指定组内关页
+    void closeCurrentTab();            // v1.0.151 直接调用入口(ribbon/品牌菜单关闭)
     void switchToTab(int index);
     void applyGain();
     void resetGainPanel();   // 打开增益面板时重置为默认值(0dB/线性1.0),清除上次残留

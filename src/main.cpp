@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include "MainWindow.h"
 #include "MatIcon.h"
+#include "Theme.h"
 #include "version.h"
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -58,6 +59,7 @@ int main(int argc, char *argv[])
     qInstallMessageHandler(silentMessageHandler); // 屏蔽其他 qDebug
 
     QApplication app(argc, argv);
+    Theme::load();   // v1.0.149 主题(默认岩土橙)须在创建窗口前
     app.setWindowIcon(QIcon(QStringLiteral(":/icons/diting_logo.png")));   // v1.0.148 地听logo
 
     // Material Symbols 矢量图标字体(设计稿同款) — 失败仅告警, UI 回退 PNG

@@ -1,3 +1,4 @@
+#include "Theme.h"
 #include "TopBar.h"
 #include "MatIcon.h"
 
@@ -6,6 +7,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
+#include <QMessageBox>
+#include <QActionGroup>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QTimer>
@@ -65,7 +68,7 @@ protected:
     bool event(QEvent *e) override
     {
         if (e->type() == QEvent::HoverEnter && m_enabled)
-            setStyleSheet("background: #dee9fc; border-radius: 2px;");
+            setStyleSheet("background: " + Theme::hover + "; border-radius: 2px;");
         else if (e->type() == QEvent::HoverLeave)
             setStyleSheet("background: transparent;");
         return QWidget::event(e);
@@ -85,10 +88,10 @@ private:
     std::function<void()> m_onClick;
 };
 
-const char *kMenuSS =
+const QString kMenuSS =
     "QMenu { background: #ffffff; border: 1px solid #c3c6d6; border-radius: 4px; padding: 4px 0; }"
     "QMenu::item { padding: 7px 24px 7px 16px; color: #121c2a; font-size: 14px; }"
-    "QMenu::item:selected { background: #dee9fc; }"
+    "QMenu::item:selected { background: " + Theme::hover + "; }"
     "QMenu::separator { height: 1px; background: #c3c6d6; margin: 4px 8px; }";
 
 } // namespace
@@ -124,9 +127,9 @@ TopBar::TopBar(QWidget *parent)
     brand->setFocusPolicy(Qt::NoFocus);   // 去除点击后的虚线焦点框(灰色一条线)
     brand->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);   // 防拉伸: 品牌按钮钉死自然宽度
     brand->setStyleSheet(
-        "QPushButton { border: none; background: transparent; color: #0048af;"
+        "QPushButton { border: none; background: transparent; color: " + Theme::pri + ";"
         " font-size: 18px; font-weight: bold; padding: 0 4px 0 6px; }"
-        "QPushButton:hover { background: #dee9fc; border-radius: 2px; }");
+        "QPushButton:hover { background: " + Theme::hover + "; border-radius: 2px; }");
     brandLay->addWidget(brand);
 
     QToolButton *arrow = new QToolButton(brandBox);
@@ -137,7 +140,7 @@ TopBar::TopBar(QWidget *parent)
     arrow->setFixedSize(22, 24);
     arrow->setStyleSheet(
         "QToolButton { border: none; background: transparent; }"
-        "QToolButton:hover { background: #dee9fc; border-radius: 2px; }");
+        "QToolButton:hover { background: " + Theme::hover + "; border-radius: 2px; }");
     brandLay->addWidget(arrow);
     brandBox->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);   // 防拉伸: 品牌容器不可增长
     lay->addWidget(brandBox);
@@ -200,9 +203,9 @@ TopBar::TopBar(QWidget *parent)
             " border-top-left-radius: 2px; border-top-right-radius: 2px;"
             " padding: 10px " + QString::number(kTabPadH) + "px 4px " + QString::number(kTabPadH) + "px;"
             " background: transparent; color: #424654; font-size: 14px; }"
-            "QPushButton:hover { background: #dee9fc; }"
-            "QPushButton:checked { color: #0048af; font-weight: bold;"
-            " border-bottom: 2px solid #0048af; }");
+            "QPushButton:hover { background: " + Theme::hover + "; }"
+            "QPushButton:checked { color: " + Theme::pri + "; font-weight: bold;"
+            " border-bottom: 2px solid " + Theme::pri + "; }");
         m_moduleGroup->addButton(b, i);
         tabs->addWidget(b);
     }
@@ -224,7 +227,7 @@ TopBar::TopBar(QWidget *parent)
         b->setFocusPolicy(Qt::NoFocus);   // 去除虚线焦点框
         b->setStyleSheet(
             "QToolButton { border: none; border-radius: 4px; background: transparent; }"
-            "QToolButton:hover { background: #dee9fc; }");
+            "QToolButton:hover { background: " + Theme::hover + "; }");
         return b;
     };
 
@@ -236,7 +239,7 @@ TopBar::TopBar(QWidget *parent)
         menu->move(btn->mapToGlobal(QPoint(btn->width() - menu->width(), btn->height())));
     };
 
-    // ⚙ 设置: 关于 + 检查升级
+    // ⚙ 设置: 关于 + 检查升级 + 主题设计(v1.0.149 科技蓝/岩土橙, 重启生效)
     m_settingsBtn = iconBtn(QStringLiteral("settings"));
     m_settingsMenu = new QMenu(this);
     m_settingsMenu->setStyleSheet(kMenuSS);
@@ -244,6 +247,24 @@ TopBar::TopBar(QWidget *parent)
     connect(aAbout, &QAction::triggered, this, [this] { emit aboutRequested(); });
     QAction *aUpgrade = m_settingsMenu->addAction(QStringLiteral("检查升级"));
     connect(aUpgrade, &QAction::triggered, this, [this] { emit upgradeRequested(); });
+    QMenu *themeMenu = m_settingsMenu->addMenu(QString::fromUtf8("主题设计"));
+    themeMenu->setStyleSheet(kMenuSS);
+    QActionGroup *themeGrp = new QActionGroup(themeMenu);
+    auto addTheme = [&themeMenu, &themeGrp](Theme::Id id, const QString &name) {
+        QAction *a = themeMenu->addAction(name);
+        a->setCheckable(true);
+        a->setChecked(Theme::current == id);
+        themeGrp->addAction(a);
+        connect(a, &QAction::triggered, themeMenu, [id, name]() {
+            if (Theme::current == id) return;
+            Theme::save(id);
+            QMessageBox::information(nullptr, QString::fromUtf8("主题设计"),
+                QString::fromUtf8("已切换为「%1」，重启软件后生效。").arg(name));
+        });
+        return a;
+    };
+    addTheme(Theme::TechBlue, QString::fromUtf8("科技蓝"));
+    addTheme(Theme::GeotechOrange, QString::fromUtf8("岩土橙"));
     connect(m_settingsBtn, &QToolButton::clicked, this, [this, popupRight]() {
         popupRight(m_settingsBtn, m_settingsMenu);
     });

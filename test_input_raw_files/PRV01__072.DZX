@@ -8,7 +8,7 @@
         <unitsPerMark>0.000000</unitsPerMark>
         <unitsPerScan>0.020000</unitsPerScan>
     </GlobalProperties>
-      <LayerGroup>
+  <LayerGroup>
     <groupName>第1层</groupName>
     <display>1</display>
     <color>1</color>

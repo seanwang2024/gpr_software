@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "Theme.h"
 #include "version.h"
 #include "TopBar.h"
 #include "MatIcon.h"
@@ -1275,7 +1276,7 @@ void ImageLabel::drawEditOverlay()
             const QRect r = rectFromRectT(m_blocks[i].rectT);
             const bool active = (i == m_activeBlock);
             const int st = m_blocks[i].state;
-            const QColor border = (st == 2) ? QColor(0xba, 0x1a, 0x1a) : QColor(0x00, 0x48, 0xaf);
+            const QColor border = (st == 2) ? QColor(0xba, 0x1a, 0x1a) : QColor(Theme::pri);
             // 边框: 保留块=实线+淡填充, 删除块=红虚线, 未标记=蓝虚线(活动块带淡填充)
             if (st == 1) {
                 p.setPen(QPen(border, 2));
@@ -1302,11 +1303,11 @@ void ImageLabel::drawEditOverlay()
             // 框上方 [保留][删除] pill(当前标记态高亮: 保留=蓝底白字, 删除=红底白字)
             const QRect kb = keepButtonRect(r), db = deleteButtonRect(r);
             p.setPen(Qt::NoPen);
-            p.setBrush(st == 1 ? QColor(0x00, 0x48, 0xaf) : QColor(0xff, 0xff, 0xff));
+            p.setBrush(st == 1 ? QColor(Theme::pri) : QColor(0xff, 0xff, 0xff));
             p.drawRoundedRect(kb, 10, 10);
             p.setBrush(st == 2 ? QColor(0xba, 0x1a, 0x1a) : QColor(0xff, 0xff, 0xff));
             p.drawRoundedRect(db, 10, 10);
-            p.setPen(st == 1 ? Qt::white : QColor(0x00, 0x48, 0xaf));
+            p.setPen(st == 1 ? Qt::white : QColor(Theme::pri));
             p.drawText(kb, Qt::AlignCenter, QString::fromUtf8("保留"));
             p.setPen(st == 2 ? Qt::white : QColor(0xba, 0x1a, 0x1a));
             p.drawText(db, Qt::AlignCenter, QString::fromUtf8("删除"));
@@ -1347,7 +1348,7 @@ void ImageLabel::contextMenuEvent(QContextMenuEvent *event)
             menu.setStyleSheet(
                 "QMenu { background: #ffffff; border: 1px solid #c3c6d6; border-radius: 4px; padding: 4px 0; }"
                 "QMenu::item { padding: 6px 24px 6px 16px; color: #121c2a; font-size: 13px; }"
-                "QMenu::item:selected { background: #dee9fc; }");
+                "QMenu::item:selected { background: " + Theme::hover + "; }");
             QAction *editAct = menu.addAction(QString::fromUtf8("编辑"));
             menu.addSeparator();
             menu.addAction(QString::fromUtf8("取消"));
@@ -1925,14 +1926,18 @@ MainWindow::MainWindow(QWidget *parent)
             });
     }
 
-    // --- Shared: welcome label ---
+    // --- Shared: welcome label (v1.0.150: 随主题切换画面 — 科技蓝=原深蓝版 / 岩土橙=暖岩土版, 标题已改"地听雷达") ---
     welcomeLabel = new QLabel(this);
     welcomeLabel->setAlignment(Qt::AlignCenter);
+    const bool warmWel = (Theme::current == Theme::GeotechOrange);
     welcomeLabel->setStyleSheet(
-        "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
-        "stop:0 #0a1929, stop:0.5 #14304f, stop:1 #1a4a7a);"
-    );
-    m_welcomePix = QPixmap(":/icons/resources/welcome.png");   // 欢迎页保持原画面(暂不换logo, 用户指示)
+        warmWel
+            ? QStringLiteral("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
+                             "stop:0 #291108, stop:0.5 #4f2a10, stop:1 #7a3a1a);")
+            : QStringLiteral("background: qlineargradient(x1:0, y1:0, x2:1, y2:1, "
+                             "stop:0 #0a1929, stop:0.5 #14304f, stop:1 #1a4a7a);"));
+    m_welcomePix = QPixmap(warmWel ? QStringLiteral(":/icons/welcome_orange.png")
+                                   : QStringLiteral(":/icons/resources/welcome.png"));
     welcomeLabel->setPixmap(m_welcomePix);
     welcomeLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);  // 占满整个内容区
     // 保持比例铺满:updateWelcomePixmap() 按 KeepAspectRatio 缩放原图,居中显示
@@ -1959,7 +1964,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_welcomeTip = new QLabel(welcomeLabel);
     m_welcomeTip->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     m_welcomeTip->setWordWrap(true);
-    m_welcomeTip->setStyleSheet("background: rgba(10,25,42,210); border-radius: 12px; padding: 14px;");
+    m_welcomeTip->setStyleSheet(
+        warmWel ? QStringLiteral("background: rgba(42,18,8,210); border-radius: 12px; padding: 14px;")
+                : QStringLiteral("background: rgba(10,25,42,210); border-radius: 12px; padding: 14px;"));
     m_welcomeTip->hide();
     // 悬停放大用:圆形放大标签(鼠标穿透,不抢热区焦点)+ 预切 4 个图标区域(原图底部图标位)
     m_welcomeZoom = new QLabel(welcomeLabel);
@@ -1981,8 +1988,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_docTabWidget->setDocumentMode(true);
     m_docTabWidget->setStyleSheet(
         "QTabWidget::pane { border: none; }"
-        "QTabBar::tab { background: #eef4ff; padding: 6px 16px; border: 1px solid #d5dae8; min-width: 80px; color: #444855; }"
-        "QTabBar::tab:selected { background: #ffffff; font-weight: bold; color: #004aae; }"
+        "QTabBar::tab { background: " + Theme::panel + "; padding: 6px 16px; border: 1px solid #d5dae8; min-width: 80px; color: #444855; }"
+        "QTabBar::tab:selected { background: #ffffff; font-weight: bold; color: " + Theme::pri + "; }"
     );
     m_docTabWidget->tabBar()->installEventFilter(this);
 
@@ -2340,14 +2347,14 @@ MainWindow::MainWindow(QWidget *parent)
     QWidget *statusBar = new QWidget(this);
     statusBar->setObjectName("gprStatusBar");
     statusBar->setFixedHeight(28);
-    statusBar->setStyleSheet("#gprStatusBar { background: #d9e3f6; }");
+    statusBar->setStyleSheet("#gprStatusBar { background: " + Theme::status + "; }");
     QHBoxLayout *buttonLayout = new QHBoxLayout(statusBar);
     buttonLayout->setContentsMargins(12, 0, 12, 0);
     buttonLayout->setSpacing(12);
 
     QFrame *statusDot = new QFrame(statusBar);
     statusDot->setFixedSize(8, 8);
-    statusDot->setStyleSheet("background: #0048af; border-radius: 4px; border: none;");
+    statusDot->setStyleSheet("background: " + Theme::pri + "; border-radius: 4px; border: none;");
     buttonLayout->addWidget(statusDot);
     QLabel *statusLabel = new QLabel(QString::fromUtf8("就绪"), statusBar);
     statusLabel->setStyleSheet("color: #121c2a; font-size: 12px; border: none; background: transparent;");
@@ -2506,12 +2513,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_autoLoadLastPath = st.value(QStringLiteral("autoLoadLastPath"), true).toBool();
         m_lastOpenDir = st.value(QStringLiteral("lastOpenDir")).toString();
     }
-    connect(m_topBar, &TopBar::closeFileRequested, this, [this]() {
-        if (!m_tabs.isEmpty()) {
-            int idx = m_docTabWidget->currentIndex();
-            if (idx >= 0) closeTab(idx);
-        }
-    });
+    connect(m_topBar, &TopBar::closeFileRequested, this, [this]() { closeCurrentTab(); });
     connect(m_topBar, &TopBar::saveFileRequested, this, [this]() {
         if (m_currentTab) saveProcessedFile();
     });
@@ -2555,11 +2557,11 @@ MainWindow::~MainWindow()
 // --- Tab management ---
 
 namespace {
-const char *activeGroupSS =
+const QString activeGroupSS =
     "QTabWidget::pane { border: none; }"
     "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
     "QTabBar::tab:selected { background: #ffffff; font-weight: bold; }";
-const char *inactiveGroupSS =
+const QString inactiveGroupSS =
     "QTabWidget::pane { border: none; }"
     "QTabBar::tab { background: #e0e0e0; padding: 6px 16px; border: 1px solid #c0c0c0; min-width: 80px; }"
     "QTabBar::tab:selected { background: #ffffff; }";
@@ -3111,7 +3113,27 @@ void MainWindow::switchToTab(int index)
 
 void MainWindow::closeTab(int index)
 {
+    // 信号入口(tabCloseRequested): 组=sender; 直接调用(旧代码)走 closeCurrentTab
     auto *srcGroup = qobject_cast<QTabWidget*>(sender());
+    if (srcGroup)
+        closeTabInGroup(srcGroup, index);
+}
+
+// v1.0.151: 直接调用入口 — 关闭当前tab(ribbon"关闭"/品牌菜单"关闭";
+// 之前直接调 closeTab(idx) 因 sender()=nullptr 被静默吞掉 = 按钮不起作用的根因)
+void MainWindow::closeCurrentTab()
+{
+    if (!m_currentTab) return;
+    for (auto *g : m_tabGroups)
+        for (int i = 0; i < g->count(); ++i)
+            if (g->widget(i) == m_currentTab->page) {
+                closeTabInGroup(g, i);
+                return;
+            }
+}
+
+void MainWindow::closeTabInGroup(QTabWidget *srcGroup, int index)
+{
     if (!srcGroup) return;
     if (index < 0 || index >= srcGroup->count()) return;
 
@@ -4153,7 +4175,7 @@ void MainWindow::createEditPanel()
     // --- 标题栏 40px: 标题(随页切换) + ✕ ---
     QWidget *head = new QWidget(m_editPanel);
     head->setFixedHeight(40);
-    head->setStyleSheet("background: #eff4ff; border-bottom: 1px solid #c3c6d6;");
+    head->setStyleSheet("background: " + Theme::panel + "; border-bottom: 1px solid #c3c6d6;");
     QHBoxLayout *hl = new QHBoxLayout(head);
     hl->setContentsMargins(12, 0, 4, 0);
     hl->setSpacing(8);
@@ -4171,7 +4193,7 @@ void MainWindow::createEditPanel()
     closeBtn->setCursor(Qt::PointingHandCursor);
     closeBtn->setStyleSheet(
         "QToolButton { border: none; border-radius: 2px; background: transparent; }"
-        "QToolButton:hover { background: #dee9fc; }");
+        "QToolButton:hover { background: " + Theme::hover + "; }");
     connect(closeBtn, &QToolButton::clicked, this, [this]() {
         if (m_btnEditBlock) m_btnEditBlock->setChecked(false);
         if (m_btnHZoom) m_btnHZoom->setChecked(false);
@@ -4194,9 +4216,9 @@ void MainWindow::createEditPanel()
             m_btnNewRect->setIcon(MatIcon::icon(QStringLiteral("add_box"), Qt::white));
         m_btnNewRect->setCursor(Qt::PointingHandCursor);
         m_btnNewRect->setStyleSheet(
-            "QPushButton { background: #0048af; color: #ffffff; border: none; border-radius: 4px;"
+            "QPushButton { background: " + Theme::pri + "; color: #ffffff; border: none; border-radius: 4px;"
             " padding: 8px; font-size: 14px; font-weight: bold; text-align: center; }"
-            "QPushButton:hover { background: #1e60d5; }");
+            "QPushButton:hover { background: " + Theme::priMid + "; }");
         pl->addWidget(m_btnNewRect);
 
         QLabel *geoCap = new QLabel(QString::fromUtf8("选区几何信息"), page);
@@ -4232,15 +4254,15 @@ void MainWindow::createEditPanel()
         m_btnResetRect->setStyleSheet(
             "QPushButton { background: #ffffff; color: #121c2a; border: 1px solid #c3c6d6;"
             " border-radius: 4px; padding: 7px; font-size: 13px; }"
-            "QPushButton:hover { background: #dee9fc; }");
+            "QPushButton:hover { background: " + Theme::hover + "; }");
         pl->addWidget(m_btnResetRect);
 
         m_btnCrop = new QPushButton(QString::fromUtf8("确认裁剪"), page);
         m_btnCrop->setCursor(Qt::PointingHandCursor);
         m_btnCrop->setStyleSheet(
-            "QPushButton { background: #0048af; color: #ffffff; border: none; border-radius: 4px;"
+            "QPushButton { background: " + Theme::pri + "; color: #ffffff; border: none; border-radius: 4px;"
             " padding: 8px; font-size: 14px; font-weight: bold; }"
-            "QPushButton:hover { background: #1e60d5; }");
+            "QPushButton:hover { background: " + Theme::priMid + "; }");
         pl->addWidget(m_btnCrop);
 
         // v1.0.107: 数据块按钮接线(新建=新块自动错位; 重置=清空; 确认裁剪=裁到保留块)
@@ -4277,7 +4299,7 @@ void MainWindow::createEditPanel()
         m_hZoomSlider->setStyleSheet(
             "QSlider::groove:horizontal { height: 4px; background: #c3c6d6; border-radius: 2px; }"
             "QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0;"
-            " border-radius: 7px; background: #0048af; }"
+            " border-radius: 7px; background: " + Theme::pri + "; }"
             "QSlider::sub-page:horizontal { background: #7ea6e8; border-radius: 2px; }");
         m_hZoomSpin = new QSpinBox(page);
         m_hZoomSpin->setRange(1, 10);
@@ -4296,9 +4318,9 @@ void MainWindow::createEditPanel()
             btnResetZoom->setIcon(MatIcon::icon(QStringLiteral("restart_alt"), QColor(0x12, 0x1c, 0x2a)));
         btnResetZoom->setCursor(Qt::PointingHandCursor);
         btnResetZoom->setStyleSheet(
-            "QPushButton { background: #dee9fc; color: #121c2a; border: 1px solid #c3c6d6;"
+            "QPushButton { background: " + Theme::hover + "; color: #121c2a; border: 1px solid #c3c6d6;"
             " border-radius: 4px; padding: 6px; font-size: 13px; }"
-            "QPushButton:hover { background: #d9e3f6; }");
+            "QPushButton:hover { background: " + Theme::status + "; }");
         pl->addWidget(btnResetZoom);
 
         pl->addStretch(1);
@@ -4350,7 +4372,7 @@ void MarkerThumbWidget::setViewportRange(double x0Frac, double x1Frac)
 void MarkerThumbWidget::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
-    p.fillRect(rect(), QColor(0xd9, 0xe3, 0xf6));
+    p.fillRect(rect(), QColor(Theme::status));
     const QRect inner = rect().adjusted(1, 1, -1, -1);
     if (inner.width() < 4 || inner.height() < 4) return;
     if (!m_thumb.isNull())
@@ -4373,7 +4395,7 @@ void MarkerThumbWidget::paintEvent(QPaintEvent *)
 
     // 数据块(蓝): trace→x, sample→y 等比映射
     if (m_traceCount > 1 && m_sampleCount > 1) {
-        p.setPen(QPen(QColor(0x00, 0x48, 0xaf), 1));
+        p.setPen(QPen(QColor(Theme::pri), 1));
         p.setBrush(Qt::NoBrush);
         for (const QRectF &b : m_blocks) {
             const QRectF bn = b.normalized();
@@ -5135,7 +5157,7 @@ void MainWindow::createMarkerPanel()
     QWidget *topBand = new QWidget(m_markerPanel);
     topBand->setFixedHeight(4);
     topBand->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    topBand->setStyleSheet("background: #d9e3f6;");
+    topBand->setStyleSheet("background: " + Theme::status + ";");
     panelLay->addWidget(topBand);
 
     QWidget *panelBody = new QWidget(m_markerPanel);
@@ -5153,7 +5175,7 @@ void MainWindow::createMarkerPanel()
 
     QWidget *lhead = new QWidget(left);
     lhead->setFixedHeight(32);
-    lhead->setStyleSheet("background: #eff4ff; border-bottom: 1px solid #c3c6d6;");
+    lhead->setStyleSheet("background: " + Theme::panel + "; border-bottom: 1px solid #c3c6d6;");
     QHBoxLayout *lh = new QHBoxLayout(lhead);
     lh->setContentsMargins(12, 0, 8, 0);
     lh->setSpacing(4);
@@ -5170,7 +5192,7 @@ void MainWindow::createMarkerPanel()
         b->setStyleSheet(QString(
             "QPushButton { background: #ffffff; border: 1px solid #c3c6d6; border-radius: 3px;"
             " padding: 2px 10px; font-size: 12px; color: %1; }"
-            "QPushButton:hover { background: #dee9fc; }").arg(fg));
+            "QPushButton:hover { background: " + Theme::hover + "; }").arg(fg));
         return b;
     };
     QPushButton *btnIns = smallBtn(QStringLiteral("add"), QString::fromUtf8("插入标记"), "#121c2a");
@@ -5187,10 +5209,10 @@ void MainWindow::createMarkerPanel()
     m_markerTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_markerTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
     m_markerTable->setStyleSheet(
-        "QTableWidget { border: none; background: #ffffff; gridline-color: #e6eeff; font-size: 12px; }"
+        "QTableWidget { border: none; background: #ffffff; gridline-color: " + Theme::light + "; font-size: 12px; }"
         "QTableWidget::item { padding: 2px 6px; }"
-        "QTableWidget::item:selected { background: #dee9fc; color: #121c2a; }"
-        "QHeaderView::section { background: #eff4ff; color: #424654; border: none;"
+        "QTableWidget::item:selected { background: " + Theme::hover + "; color: #121c2a; }"
+        "QHeaderView::section { background: " + Theme::panel + "; color: #424654; border: none;"
         " border-bottom: 1px solid #c3c6d6; padding: 4px 6px; font-size: 11px; font-weight: bold; }");
     m_markerTable->horizontalHeader()->setStretchLastSection(true);
     m_markerTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
@@ -5199,14 +5221,14 @@ void MainWindow::createMarkerPanel()
 
     // ---- 右 60%: 雷达缩略图 ----
     QWidget *right = new QWidget(m_markerPanel);
-    right->setStyleSheet("background: #eff4ff;");
+    right->setStyleSheet("background: " + Theme::panel + ";");
     QVBoxLayout *rl = new QVBoxLayout(right);
     rl->setContentsMargins(0, 0, 0, 0);
     rl->setSpacing(0);
 
     QWidget *rhead = new QWidget(right);
     rhead->setFixedHeight(32);
-    rhead->setStyleSheet("background: #eff4ff; border-bottom: 1px solid #c3c6d6;");
+    rhead->setStyleSheet("background: " + Theme::panel + "; border-bottom: 1px solid #c3c6d6;");
     QHBoxLayout *rh = new QHBoxLayout(rhead);
     rh->setContentsMargins(12, 0, 8, 0);
     QLabel *capR = new QLabel(QString::fromUtf8("雷达缩略图"), rhead);
@@ -5932,7 +5954,7 @@ void MainWindow::createInterpPanel()
     // --- 头条 40px: [tune] 解译与管理面板 ---
     QWidget *head = new QWidget(inner);
     head->setFixedHeight(40);
-    head->setStyleSheet("background: #eff4ff; border-bottom: 1px solid #c3c6d6;");
+    head->setStyleSheet("background: " + Theme::panel + "; border-bottom: 1px solid #c3c6d6;");
     QHBoxLayout *hl = new QHBoxLayout(head);
     hl->setContentsMargins(12, 0, 12, 0);
     hl->setSpacing(8);
@@ -5965,7 +5987,7 @@ void MainWindow::createInterpPanel()
     hzL->setContentsMargins(0, 0, 0, 0);
     hzL->setSpacing(0);
     QWidget *hzHead = new QWidget(hzBox);
-    hzHead->setStyleSheet("background: #e6eeff; border-bottom: 1px solid #c3c6d6;");
+    hzHead->setStyleSheet("background: " + Theme::light + "; border-bottom: 1px solid #c3c6d6;");
     QHBoxLayout *hzHL = new QHBoxLayout(hzHead);
     hzHL->setContentsMargins(8, 3, 8, 3);
     QLabel *hzCap = new QLabel(QString::fromUtf8("层位列表"), hzHead);
@@ -5975,11 +5997,11 @@ void MainWindow::createInterpPanel()
     hzHL->addStretch(1);
     QToolButton *hzAdd = new QToolButton(hzHead);
     if (MatIcon::ready())
-        hzAdd->setIcon(MatIcon::icon(QStringLiteral("add"), QColor(0x00, 0x48, 0xaf)));
+        hzAdd->setIcon(MatIcon::icon(QStringLiteral("add"), QColor(Theme::pri)));
     hzAdd->setToolTip(QString::fromUtf8("新增层位"));
     hzAdd->setCursor(Qt::PointingHandCursor);
     hzAdd->setStyleSheet("QToolButton { border: none; border-radius: 2px; }"
-                         "QToolButton:hover { background: #dee9fc; }");
+                         "QToolButton:hover { background: " + Theme::hover + "; }");
     connect(hzAdd, &QToolButton::clicked, this, [this]() { addHorizonLayer(); });
     hzHL->addWidget(hzAdd);
     hzL->addWidget(hzHead);
@@ -6000,7 +6022,7 @@ void MainWindow::createInterpPanel()
     tkL->setContentsMargins(0, 0, 0, 0);
     tkL->setSpacing(0);
     QWidget *tkHead = new QWidget(tkBox);
-    tkHead->setStyleSheet("background: #e6eeff; border-bottom: 1px solid #c3c6d6;");
+    tkHead->setStyleSheet("background: " + Theme::light + "; border-bottom: 1px solid #c3c6d6;");
     QHBoxLayout *tkHL = new QHBoxLayout(tkHead);
     tkHL->setContentsMargins(8, 3, 8, 3);
     QLabel *tkCap = new QLabel(QString::fromUtf8("追踪控制"), tkHead);
@@ -6019,17 +6041,17 @@ void MainWindow::createInterpPanel()
     m_btnTrackStart->setCheckable(true);
     m_btnTrackStart->setCursor(Qt::PointingHandCursor);
     m_btnTrackStart->setStyleSheet(
-        "QPushButton { background: #dee9fc; color: #424654; border: 1px solid #c3c6d6;"
+        "QPushButton { background: " + Theme::hover + "; color: #424654; border: 1px solid #c3c6d6;"
         " border-radius: 3px; padding: 6px; font-size: 13px; }"
-        "QPushButton:hover { background: #d9e3f6; }"
-        "QPushButton:checked { background: #0048af; color: #ffffff; border-color: #0048af; font-weight: bold; }");
+        "QPushButton:hover { background: " + Theme::status + "; }"
+        "QPushButton:checked { background: " + Theme::pri + "; color: #ffffff; border-color: " + Theme::pri + "; font-weight: bold; }");
     tkGrid->addWidget(m_btnTrackStart, 0, 0);
 
     QPushButton *btnTrackPause = new QPushButton(QString::fromUtf8("暂停"), tkBody);
     btnTrackPause->setEnabled(false);
     btnTrackPause->setToolTip(QStringLiteral("等客户确认"));
     btnTrackPause->setStyleSheet(
-        "QPushButton { background: #dee9fc; color: #424654; border: 1px solid #c3c6d6;"
+        "QPushButton { background: " + Theme::hover + "; color: #424654; border: 1px solid #c3c6d6;"
         " border-radius: 3px; padding: 6px; font-size: 13px; }");
     tkGrid->addWidget(btnTrackPause, 0, 1);
 
@@ -6050,7 +6072,7 @@ void MainWindow::createInterpPanel()
     anL->setContentsMargins(0, 0, 0, 0);
     anL->setSpacing(0);
     QWidget *anHead = new QWidget(anBox);
-    anHead->setStyleSheet("background: #e6eeff; border-bottom: 1px solid #c3c6d6;");
+    anHead->setStyleSheet("background: " + Theme::light + "; border-bottom: 1px solid #c3c6d6;");
     QHBoxLayout *anHL = new QHBoxLayout(anHead);
     anHL->setContentsMargins(8, 3, 4, 3);
     QLabel *anCap = new QLabel(QString::fromUtf8("异常标注列表"), anHead);
@@ -6060,11 +6082,11 @@ void MainWindow::createInterpPanel()
     anHL->addStretch(1);
     QToolButton *anAdd = new QToolButton(anHead);
     if (MatIcon::ready())
-        anAdd->setIcon(MatIcon::icon(QStringLiteral("add"), QColor(0x00, 0x48, 0xaf)));
+        anAdd->setIcon(MatIcon::icon(QStringLiteral("add"), QColor(Theme::pri)));
     anAdd->setToolTip(QString::fromUtf8("新增异常标注"));
     anAdd->setCursor(Qt::PointingHandCursor);
     anAdd->setStyleSheet("QToolButton { border: none; border-radius: 2px; }"
-                         "QToolButton:hover { background: #dee9fc; }");
+                         "QToolButton:hover { background: " + Theme::hover + "; }");
     connect(anAdd, &QToolButton::clicked, this, [this]() { addAnomalyItem(); });
     anHL->addWidget(anAdd);
     anL->addWidget(anHead);
@@ -6072,7 +6094,7 @@ void MainWindow::createInterpPanel()
     m_anomalyList = new QListWidget(anBox);
     m_anomalyList->setStyleSheet(
         "QListWidget { border: none; background: #ffffff; font-size: 12px; }"
-        "QListWidget::item { padding: 0px; border-bottom: 1px solid #e6eeff; }");
+        "QListWidget::item { padding: 0px; border-bottom: 1px solid " + Theme::light + "; }");
     m_anomalyList->setMinimumHeight(120);
     anL->addWidget(m_anomalyList);
 
@@ -6084,7 +6106,7 @@ void MainWindow::createInterpPanel()
         for (int i = 0; i < m_anomalyList->count(); ++i) {
             QWidget *w = m_anomalyList->itemWidget(m_anomalyList->item(i));
             if (w)
-                w->setStyleSheet(i == row ? "background: #dee9fc;" : "background: #ffffff;");
+                w->setStyleSheet(i == row ? "background: " + Theme::hover + ";" : "background: #ffffff;");
         }
         syncInterpOverlays();
         if (m_annoGroup && row >= 0 && row < m_currentTab->anomalies.size()) {
@@ -6112,7 +6134,7 @@ void MainWindow::createInterpPanel()
             if (w) {
                 w->setStyleSheet(
                     m_horizonTree->topLevelItem(i) == cur
-                        ? "background: #dee9fc;"
+                        ? "background: " + Theme::hover + ";"
                         : "background: #ffffff;");
             }
         }
@@ -6204,7 +6226,7 @@ void MainWindow::refreshHorizonList()
         QLineEdit *nameEd = new QLineEdit(h.name, row);
         nameEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 12px;"
                               " color: #121c2a; padding: 0; }"
-                              "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
+                              "QLineEdit:focus { border: 1px solid " + Theme::pri + "; border-radius: 2px; }");
         nameEd->setFixedWidth(110);
         relockLineEditEdit(nameEd);          // 只读+穿透(单击可选中该行)
         connect(nameEd, &QLineEdit::editingFinished, this, [this, i, nameEd]() {
@@ -6227,7 +6249,7 @@ void MainWindow::refreshHorizonList()
         wSlider->setStyleSheet(
             "QSlider::groove:horizontal { height: 3px; background: #c3c6d6; border-radius: 1px; }"
             "QSlider::handle:horizontal { width: 10px; height: 10px; margin: -4px 0;"
-            " border-radius: 5px; background: #0048af; }");
+            " border-radius: 5px; background: " + Theme::pri + "; }");
         connect(wSlider, &QSlider::sliderPressed, this, [this, item]() {
             m_horizonTree->setCurrentItem(item);   // 操作滑条=选中该层
         });
@@ -6403,7 +6425,7 @@ void MainWindow::refreshAnomalyList()
         // 几何命中判定: 所有子控件鼠标穿透, 单击=选中该异常, 双击=按位置分派(名称/备注/空白=编辑, 垃圾桶=删除)
         ListRowWidget *row = new ListRowWidget(m_anomalyList);
         row->setStyleSheet(i == m_selectedAnomaly
-                               ? "background: #dee9fc;"
+                               ? "background: " + Theme::hover + ";"
                                : "background: #ffffff;");
         QHBoxLayout *rl = new QHBoxLayout(row);
         rl->setContentsMargins(4, 3, 2, 3);
@@ -6414,7 +6436,7 @@ void MainWindow::refreshAnomalyList()
         if (MatIcon::ready())
             icon->setPixmap(MatIcon::pixmap(
                 QString::fromLatin1(a.shape >= 0 && a.shape <= 3 ? shapeGlyph[a.shape] : shapeEmpty),
-                QColor(0x00, 0x48, 0xaf), 14, 0.0, devicePixelRatioF()));
+                QColor(Theme::pri), 14, 0.0, devicePixelRatioF()));
         icon->setFixedSize(16, 16);
         rl->addWidget(icon);
 
@@ -6422,7 +6444,7 @@ void MainWindow::refreshAnomalyList()
         QLineEdit *nameEd = new QLineEdit(a.name, row);
         nameEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 12px;"
                               " font-weight: bold; color: #121c2a; padding: 0; }"
-                              "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
+                              "QLineEdit:focus { border: 1px solid " + Theme::pri + "; border-radius: 2px; }");
         nameEd->setFixedWidth(90);
         relockLineEditEdit(nameEd);          // 只读+穿透(单击可选中该行)
         connect(nameEd, &QLineEdit::editingFinished, this, [this, i, nameEd]() {
@@ -6448,7 +6470,7 @@ void MainWindow::refreshAnomalyList()
         remEd->setPlaceholderText(QString::fromUtf8("备注..."));
         remEd->setStyleSheet("QLineEdit { border: none; background: transparent; font-size: 11px;"
                              " color: #424654; padding: 0; }"
-                             "QLineEdit:focus { border: 1px solid #0048af; border-radius: 2px; }");
+                             "QLineEdit:focus { border: 1px solid " + Theme::pri + "; border-radius: 2px; }");
         relockLineEditEdit(remEd);
         connect(remEd, &QLineEdit::editingFinished, this, [this, i, remEd]() {
             if (!m_currentTab || i >= m_currentTab->anomalies.size()) return;
@@ -6712,7 +6734,7 @@ void MainWindow::showExportDialog(int initialTab)
         "QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }"
         "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
         " border-radius: 2px; background: #ffffff; }"
-        "QCheckBox::indicator:checked { background: #0048af; border-color: #0048af;"
+        "QCheckBox::indicator:checked { background: ) + Theme::pri + QStringLiteral(; border-color: ) + Theme::pri + QStringLiteral(;"
         " image: url(:/icons/check_white.png); }"
         "QRadioButton { font-size: 12px; color: #121c2a; spacing: 8px; }"
         "QComboBox { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
@@ -6723,11 +6745,11 @@ void MainWindow::showExportDialog(int initialTab)
         "QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 2px;"
         " background: #ffffff; color: #121c2a; font-size: 13px; font-weight: 600;"
         " padding: 7px 18px; }"
-        "QPushButton#btnCancel:hover { background: #e6eeff; }"
-        "QPushButton#btnOk { border: 1px solid #0048af; border-radius: 2px;"
-        " background: #0048af; color: #ffffff; font-size: 13px; font-weight: 600;"
+        "QPushButton#btnCancel:hover { background: ) + Theme::light + QStringLiteral(; }"
+        "QPushButton#btnOk { border: 1px solid ) + Theme::pri + QStringLiteral(; border-radius: 2px;"
+        " background: ) + Theme::pri + QStringLiteral(; color: #ffffff; font-size: 13px; font-weight: 600;"
         " padding: 7px 24px; }"
-        "QPushButton#btnOk:hover { background: #00419e; }"));
+        "QPushButton#btnOk:hover { background: ) + Theme::priDark + QStringLiteral(; }"));
 
     QVBoxLayout *root = new QVBoxLayout(&dlg);
     root->setContentsMargins(0, 0, 0, 0);
@@ -6739,7 +6761,7 @@ void MainWindow::showExportDialog(int initialTab)
         "QTabWidget::pane { border: none; }"
         "QTabBar::tab { padding: 10px 22px; font-size: 13px; font-weight: 600;"
         " color: #424654; background: #ffffff; border-bottom: 2px solid #c3c6d6; }"
-        "QTabBar::tab:selected { color: #0048af; border-bottom: 2px solid #0048af; }");
+        "QTabBar::tab:selected { color: " + Theme::pri + "; border-bottom: 2px solid " + Theme::pri + "; }");
     QWidget *dataPage = new QWidget;
     QVBoxLayout *dpL = new QVBoxLayout(dataPage);
     dpL->setContentsMargins(24, 20, 24, 20);
@@ -7052,7 +7074,7 @@ QImage MainWindow::buildAiStatsChart(int total, const int counts[3])
             startAngle -= span;
         }
     } else {
-        p.setBrush(QColor(0xe6, 0xee, 0xff));
+        p.setBrush(QColor(Theme::light));
         p.drawPie(pieRect, 0, 360 * 16);
     }
     // 饼图图例
@@ -7121,7 +7143,7 @@ bool MainWindow::generateAiReport(const QString &outPath, const QString &fmt,
     // 基础信息表
     QString info;
     auto infoRow = [&info](const QString &k, const QString &v) {
-        info += QStringLiteral("<tr><td bgcolor='#eff4ff' width='160'><b>%1</b></td>"
+        info += QStringLiteral("<tr><td bgcolor=') + Theme::panel + QStringLiteral(' width='160'><b>%1</b></td>"
                                "<td width='520'>%2</td></tr>")
                     .arg(k, v);
     };
@@ -7148,7 +7170,7 @@ bool MainWindow::generateAiReport(const QString &outPath, const QString &fmt,
     if (ckList) {
         listTbl = QStringLiteral(
             "<table border='1' cellspacing='0' cellpadding='4' width='700'>"
-            "<tr bgcolor='#0048af'><td><font color='white'><b>序号</b></font></td>"
+            "<tr bgcolor=') + Theme::pri + QStringLiteral('><td><font color='white'><b>序号</b></font></td>"
             "<td><font color='white'><b>类别</b></font></td>"
             "<td><font color='white'><b>道号</b></font></td>"
             "<td><font color='white'><b>深度(m)</b></font></td>"
@@ -7183,7 +7205,7 @@ bool MainWindow::generateAiReport(const QString &outPath, const QString &fmt,
     if (ckStat) {
         statTbl = QStringLiteral(
             "<table border='1' cellspacing='0' cellpadding='4' width='700'>"
-            "<tr bgcolor='#0048af'><td><font color='white'><b>类别</b></font></td>"
+            "<tr bgcolor=') + Theme::pri + QStringLiteral('><td><font color='white'><b>类别</b></font></td>"
             "<td><font color='white'><b>数量</b></font></td>"
             "<td><font color='white'><b>平均深度(m)</b></font></td>"
             "<td><font color='white'><b>深度范围(m)</b></font></td>"
@@ -7248,7 +7270,7 @@ bool MainWindow::generateAiReport(const QString &outPath, const QString &fmt,
     // HTML正文(图片用 rimg://N 占位: PDF走QTextDocument资源, html/doc替换为base64)
     QString html = QStringLiteral(
         "<html><head><meta charset='utf-8'></head><body>"
-        "<h1 align='center'><font color='#0048af'>探地雷达 AI 智能检测报告</font></h1>"
+        "<h1 align='center'><font color=') + Theme::pri + QStringLiteral('>探地雷达 AI 智能检测报告</font></h1>"
         "<hr>");
     html += QStringLiteral("<h3>一、报告基础信息</h3><table border='1' cellspacing='0'"
                            " cellpadding='4' width='700'>%1</table>").arg(info);
@@ -7346,7 +7368,7 @@ void MainWindow::showAiReportDialog()
         "QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }"
         "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
         " border-radius: 2px; background: #ffffff; }"
-        "QCheckBox::indicator:checked { background: #0048af; border-color: #0048af;"
+        "QCheckBox::indicator:checked { background: ) + Theme::pri + QStringLiteral(; border-color: ) + Theme::pri + QStringLiteral(;"
         " image: url(:/icons/check_white.png); }"
         "QComboBox { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
         " padding: 6px 28px 6px 10px; font-size: 12px; color: #121c2a; }"
@@ -7357,15 +7379,15 @@ void MainWindow::showAiReportDialog()
         " padding: 6px 8px; font-size: 12px; color: #121c2a; }"
         "QToolButton#btnBrowse { border: 1px solid #c3c6d6; border-radius: 2px;"
         " background: #ffffff; }"
-        "QToolButton#btnBrowse:hover { background: #e6eeff; }"
+        "QToolButton#btnBrowse:hover { background: ) + Theme::light + QStringLiteral(; }"
         "QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 2px;"
         " background: #ffffff; color: #121c2a; font-size: 13px; font-weight: 600;"
         " padding: 7px 18px; }"
-        "QPushButton#btnCancel:hover { background: #e6eeff; }"
-        "QPushButton#btnGen { border: 1px solid #0048af; border-radius: 2px;"
-        " background: #0048af; color: #ffffff; font-size: 13px; font-weight: 600;"
+        "QPushButton#btnCancel:hover { background: ) + Theme::light + QStringLiteral(; }"
+        "QPushButton#btnGen { border: 1px solid ) + Theme::pri + QStringLiteral(; border-radius: 2px;"
+        " background: ) + Theme::pri + QStringLiteral(; color: #ffffff; font-size: 13px; font-weight: 600;"
         " padding: 7px 24px; }"
-        "QPushButton#btnGen:hover { background: #00419e; }"));
+        "QPushButton#btnGen:hover { background: ) + Theme::priDark + QStringLiteral(; }"));
 
     QVBoxLayout *root = new QVBoxLayout(&dlg);
     root->setContentsMargins(0, 0, 0, 0);
@@ -7536,22 +7558,22 @@ void MainWindow::showAssemblyDialog()
         " letter-spacing: 1px; border: none; background: transparent; }"
         "QLineEdit { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
         " padding: 6px 8px; font-size: 13px; color: #121c2a; }"
-        "QLineEdit:focus { border: 1px solid #0048af; }"
+        "QLineEdit:focus { border: 1px solid ) + Theme::pri + QStringLiteral(; }"
         "QTableWidget { background: #ffffff; border: 1px solid #c3c6d6; font-size: 12px;"
-        " gridline-color: #e6eeff; }"
+        " gridline-color: ) + Theme::light + QStringLiteral(; }"
         "QTableWidget::item { padding: 3px 6px; }"
-        "QHeaderView::section { background: #d9e3f6; color: #424654; border: none;"
+        "QHeaderView::section { background: ) + Theme::status + QStringLiteral(; color: #424654; border: none;"
         " border-bottom: 1px solid #c3c6d6; border-right: 1px solid #c3c6d6;"
         " padding: 4px 6px; font-size: 11px; font-weight: bold; }"
-        "QTableWidget::item:selected { background: #dee9fc; color: #121c2a; }"
+        "QTableWidget::item:selected { background: ) + Theme::hover + QStringLiteral(; color: #121c2a; }"
         "QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 2px;"
         " background: #ffffff; color: #121c2a; font-size: 13px; font-weight: 600;"
         " padding: 7px 18px; }"
-        "QPushButton#btnCancel:hover { background: #e6eeff; }"
-        "QPushButton#btnOk { border: 1px solid #0048af; border-radius: 2px;"
-        " background: #0048af; color: #ffffff; font-size: 13px; font-weight: 600;"
+        "QPushButton#btnCancel:hover { background: ) + Theme::light + QStringLiteral(; }"
+        "QPushButton#btnOk { border: 1px solid ) + Theme::pri + QStringLiteral(; border-radius: 2px;"
+        " background: ) + Theme::pri + QStringLiteral(; color: #ffffff; font-size: 13px; font-weight: 600;"
         " padding: 7px 24px; }"
-        "QPushButton#btnOk:hover { background: #00419e; }"));
+        "QPushButton#btnOk:hover { background: ) + Theme::priDark + QStringLiteral(; }"));
 
     QVBoxLayout *root = new QVBoxLayout(&dlg);
     root->setContentsMargins(16, 14, 16, 14);
@@ -7574,9 +7596,9 @@ void MainWindow::showAssemblyDialog()
         b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         b->setCursor(Qt::PointingHandCursor);
         b->setStyleSheet(QStringLiteral(
-            "QToolButton { background: #e6eeff; border: 1px solid #c3c6d6; border-radius: 3px;"
+            "QToolButton { background: ) + Theme::light + QStringLiteral(; border: 1px solid #c3c6d6; border-radius: 3px;"
             " padding: 4px 10px; font-size: 12px; color: #121c2a; }"
-            "QToolButton:hover { background: #dee9fc; }"));
+            "QToolButton:hover { background: ) + Theme::hover + QStringLiteral(; }"));
         hr->addWidget(b);
         return b;
     };
@@ -7604,7 +7626,7 @@ void MainWindow::showAssemblyDialog()
 
     // 表格底状态条: N items selected | Total size
     QWidget *statRow = new QWidget(&dlg);
-    statRow->setStyleSheet(QStringLiteral("background: #eff4ff; border: 1px solid #c3c6d6;"
+    statRow->setStyleSheet(QStringLiteral("background: ) + Theme::panel + QStringLiteral(; border: 1px solid #c3c6d6;"
                                           " border-top: none;"));
     QHBoxLayout *sr = new QHBoxLayout(statRow);
     sr->setContentsMargins(8, 3, 8, 3);
@@ -7638,7 +7660,7 @@ void MainWindow::showAssemblyDialog()
     QWidget *foot = new QWidget(&dlg);
     foot->setObjectName(QStringLiteral("asmFoot"));
     foot->setAttribute(Qt::WA_StyledBackground, true);
-    foot->setStyleSheet(QStringLiteral("#asmFoot { background: #eff4ff; border: none; }"));
+    foot->setStyleSheet(QStringLiteral("#asmFoot { background: ) + Theme::panel + QStringLiteral(; border: none; }"));
     QHBoxLayout *fr = new QHBoxLayout(foot);
     fr->setContentsMargins(0, 10, 0, 0);
     fr->addStretch(1);
@@ -7677,7 +7699,7 @@ void MainWindow::showAssemblyDialog()
             QTableWidgetItem *c1 = new QTableWidgetItem(fi.fileName());
             if (MatIcon::ready())
                 c1->setIcon(MatIcon::icon(QStringLiteral("description"),
-                                          QColor(0x00, 0x48, 0xaf), QColor(), QColor(), 14));
+                                          QColor(Theme::pri), QColor(), QColor(), 14));
             c1->setData(Qt::UserRole, can);   // 绝对路径(判重/写BDT)
             c1->setToolTip(can);
             tbl->setItem(tbl->rowCount() - 1, 1, c1);
@@ -7822,24 +7844,24 @@ void MainWindow::showWorkPathDialog()
         "QLabel#desc { font-size: 12px; color: #424654; border: none; background: transparent; }"
         "QLineEdit { border: 1px solid #c3c6d6; border-radius: 0px; background: #ffffff;"
         " font-size: 12px; color: #121c2a; padding: 4px 8px; }"
-        "QLineEdit:focus { border: 1px solid #0048af; }"
-        "QToolButton#btnBrowse { background: #e6eeff; border: 1px solid #c3c6d6;"
+        "QLineEdit:focus { border: 1px solid ) + Theme::pri + QStringLiteral(; }"
+        "QToolButton#btnBrowse { background: ) + Theme::light + QStringLiteral(; border: 1px solid #c3c6d6;"
         " border-left: 1px solid #c3c6d6; font-size: 11px; font-weight: bold;"
         " color: #121c2a; padding: 5px 10px; }"
-        "QToolButton#btnBrowse:hover { background: #dee9fc; }"
+        "QToolButton#btnBrowse:hover { background: ) + Theme::hover + QStringLiteral(; }"
         "QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }"
         "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
         " border-radius: 0px; background: #ffffff; }"
-        "QCheckBox::indicator:checked { background: #0048af; border-color: #0048af;"
+        "QCheckBox::indicator:checked { background: ) + Theme::pri + QStringLiteral(; border-color: ) + Theme::pri + QStringLiteral(;"
         " image: url(:/icons/check_white.png); }"
         "QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 0px;"
         " background: #ffffff; color: #121c2a; font-size: 11px; font-weight: bold;"
         " padding: 6px 16px; }"
-        "QPushButton#btnCancel:hover { background: #e6eeff; }"
-        "QPushButton#btnApply { border: 1px solid #0048af; border-radius: 0px;"
-        " background: #0048af; color: #ffffff; font-size: 11px; font-weight: bold;"
+        "QPushButton#btnCancel:hover { background: ) + Theme::light + QStringLiteral(; }"
+        "QPushButton#btnApply { border: 1px solid ) + Theme::pri + QStringLiteral(; border-radius: 0px;"
+        " background: ) + Theme::pri + QStringLiteral(; color: #ffffff; font-size: 11px; font-weight: bold;"
         " padding: 6px 16px; }"
-        "QPushButton#btnApply:hover { background: #1e60d5; }"));
+        "QPushButton#btnApply:hover { background: ) + Theme::priMid + QStringLiteral(; }"));
 
     QVBoxLayout *root = new QVBoxLayout(&dlg);
     root->setContentsMargins(12, 12, 12, 10);
@@ -7884,7 +7906,7 @@ void MainWindow::showWorkPathDialog()
     QWidget *foot = new QWidget(&dlg);
     foot->setObjectName(QStringLiteral("wpFoot"));
     foot->setAttribute(Qt::WA_StyledBackground, true);
-    foot->setStyleSheet(QStringLiteral("#wpFoot { background: #eff4ff; border: none; }"));
+    foot->setStyleSheet(QStringLiteral("#wpFoot { background: ) + Theme::panel + QStringLiteral(; border: none; }"));
     QHBoxLayout *fr = new QHBoxLayout(foot);
     fr->setContentsMargins(0, 8, 0, 0);
     fr->addStretch(1);
@@ -7957,29 +7979,29 @@ void MainWindow::showConvertDialog()
         "QLabel#hint { font-size: 11px; color: #737785; border: none; background: transparent; }"
         "QLineEdit { border: 1px solid #c3c6d6; background: #ffffff; padding: 5px 8px;"
         " font-size: 12px; color: #121c2a; }"
-        "QLineEdit:focus { border: 1px solid #0048af; }"
+        "QLineEdit:focus { border: 1px solid ) + Theme::pri + QStringLiteral(; }"
         "QLineEdit:disabled { color: #424654; background: #ffffff; }"
         "QComboBox { border: 1px solid #c3c6d6; background: #ffffff; padding: 5px 26px 5px 8px;"
         " font-size: 13px; color: #121c2a; }"
         "QComboBox::drop-down { border: none; width: 22px; }"
         "QComboBox::down-arrow { image: url(none); border-left: 4px solid transparent;"
         " border-right: 4px solid transparent; border-top: 5px solid #424654; margin-right: 8px; }"
-        "QToolButton#btnPick { background: #e6eeff; border: 1px solid #c3c6d6;"
+        "QToolButton#btnPick { background: ) + Theme::light + QStringLiteral(; border: 1px solid #c3c6d6;"
         " font-size: 11px; color: #121c2a; }"
-        "QToolButton#btnPick:hover { background: #dee9fc; }"
+        "QToolButton#btnPick:hover { background: ) + Theme::hover + QStringLiteral(; }"
         "QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }"
         "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
         " background: #ffffff; }"
-        "QCheckBox::indicator:checked { background: #0048af; border-color: #0048af;"
+        "QCheckBox::indicator:checked { background: ) + Theme::pri + QStringLiteral(; border-color: ) + Theme::pri + QStringLiteral(;"
         " image: url(:/icons/check_white.png); }"
-        "QProgressBar#cvBar { border: none; background: #d9e3f6; height: 6px; }"
-        "QProgressBar#cvBar::chunk { background: #0048af; }"
+        "QProgressBar#cvBar { border: none; background: ) + Theme::status + QStringLiteral(; height: 6px; }"
+        "QProgressBar#cvBar::chunk { background: ) + Theme::pri + QStringLiteral(; }"
         "QPushButton#btnCancel { border: 1px solid #c3c6d6; background: #ffffff;"
         " color: #121c2a; font-size: 13px; font-weight: 600; padding: 6px 16px; }"
-        "QPushButton#btnCancel:hover { background: #e6eeff; }"
-        "QPushButton#btnGo { border: 1px solid #0048af; background: #0048af; color: #ffffff;"
+        "QPushButton#btnCancel:hover { background: ) + Theme::light + QStringLiteral(; }"
+        "QPushButton#btnGo { border: 1px solid ) + Theme::pri + QStringLiteral(; background: ) + Theme::pri + QStringLiteral(; color: #ffffff;"
         " font-size: 13px; font-weight: 600; padding: 6px 20px; }"
-        "QPushButton#btnGo:hover { background: #1e60d5; }"));
+        "QPushButton#btnGo:hover { background: ) + Theme::priMid + QStringLiteral(; }"));
 
     QVBoxLayout *root = new QVBoxLayout(&dlg);
     root->setContentsMargins(16, 12, 16, 12);
@@ -8058,7 +8080,7 @@ void MainWindow::showConvertDialog()
     QWidget *progCard = new QWidget(&dlg);
     progCard->setObjectName(QStringLiteral("cvProgCard"));
     progCard->setAttribute(Qt::WA_StyledBackground, true);
-    progCard->setStyleSheet(QStringLiteral("#cvProgCard { background: #eff4ff;"
+    progCard->setStyleSheet(QStringLiteral("#cvProgCard { background: ) + Theme::panel + QStringLiteral(;"
                                            " border: 1px solid #c3c6d6; }"));
     QVBoxLayout *pc = new QVBoxLayout(progCard);
     pc->setContentsMargins(10, 8, 10, 8);
@@ -8095,7 +8117,7 @@ void MainWindow::showConvertDialog()
     QWidget *foot = new QWidget(&dlg);
     foot->setObjectName(QStringLiteral("cvFoot"));
     foot->setAttribute(Qt::WA_StyledBackground, true);
-    foot->setStyleSheet(QStringLiteral("#cvFoot { background: #eff4ff; border: none; }"));
+    foot->setStyleSheet(QStringLiteral("#cvFoot { background: ) + Theme::panel + QStringLiteral(; border: none; }"));
     QHBoxLayout *fr = new QHBoxLayout(foot);
     fr->setContentsMargins(0, 8, 0, 0);
     fr->addStretch(1);
@@ -8229,7 +8251,7 @@ static QWidget *makeOneClickItem(QWidget *parent, const QString &glyph, const QS
     hl->addWidget(ck);
     QLabel *ic = new QLabel(head);
     if (MatIcon::ready())
-        ic->setPixmap(MatIcon::pixmap(glyph, QColor(0x00, 0x48, 0xaf), 18, 0.0,
+        ic->setPixmap(MatIcon::pixmap(glyph, QColor(Theme::pri), 18, 0.0,
                                       qApp->devicePixelRatio()));
     hl->addWidget(ic);
     QLabel *name = new QLabel(title, head);
@@ -8295,14 +8317,14 @@ void MainWindow::createOneClickPanel()
     // 头条 40px
     QWidget *head = new QWidget(inner);
     head->setFixedHeight(40);
-    head->setStyleSheet(QStringLiteral("background: #eff4ff; border-bottom: 1px solid #c3c6d6;"));
+    head->setStyleSheet(QStringLiteral("background: ) + Theme::panel + QStringLiteral(; border-bottom: 1px solid #c3c6d6;"));
     QHBoxLayout *hl = new QHBoxLayout(head);
     hl->setContentsMargins(12, 0, 12, 0);
     hl->setSpacing(8);
     QLabel *hIcon = new QLabel(head);
     if (MatIcon::ready())
         hIcon->setPixmap(MatIcon::pixmap(QStringLiteral("account_tree"),
-                                         QColor(0x00, 0x48, 0xaf), 20, 0.0, devicePixelRatioF()));
+                                         QColor(Theme::pri), 20, 0.0, devicePixelRatioF()));
     hl->addWidget(hIcon);
     QLabel *hTitle = new QLabel(QString::fromUtf8("一键处理流水线"), head);
     hTitle->setStyleSheet(QStringLiteral("font-size: 14px; font-weight: bold; color: #121c2a;"
@@ -8494,9 +8516,9 @@ void MainWindow::createOneClickPanel()
                                       QColor(), QColor(), 20, 1.0));
     btnRun->setCursor(Qt::PointingHandCursor);
     btnRun->setStyleSheet(QStringLiteral(
-        "QPushButton { background: #0048af; color: #ffffff; border: 1px solid #0048af;"
+        "QPushButton { background: ) + Theme::pri + QStringLiteral(; color: #ffffff; border: 1px solid ) + Theme::pri + QStringLiteral(;"
         " border-radius: 4px; padding: 8px; font-size: 14px; font-weight: 600; }"
-        "QPushButton:hover { background: #00419e; }"));
+        "QPushButton:hover { background: ) + Theme::priDark + QStringLiteral(; }"));
     fol->addWidget(btnRun);
     QWidget *row2 = new QWidget(foot);
     QHBoxLayout *r2 = new QHBoxLayout(row2);
@@ -8507,9 +8529,9 @@ void MainWindow::createOneClickPanel()
     for (QPushButton *b : { btnApply, btnReset }) {
         b->setCursor(Qt::PointingHandCursor);
         b->setStyleSheet(QStringLiteral(
-            "QPushButton { background: #e6eeff; color: #121c2a; border: 1px solid #c3c6d6;"
+            "QPushButton { background: ) + Theme::light + QStringLiteral(; color: #121c2a; border: 1px solid #c3c6d6;"
             " border-radius: 4px; padding: 6px; font-size: 13px; }"
-            "QPushButton:hover { background: #dee9fc; }"));
+            "QPushButton:hover { background: ) + Theme::hover + QStringLiteral(; }"));
     }
     if (MatIcon::ready())
         btnReset->setIcon(MatIcon::icon(QStringLiteral("restart_alt"), QColor(0xba, 0x1a, 0x1a),
@@ -8798,7 +8820,7 @@ void MainWindow::createAiPanel()
     // 头条 32px
     QWidget *head = new QWidget(inner);
     head->setFixedHeight(32);
-    head->setStyleSheet(QStringLiteral("background: #eff4ff; border-bottom: 1px solid #c3c6d6;"));
+    head->setStyleSheet(QStringLiteral("background: ) + Theme::panel + QStringLiteral(; border-bottom: 1px solid #c3c6d6;"));
     QHBoxLayout *hl = new QHBoxLayout(head);
     hl->setContentsMargins(12, 0, 12, 0);
     QLabel *hTitle = new QLabel(QString::fromUtf8("AI智能检测引擎"), head);
@@ -8834,13 +8856,13 @@ void MainWindow::createAiPanel()
         cl->setContentsMargins(0, 0, 0, 0);
         cl->setSpacing(0);
         QWidget *h = new QWidget(c);
-        h->setStyleSheet(QStringLiteral("background: #eff4ff; border-bottom: 1px solid #c3c6d6;"
+        h->setStyleSheet(QStringLiteral("background: ) + Theme::panel + QStringLiteral(; border-bottom: 1px solid #c3c6d6;"
                                         " border-top-left-radius: 3px; border-top-right-radius: 3px;"));
         QHBoxLayout *t = new QHBoxLayout(h);
         t->setContentsMargins(10, 5, 10, 5);
         QLabel *ic = new QLabel(h);
         if (MatIcon::ready())
-            ic->setPixmap(MatIcon::pixmap(glyph, QColor(0x00, 0x48, 0xaf), 16, 0.0, devicePixelRatioF()));
+            ic->setPixmap(MatIcon::pixmap(glyph, QColor(Theme::pri), 16, 0.0, devicePixelRatioF()));
         t->addWidget(ic);
         QLabel *tt = new QLabel(title, h);
         tt->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: 600; color: #121c2a;"
@@ -8888,7 +8910,7 @@ void MainWindow::createAiPanel()
     lTh->setStyleSheet(QStringLiteral("font-size: 12px; color: #424654; border: none;"
                                       " background: transparent;"));
     m_aiConfVal = new QLabel(QStringLiteral("0.70"), thRow);
-    m_aiConfVal->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: bold; color: #0048af;"
+    m_aiConfVal->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: bold; color: ) + Theme::pri + QStringLiteral(;"
                                               " border: none; background: transparent;"));
     if (MatIcon::ready()) m_aiConfVal->setFont(MatIcon::monoFont(13));
     thr->addWidget(lTh);
@@ -8901,8 +8923,8 @@ void MainWindow::createAiPanel()
     m_aiConfSlider->setStyleSheet(
         "QSlider::groove:horizontal { height: 4px; background: #c3c6d6; border-radius: 2px; }"
         "QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0;"
-        " border-radius: 7px; background: #0048af; }"
-        "QSlider::sub-page:horizontal { background: #0048af; border-radius: 2px; }");
+        " border-radius: 7px; background: " + Theme::pri + "; }"
+        "QSlider::sub-page:horizontal { background: " + Theme::pri + "; border-radius: 2px; }");
     connect(m_aiConfSlider, &QSlider::valueChanged, this, [this](int v) {
         m_aiConfThreshold = v / 100.0;
         if (m_aiConfVal)
@@ -8920,14 +8942,14 @@ void MainWindow::createAiPanel()
     // --- 卡2: 检测统计 ---
     QVBoxLayout *stL = card(QStringLiteral("donut_small"), QString::fromUtf8("检测统计"));
     QWidget *totRow = new QWidget(body);
-    totRow->setStyleSheet(QStringLiteral("background: #d9e3f6; border-radius: 4px;"));
+    totRow->setStyleSheet(QStringLiteral("background: ) + Theme::status + QStringLiteral(; border-radius: 4px;"));
     QHBoxLayout *tr = new QHBoxLayout(totRow);
     tr->setContentsMargins(10, 8, 10, 8);
     QLabel *lTot = new QLabel(QString::fromUtf8("总识别数量"), totRow);
     lTot->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: 600; color: #121c2a;"
                                        " border: none; background: transparent;"));
     m_aiTotalLbl = new QLabel(QStringLiteral("0"), totRow);
-    m_aiTotalLbl->setStyleSheet(QStringLiteral("font-size: 22px; font-weight: bold; color: #0048af;"
+    m_aiTotalLbl->setStyleSheet(QStringLiteral("font-size: 22px; font-weight: bold; color: ) + Theme::pri + QStringLiteral(;"
                                                " border: none; background: transparent;"));
     if (MatIcon::ready()) m_aiTotalLbl->setFont(MatIcon::monoFont(22));
     tr->addWidget(lTot);
@@ -8988,9 +9010,9 @@ void MainWindow::createAiPanel()
     m_aiTable->setStyleSheet(
         "QTableWidget { background: #ffffff; border: none; font-size: 12px; }"
         "QTableWidget::item { padding: 3px 6px; }"
-        "QHeaderView::section { background: #eff4ff; color: #424654; border: none;"
+        "QHeaderView::section { background: " + Theme::panel + "; color: #424654; border: none;"
         " border-bottom: 1px solid #c3c6d6; padding: 4px 6px; font-size: 12px; }"
-        "QTableWidget::item:selected { background: #dee9fc; color: #121c2a; }");
+        "QTableWidget::item:selected { background: " + Theme::hover + "; color: #121c2a; }");
     lsL->addWidget(m_aiTable);
 
     bl->addStretch(1);
@@ -9008,9 +9030,9 @@ void MainWindow::createAiPanel()
                                       QColor(), QColor(), 18, 1.0));
     btnRun->setCursor(Qt::PointingHandCursor);
     btnRun->setStyleSheet(QStringLiteral(
-        "QPushButton { background: #0048af; color: #ffffff; border: 1px solid #0048af;"
+        "QPushButton { background: ) + Theme::pri + QStringLiteral(; color: #ffffff; border: 1px solid ) + Theme::pri + QStringLiteral(;"
         " border-radius: 4px; padding: 9px 12px; font-size: 14px; font-weight: 600; }"
-        "QPushButton:hover { background: #00419e; }"
+        "QPushButton:hover { background: ) + Theme::priDark + QStringLiteral(; }"
         "QPushButton:disabled { background: #93a8c9; border-color: #93a8c9; }"));
     connect(btnRun, &QPushButton::clicked, this, [this]() {
         if (!requireOpenFile()) return;
@@ -9315,7 +9337,7 @@ void MainWindow::createHeaderPanel()
     // --- 标题栏 40px: [info] 文件头属性 + ✕ ---
     QWidget *head = new QWidget(m_headerPanel);
     head->setFixedHeight(40);
-    head->setStyleSheet("background: #eff4ff; border-bottom: 1px solid #c3c6d6;");
+    head->setStyleSheet("background: " + Theme::panel + "; border-bottom: 1px solid #c3c6d6;");
     QHBoxLayout *hl = new QHBoxLayout(head);
     hl->setContentsMargins(12, 0, 4, 0);
     hl->setSpacing(8);
@@ -9338,7 +9360,7 @@ void MainWindow::createHeaderPanel()
     closeBtn->setCursor(Qt::PointingHandCursor);
     closeBtn->setStyleSheet(
         "QToolButton { border: none; border-radius: 2px; background: transparent; }"
-        "QToolButton:hover { background: #dee9fc; }");
+        "QToolButton:hover { background: " + Theme::hover + "; }");
     connect(closeBtn, &QToolButton::clicked, this, [this]() { setHeaderPanelVisible(false); });
     hl->addWidget(closeBtn);
     outer->addWidget(head);
@@ -11295,7 +11317,7 @@ void MainWindow::createMenuBar()
     startLayout->setSpacing(0);
 
     const QColor cOutline(0x73, 0x77, 0x85);   // 灰图标 outline
-    const QColor cPrimary(0x00, 0x48, 0xaf);   // 主色 primary
+    const QColor cPrimary(Theme::pri);   // 主色 primary(主题token)
     const QColor cDark(0x12, 0x1c, 0x2a);      // hover 前景 on-surface
 
     // 组容器(数据处理标签沿用): 框式组
@@ -11361,16 +11383,16 @@ void MainWindow::createMenuBar()
         btn->setStyleSheet(
             "QToolButton { border: none; border-radius: 2px; background: transparent;"
             " font-size: 12px; color: #121c2a; padding: 2px; }"
-            "QToolButton:hover { background: #dee9fc; }"
+            "QToolButton:hover { background: " + Theme::hover + "; }"
             "QToolButton:pressed { background: #c9d8f0; }");
         return btn;
     };
 
-    // 显示模式按钮(可选中): active 态 bg#1e60d5 前景#dee5ff 底部2px#0048af (按设计稿)
+    // 显示模式按钮(可选中): active 态 bg" + Theme::priMid + " 前景#dee5ff 底部2px" + Theme::pri + " (按设计稿)
     auto displayBtn = [&cOutline, &cDark](const QString &glyph, const QString &text, int minW = 60) -> QToolButton* {
         QToolButton *btn = new QToolButton();
         if (MatIcon::ready())
-            btn->setIcon(MatIcon::icon(glyph, cOutline, QColor(0xde, 0xe5, 0xff), cDark, 24));
+            btn->setIcon(MatIcon::icon(glyph, cOutline, QColor(Theme::onMid), cDark, 24));
         btn->setText(text);
         btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         btn->setIconSize(QSize(24, 24));
@@ -11381,11 +11403,11 @@ void MainWindow::createMenuBar()
         btn->setStyleSheet(
             "QToolButton { border: none; border-bottom: 2px solid transparent; border-radius: 2px;"
             " background: transparent; font-size: 12px; color: #121c2a; padding: 2px; }"
-            "QToolButton:hover { background: #dee9fc; }"
+            "QToolButton:hover { background: " + Theme::hover + "; }"
             "QToolButton:pressed { background: #c9d8f0; }"
-            "QToolButton:checked { background: #1e60d5; color: #dee5ff; border-bottom: 2px solid #0048af; }"
-            "QToolButton:checked:hover { background: #1e60d5; }"
-            "QToolButton:checked:pressed { background: #1e60d5; }");
+            "QToolButton:checked { background: " + Theme::priMid + "; color: " + Theme::onMid + "; border-bottom: 2px solid " + Theme::pri + "; }"
+            "QToolButton:checked:hover { background: " + Theme::priMid + "; }"
+            "QToolButton:checked:pressed { background: " + Theme::priMid + "; }");
         return btn;
     };
 
@@ -11399,12 +11421,7 @@ void MainWindow::createMenuBar()
     fileRow->addWidget(btnSave);
 
     connect(btnOpen, &QToolButton::clicked, this, &MainWindow::onOpenFile);
-    connect(btnClose, &QToolButton::clicked, this, [this]() {
-        if (!m_tabs.isEmpty()) {
-            int idx = m_docTabWidget->currentIndex();
-            if (idx >= 0) closeTab(idx);
-        }
-    });
+    connect(btnClose, &QToolButton::clicked, this, [this]() { closeCurrentTab(); });
     connect(btnSave, &QToolButton::clicked, this, [this]() {
         if (!m_currentTab) return;
         saveProcessedFile();
@@ -11495,7 +11512,7 @@ void MainWindow::createMenuBar()
         btn->setStyleSheet(
             "QToolButton { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
             " font-size: 12px; color: #121c2a; padding: 3px 8px; }"
-            "QToolButton:hover { background: #dee9fc; border: 1px solid #737785; }"
+            "QToolButton:hover { background: " + Theme::hover + "; border: 1px solid #737785; }"
             "QToolButton::menu-indicator { image: none; }"
             "QToolButton::down-arrow { image: none; }");
         return btn;
@@ -11684,7 +11701,7 @@ void MainWindow::createMenuBar()
         refreshCxBarThumbnails();   // 初始绘制(当前调色板合成)
     }
 
-    // ===== 组4: 数据信息 (文件头, 末组无分隔线; active 态 bg#d9e3f6+边框#c3c6d6) =====
+    // ===== 组4: 数据信息 (文件头, 末组无分隔线; active 态 bg" + Theme::status + "+边框#c3c6d6) =====
     QHBoxLayout *infoRow = addRibbonGroup(startLayout, QString::fromUtf8("数据信息"), true);
     QToolButton *btnHeader = new QToolButton();
     if (MatIcon::ready())
@@ -11698,9 +11715,9 @@ void MainWindow::createMenuBar()
     btnHeader->setStyleSheet(
         "QToolButton { border: 1px solid transparent; border-radius: 2px; background: transparent;"
         " font-size: 12px; font-weight: bold; color: #121c2a; padding: 2px; }"
-        "QToolButton:hover { background: #dee9fc; }"
+        "QToolButton:hover { background: " + Theme::hover + "; }"
         "QToolButton:pressed { background: #c9d8f0; }"
-        "QToolButton:checked { background: #d9e3f6; border: 1px solid #c3c6d6; }");
+        "QToolButton:checked { background: " + Theme::status + "; border: 1px solid #c3c6d6; }");
     infoRow->addWidget(btnHeader);
     connect(btnHeader, &QToolButton::clicked, this, &MainWindow::showFileHeader);
     m_btnHeaderToggle = btnHeader;   // 与右侧文件头栏开合联动(Step4)
@@ -11781,10 +11798,10 @@ void MainWindow::createMenuBar()
         m_btnOneClick->setCheckable(true);
         m_btnOneClick->setCursor(Qt::PointingHandCursor);
         m_btnOneClick->setStyleSheet(
-            "QToolButton { background: #1e60d5; border: 1px solid #0048af; border-radius: 4px;"
+            "QToolButton { background: " + Theme::priMid + "; border: 1px solid " + Theme::pri + "; border-radius: 4px;"
             " color: #ffffff; font-size: 11px; padding: 4px; }"
-            "QToolButton:hover { background: #0048af; }"
-            "QToolButton:checked { background: #0048af; border: 2px solid #00419e; }");
+            "QToolButton:hover { background: " + Theme::pri + "; }"
+            "QToolButton:checked { background: " + Theme::pri + "; border: 2px solid " + Theme::priDark + "; }");
         connect(m_btnOneClick, &QToolButton::toggled, this, [this](bool) { syncOneClickUiState(); });
         gl->addWidget(m_btnOneClick, 0, Qt::AlignHCenter);
         QLabel *grpLbl = new QLabel(QString::fromUtf8("一键处理"));
