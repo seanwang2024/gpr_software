@@ -19,7 +19,7 @@ SRC = os.path.join(CAL, '1103_010.DZT')
 PROC = os.path.join(CAL, 'Proc')
 NSAMP = 512
 DATA_OFF = 0x20000
-LABEL_TRACES = 64     # 左 0-63 道为标签, 处理/对比时剔除
+LABEL_TRACES = 0      # v2: 直接读DZT(5953道全为数据), JPG左64列白边仅属RADAN渲染, 无标签道概念
 
 # ---------- DZT ----------
 def load_dzt(path):
