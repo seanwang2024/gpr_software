@@ -21,6 +21,22 @@
 | 克西霍夫偏移 | 0x1e(30) | applyKirchhoffMigration | 待定 | 未测 | ⬜ |
 | 希尔伯特 能量/相位/频率 | 0x1c(28) sub=0/1/2(+f32标尺) | applyHilbertTransform | 待定 | 未测 | ⬜ |
 | 快速简易处理 | 0x4d1+0x5f0+0x3f0 | runOneClickPipeline | 待定 | ≡背景去除(P_B==P_3) | ⬜ |
+| **DC去除(振幅偏移去除)** | 0x63(99)〔DZX BinaryData〕 | applyCorrectOffset(dewow) | 参数=无(空记录) | 无素材 | **待标定** |
+| **增益** | 0x3b(59)〔DZX BinaryData〕 | applyGain / 一键-指数能量增益 | 点数@0x09; dB f32@0x0B 每4B | 无素材 | **待标定** |
+| **IIR 水平-叠加** | 0x0d(13)〔DZX BinaryData〕 | applyMovingAverage(叠加/平滑) | 截止 f32@0x0A(扫描数) | 无素材 | **待标定** |
+| **IIR 水平-背景去除** | 0x0e(14)〔DZX BinaryData〕 | applyBackgroundRemoval(IIR模式) | 截止 f32@0x0A(扫描数) | 无素材 | **待标定** |
+| **FIR 垂直低通-方块** | 0x3f(63)〔DZX BinaryData; P_B链中出现〕 | applyDigitalFilter-FIR LP | LP u16@0x1E; 采样末 u16@0x24 | 部分(P_1为HP族) | **待标定** |
+| **FIR 垂直低通-三角** | 0x41(65)〔DZX BinaryData〕 | applyDigitalFilter-FIR | LP u16@0x1E | 无素材 | **待标定** |
+| **FIR 垂直高通-三角** | 0x42(66)〔DZX BinaryData〕 | applyDigitalFilter-FIR | HP u16@0x20 | 无素材 | **待标定** |
+| **FIR 水平-方块×平滑** | 0x43(67)〔DZX BinaryData〕 | applyMovingAverage | 长度 f32@0x0A(DZX)/f32@0x1(DZT) | 无素材 | **待标定** |
+| **FIR 水平-方块×背景去除** | 0x44(68)〔DZX BinaryData〕 | applyBackgroundRemoval | 同上 | 无素材 | **待标定** |
+| **FIR 水平-三角×平滑** | 0x45(69)〔DZX BinaryData〕 | applyMovingAverage | 同上 | 无素材 | **待标定** |
+| **FIR 水平-三角×背景去除** | 0x46(70)〔DZX BinaryData〕 | applyBackgroundRemoval | 同上 | 无素材 | **待标定** |
+
+> **ID 空间说明**: 同一 typeId 数字在两处出现 — ①DZX `<BinaryData>` 处理记录(带 blob 头, 参数区@0x0A 起)
+> ②DZT 头 proc history(裸记录 `typeId+sub+参数`)。两空间共用编号(如 95=背景去除、77=时间零点),
+> 但参数编码不同；上表〔〕内标注来源。typeId 规律(历史破解): 垂直 FIR=63+形×2+(HP?1:0),
+> 水平 FIR=67+形×2+(背景去除?1:0); 形: 方块=0 三角=1。
 
 ## 2. DZT 头 proc 记录格式（本轮破解）
 
