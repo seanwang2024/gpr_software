@@ -8223,7 +8223,9 @@ void MainWindow::createOneClickPanel()
         if (m_ocDewow && m_ocDewowWin)
             m_ocDewowSum->setText(QStringLiteral("Window: %1ns").arg(m_ocDewowWin->value(), 0, 'f', 1));
         if (m_ocBg && m_ocBgWin)
-            m_ocBgSum->setText(QStringLiteral("Window: %1 traces").arg(m_ocBgWin->value()));
+            m_ocBgSum->setText((m_ocBgAll && m_ocBgAll->isChecked())
+                                  ? QStringLiteral("Type: 全部通过")
+                                  : QStringLiteral("Window: %1 traces").arg(m_ocBgWin->value()));
         if (m_ocBp && m_ocBpLo && m_ocBpHi)
             m_ocBpSum->setText(QStringLiteral("%1MHz - %2MHz")
                                    .arg(m_ocBpLo->value(), 0, 'f', 0)
@@ -8303,14 +8305,31 @@ void MainWindow::createOneClickPanel()
     m_ocDewowWin = dspin(0.5, 999, 5.0, 1, pb);
     subRow(pb, QString::fromUtf8("时窗"), m_ocDewowWin, QStringLiteral("ns"));
     cl->addWidget(it);
-    // 3 背景去除(窗口道)
+    // 3 背景去除(全部模式=全局均值, 对齐RADAN'背景类型-全部通过'; 或滑动窗N道)
     it = makeOneClickItem(card, QStringLiteral("layers_clear"), QString::fromUtf8("背景去除"),
                           m_ocBg, pb, sum, refreshSums);
     m_ocBgSum = sum;
+    m_ocBgAll = new QCheckBox(QString::fromUtf8("全部(全局均值)"), pb);
+    m_ocBgAll->setChecked(true);   // 默认=全部, 对齐RADAN'背景去除-全部'(已标定≤1LSB)
+    m_ocBgAll->setStyleSheet(QStringLiteral("font-size: 12px; color: #121c2a; spacing: 6px;"
+                                            " background: transparent; border: none;"));
     m_ocBgWin = spin(3, 99999, 50, pb);
+    m_ocBgWin->setEnabled(false);   // 默认全部模式 → 窗口禁用
     m_ocBgWin->setToolTip(QString::fromUtf8(
-        "窗口≥2×总道数=全部(全局均值, RADAN'背景去除-全部'语义, 已标定逐字节一致)"));
+        "取消勾选\"全部\"后生效: 滑动窗(道方向)背景去除(≈RADAN FIR水平-背景去除)"));
+    {
+        QWidget *r = new QWidget(pb);
+        QHBoxLayout *rl = new QHBoxLayout(r);
+        rl->setContentsMargins(0, 0, 0, 0);
+        rl->setSpacing(8);
+        rl->addStretch(1);
+        rl->addWidget(m_ocBgAll);
+        pb->layout()->addWidget(r);
+    }
     subRow(pb, QString::fromUtf8("窗口"), m_ocBgWin, QString::fromUtf8("道"));
+    QObject::connect(m_ocBgAll, &QCheckBox::toggled, m_ocBgWin, [this](bool on) {
+        if (m_ocBgWin) m_ocBgWin->setEnabled(!on);
+    });
     cl->addWidget(it);
     // 4 带通滤波(MHz)
     it = makeOneClickItem(card, QStringLiteral("filter_alt"), QString::fromUtf8("带通滤波"),
@@ -8417,7 +8436,7 @@ void MainWindow::createOneClickPanel()
     QObject::connect(m_ocBpLo, &QDoubleSpinBox::valueChanged, body, markCustom);
     QObject::connect(m_ocBpHi, &QDoubleSpinBox::valueChanged, body, markCustom);
     QObject::connect(m_ocGainSlope, &QDoubleSpinBox::valueChanged, body, markCustom);
-    for (auto c : { m_ocZero, m_ocDewow, m_ocBg, m_ocBp, m_ocGain, m_ocAgc, m_ocMig })
+    for (auto c : { m_ocZero, m_ocDewow, m_ocBg, m_ocBp, m_ocGain, m_ocAgc, m_ocMig, m_ocBgAll })
         QObject::connect(c, &QCheckBox::toggled, body, markCustom);
 
     // 预设方案
@@ -8572,10 +8591,13 @@ void MainWindow::runOneClickPipeline()
         }
     }
 
-    // ---- 3 背景去除: 滑动窗(道方向)均值 ----
-    // v1.0.153: 行前缀和算法 O(N) — 旧三重循环 O(N×W) 每样本重扫50道字节拼装, 5953道时>10s
-    if (m_ocBg && m_ocBg->isChecked() && m_ocBgWin) {
-        const int W = qMax(3, m_ocBgWin->value() | 1);   // 奇数窗
+    // ---- 3 背景去除 ----
+    // v1.0.156: "全部"模式=全局行均值(RADAN'背景去除-全部', 已标定8位精度≤1LSB);
+    //           否则滑动窗(道方向, 行前缀和 O(N), 旧三重循环 O(N×W) >10s)
+    if (m_ocBg && m_ocBg->isChecked() && (m_ocBgAll || m_ocBgWin)) {
+        const int W = (m_ocBgAll && m_ocBgAll->isChecked())
+                          ? (2 * numTraces - 1)               // 全部: 每列窗口钳位后=全道
+                          : qMax(3, m_ocBgWin->value() | 1);  // 奇数滑动窗
         const int hw = W / 2;
         QVector<double> cum(numTraces + 1);
         for (int s = 0; s < nsamp; ++s) {

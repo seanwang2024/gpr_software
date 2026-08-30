@@ -521,6 +521,7 @@ private:
     QCheckBox *m_ocZero = nullptr;    QSpinBox *m_ocZeroThresh = nullptr;        // 时间零点校正(判定阈值%)
     QCheckBox *m_ocDewow = nullptr;   QDoubleSpinBox *m_ocDewowWin = nullptr;   // 校正零偏(时窗ns)
     QCheckBox *m_ocBg = nullptr;      QSpinBox *m_ocBgWin = nullptr;            // 背景去除(窗口道)
+    QCheckBox *m_ocBgAll = nullptr;   // v1.0.156 背景去除-全部模式(全局均值, 对齐RADAN)
     QCheckBox *m_ocBp = nullptr;      QDoubleSpinBox *m_ocBpLo = nullptr;       // 带通滤波(MHz)
     QDoubleSpinBox *m_ocBpHi = nullptr;
     QCheckBox *m_ocGain = nullptr;    QDoubleSpinBox *m_ocGainSlope = nullptr;  // 指数/能量增益(dB/m)
