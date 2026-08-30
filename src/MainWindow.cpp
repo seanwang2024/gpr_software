@@ -6727,29 +6727,7 @@ void MainWindow::showExportDialog(int initialTab)
     dlg.setFixedSize(600, 430);
 
     // 选中打钩 = qrc 资源(check_white.png, PIL绘制) — QSS url()对绝对路径(C:被当scheme)不可靠
-    dlg.setStyleSheet(QStringLiteral(
-        "QDialog { background: #ffffff; }"
-        "QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"
-        " letter-spacing: 1px; border-bottom: 1px solid #c3c6d6; padding-bottom: 4px; }"
-        "QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }"
-        "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
-        " border-radius: 2px; background: #ffffff; }"
-        "QCheckBox::indicator:checked { background: ) + Theme::pri + QStringLiteral(; border-color: ) + Theme::pri + QStringLiteral(;"
-        " image: url(:/icons/check_white.png); }"
-        "QRadioButton { font-size: 12px; color: #121c2a; spacing: 8px; }"
-        "QComboBox { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
-        " padding: 6px 28px 6px 10px; font-size: 12px; color: #121c2a; }"
-        "QComboBox::drop-down { border: none; width: 24px; }"
-        "QComboBox::down-arrow { image: url(none); border-left: 4px solid transparent;"
-        " border-right: 4px solid transparent; border-top: 6px solid #424654; margin-right: 8px; }"
-        "QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 2px;"
-        " background: #ffffff; color: #121c2a; font-size: 13px; font-weight: 600;"
-        " padding: 7px 18px; }"
-        "QPushButton#btnCancel:hover { background: ) + Theme::light + QStringLiteral(; }"
-        "QPushButton#btnOk { border: 1px solid ) + Theme::pri + QStringLiteral(; border-radius: 2px;"
-        " background: ) + Theme::pri + QStringLiteral(; color: #ffffff; font-size: 13px; font-weight: 600;"
-        " padding: 7px 24px; }"
-        "QPushButton#btnOk:hover { background: ) + Theme::priDark + QStringLiteral(; }"));
+    dlg.setStyleSheet(QStringLiteral("QDialog { background: #ffffff; }""QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"" letter-spacing: 1px; border-bottom: 1px solid #c3c6d6; padding-bottom: 4px; }""QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }""QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"" border-radius: 2px; background: #ffffff; }""QCheckBox::indicator:checked { background: ") + Theme::pri + QStringLiteral("; border-color: ") + Theme::pri + QStringLiteral(";"" image: url(:/icons/check_white.png); }""QRadioButton { font-size: 12px; color: #121c2a; spacing: 8px; }""QComboBox { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"" padding: 6px 28px 6px 10px; font-size: 12px; color: #121c2a; }""QComboBox::drop-down { border: none; width: 24px; }""QComboBox::down-arrow { image: url(none); border-left: 4px solid transparent;"" border-right: 4px solid transparent; border-top: 6px solid #424654; margin-right: 8px; }""QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 2px;"" background: #ffffff; color: #121c2a; font-size: 13px; font-weight: 600;"" padding: 7px 18px; }""QPushButton#btnCancel:hover { background: ") + Theme::light + QStringLiteral("; }""QPushButton#btnOk { border: 1px solid ") + Theme::pri + QStringLiteral("; border-radius: 2px;"" background: ") + Theme::pri + QStringLiteral("; color: #ffffff; font-size: 13px; font-weight: 600;"" padding: 7px 24px; }""QPushButton#btnOk:hover { background: ") + Theme::priDark + QStringLiteral("; }"));
 
     QVBoxLayout *root = new QVBoxLayout(&dlg);
     root->setContentsMargins(0, 0, 0, 0);
@@ -7143,8 +7121,7 @@ bool MainWindow::generateAiReport(const QString &outPath, const QString &fmt,
     // 基础信息表
     QString info;
     auto infoRow = [&info](const QString &k, const QString &v) {
-        info += QStringLiteral("<tr><td bgcolor=') + Theme::panel + QStringLiteral(' width='160'><b>%1</b></td>"
-                               "<td width='520'>%2</td></tr>")
+        info += QStringLiteral("<tr><td bgcolor='") + Theme::panel + QStringLiteral("' width='160'><b>%1</b></td>""<td width='520'>%2</td></tr>")
                     .arg(k, v);
     };
     infoRow(QString::fromUtf8("数据文件"), fi.fileName());
@@ -7168,14 +7145,7 @@ bool MainWindow::generateAiReport(const QString &outPath, const QString &fmt,
     // 病害详细列表
     QString listTbl;
     if (ckList) {
-        listTbl = QStringLiteral(
-            "<table border='1' cellspacing='0' cellpadding='4' width='700'>"
-            "<tr bgcolor=') + Theme::pri + QStringLiteral('><td><font color='white'><b>序号</b></font></td>"
-            "<td><font color='white'><b>类别</b></font></td>"
-            "<td><font color='white'><b>道号</b></font></td>"
-            "<td><font color='white'><b>深度(m)</b></font></td>"
-            "<td><font color='white'><b>里程(m)</b></font></td>"
-            "<td><font color='white'><b>置信度</b></font></td></tr>");
+        listTbl = QStringLiteral("<table border='1' cellspacing='0' cellpadding='4' width='700'>""<tr bgcolor='") + Theme::pri + QStringLiteral("'><td><font color='white'><b>序号</b></font></td>""<td><font color='white'><b>类别</b></font></td>""<td><font color='white'><b>道号</b></font></td>""<td><font color='white'><b>深度(m)</b></font></td>""<td><font color='white'><b>里程(m)</b></font></td>""<td><font color='white'><b>置信度</b></font></td></tr>");
         int sn = 0;
         for (int i = 0; i < m_currentTab->aiIds.size(); ++i) {
             const int id = m_currentTab->aiIds[i];
@@ -7203,13 +7173,7 @@ bool MainWindow::generateAiReport(const QString &outPath, const QString &fmt,
     // 位置/深度统计表(按类别)
     QString statTbl;
     if (ckStat) {
-        statTbl = QStringLiteral(
-            "<table border='1' cellspacing='0' cellpadding='4' width='700'>"
-            "<tr bgcolor=') + Theme::pri + QStringLiteral('><td><font color='white'><b>类别</b></font></td>"
-            "<td><font color='white'><b>数量</b></font></td>"
-            "<td><font color='white'><b>平均深度(m)</b></font></td>"
-            "<td><font color='white'><b>深度范围(m)</b></font></td>"
-            "<td><font color='white'><b>里程范围(m)</b></font></td></tr>");
+        statTbl = QStringLiteral("<table border='1' cellspacing='0' cellpadding='4' width='700'>""<tr bgcolor='") + Theme::pri + QStringLiteral("'><td><font color='white'><b>类别</b></font></td>""<td><font color='white'><b>数量</b></font></td>""<td><font color='white'><b>平均深度(m)</b></font></td>""<td><font color='white'><b>深度范围(m)</b></font></td>""<td><font color='white'><b>里程范围(m)</b></font></td></tr>");
         for (int id = 0; id < 3; ++id) {
             if (id == 1) continue;   // 完好不入统计表
             int n = 0;
@@ -7268,10 +7232,7 @@ bool MainWindow::generateAiReport(const QString &outPath, const QString &fmt,
         imgs.append({ QStringLiteral("chart"), buildAiStatsChart(total, counts) });
 
     // HTML正文(图片用 rimg://N 占位: PDF走QTextDocument资源, html/doc替换为base64)
-    QString html = QStringLiteral(
-        "<html><head><meta charset='utf-8'></head><body>"
-        "<h1 align='center'><font color=') + Theme::pri + QStringLiteral('>探地雷达 AI 智能检测报告</font></h1>"
-        "<hr>");
+    QString html = QStringLiteral("<html><head><meta charset='utf-8'></head><body>""<h1 align='center'><font color='") + Theme::pri + QStringLiteral("'>探地雷达 AI 智能检测报告</font></h1>""<hr>");
     html += QStringLiteral("<h3>一、报告基础信息</h3><table border='1' cellspacing='0'"
                            " cellpadding='4' width='700'>%1</table>").arg(info);
     auto imgHtml = [&imgs](const QString &title, const char *resName) -> QString {
@@ -7361,33 +7322,7 @@ void MainWindow::showAiReportDialog()
     dlg.setWindowTitle(QString::fromUtf8("AI智能报告导出配置"));
     dlg.setModal(true);
     dlg.setFixedSize(600, 520);
-    dlg.setStyleSheet(QStringLiteral(
-        "QDialog { background: #ffffff; }"
-        "QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"
-        " letter-spacing: 1px; border-bottom: 1px solid #c3c6d6; padding-bottom: 4px; }"
-        "QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }"
-        "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
-        " border-radius: 2px; background: #ffffff; }"
-        "QCheckBox::indicator:checked { background: ) + Theme::pri + QStringLiteral(; border-color: ) + Theme::pri + QStringLiteral(;"
-        " image: url(:/icons/check_white.png); }"
-        "QComboBox { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
-        " padding: 6px 28px 6px 10px; font-size: 12px; color: #121c2a; }"
-        "QComboBox::drop-down { border: none; width: 24px; }"
-        "QComboBox::down-arrow { image: url(none); border-left: 4px solid transparent;"
-        " border-right: 4px solid transparent; border-top: 6px solid #424654; margin-right: 8px; }"
-        "QLineEdit { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
-        " padding: 6px 8px; font-size: 12px; color: #121c2a; }"
-        "QToolButton#btnBrowse { border: 1px solid #c3c6d6; border-radius: 2px;"
-        " background: #ffffff; }"
-        "QToolButton#btnBrowse:hover { background: ) + Theme::light + QStringLiteral(; }"
-        "QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 2px;"
-        " background: #ffffff; color: #121c2a; font-size: 13px; font-weight: 600;"
-        " padding: 7px 18px; }"
-        "QPushButton#btnCancel:hover { background: ) + Theme::light + QStringLiteral(; }"
-        "QPushButton#btnGen { border: 1px solid ) + Theme::pri + QStringLiteral(; border-radius: 2px;"
-        " background: ) + Theme::pri + QStringLiteral(; color: #ffffff; font-size: 13px; font-weight: 600;"
-        " padding: 7px 24px; }"
-        "QPushButton#btnGen:hover { background: ) + Theme::priDark + QStringLiteral(; }"));
+    dlg.setStyleSheet(QStringLiteral("QDialog { background: #ffffff; }""QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"" letter-spacing: 1px; border-bottom: 1px solid #c3c6d6; padding-bottom: 4px; }""QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }""QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"" border-radius: 2px; background: #ffffff; }""QCheckBox::indicator:checked { background: ") + Theme::pri + QStringLiteral("; border-color: ") + Theme::pri + QStringLiteral(";"" image: url(:/icons/check_white.png); }""QComboBox { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"" padding: 6px 28px 6px 10px; font-size: 12px; color: #121c2a; }""QComboBox::drop-down { border: none; width: 24px; }""QComboBox::down-arrow { image: url(none); border-left: 4px solid transparent;"" border-right: 4px solid transparent; border-top: 6px solid #424654; margin-right: 8px; }""QLineEdit { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"" padding: 6px 8px; font-size: 12px; color: #121c2a; }""QToolButton#btnBrowse { border: 1px solid #c3c6d6; border-radius: 2px;"" background: #ffffff; }""QToolButton#btnBrowse:hover { background: ") + Theme::light + QStringLiteral("; }""QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 2px;"" background: #ffffff; color: #121c2a; font-size: 13px; font-weight: 600;"" padding: 7px 18px; }""QPushButton#btnCancel:hover { background: ") + Theme::light + QStringLiteral("; }""QPushButton#btnGen { border: 1px solid ") + Theme::pri + QStringLiteral("; border-radius: 2px;"" background: ") + Theme::pri + QStringLiteral("; color: #ffffff; font-size: 13px; font-weight: 600;"" padding: 7px 24px; }""QPushButton#btnGen:hover { background: ") + Theme::priDark + QStringLiteral("; }"));
 
     QVBoxLayout *root = new QVBoxLayout(&dlg);
     root->setContentsMargins(0, 0, 0, 0);
@@ -7552,28 +7487,7 @@ void MainWindow::showAssemblyDialog()
     dlg.setWindowTitle(QString::fromUtf8("数据组装配置"));
     dlg.setModal(true);
     dlg.setFixedSize(600, 560);
-    dlg.setStyleSheet(QStringLiteral(
-        "QDialog { background: #f8f9ff; }"
-        "QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"
-        " letter-spacing: 1px; border: none; background: transparent; }"
-        "QLineEdit { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"
-        " padding: 6px 8px; font-size: 13px; color: #121c2a; }"
-        "QLineEdit:focus { border: 1px solid ) + Theme::pri + QStringLiteral(; }"
-        "QTableWidget { background: #ffffff; border: 1px solid #c3c6d6; font-size: 12px;"
-        " gridline-color: ) + Theme::light + QStringLiteral(; }"
-        "QTableWidget::item { padding: 3px 6px; }"
-        "QHeaderView::section { background: ) + Theme::status + QStringLiteral(; color: #424654; border: none;"
-        " border-bottom: 1px solid #c3c6d6; border-right: 1px solid #c3c6d6;"
-        " padding: 4px 6px; font-size: 11px; font-weight: bold; }"
-        "QTableWidget::item:selected { background: ) + Theme::hover + QStringLiteral(; color: #121c2a; }"
-        "QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 2px;"
-        " background: #ffffff; color: #121c2a; font-size: 13px; font-weight: 600;"
-        " padding: 7px 18px; }"
-        "QPushButton#btnCancel:hover { background: ) + Theme::light + QStringLiteral(; }"
-        "QPushButton#btnOk { border: 1px solid ) + Theme::pri + QStringLiteral(; border-radius: 2px;"
-        " background: ) + Theme::pri + QStringLiteral(; color: #ffffff; font-size: 13px; font-weight: 600;"
-        " padding: 7px 24px; }"
-        "QPushButton#btnOk:hover { background: ) + Theme::priDark + QStringLiteral(; }"));
+    dlg.setStyleSheet(QStringLiteral("QDialog { background: #f8f9ff; }""QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"" letter-spacing: 1px; border: none; background: transparent; }""QLineEdit { border: 1px solid #c3c6d6; border-radius: 2px; background: #ffffff;"" padding: 6px 8px; font-size: 13px; color: #121c2a; }""QLineEdit:focus { border: 1px solid ") + Theme::pri + QStringLiteral("; }""QTableWidget { background: #ffffff; border: 1px solid #c3c6d6; font-size: 12px;"" gridline-color: ") + Theme::light + QStringLiteral("; }""QTableWidget::item { padding: 3px 6px; }""QHeaderView::section { background: ") + Theme::status + QStringLiteral("; color: #424654; border: none;"" border-bottom: 1px solid #c3c6d6; border-right: 1px solid #c3c6d6;"" padding: 4px 6px; font-size: 11px; font-weight: bold; }""QTableWidget::item:selected { background: ") + Theme::hover + QStringLiteral("; color: #121c2a; }""QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 2px;"" background: #ffffff; color: #121c2a; font-size: 13px; font-weight: 600;"" padding: 7px 18px; }""QPushButton#btnCancel:hover { background: ") + Theme::light + QStringLiteral("; }""QPushButton#btnOk { border: 1px solid ") + Theme::pri + QStringLiteral("; border-radius: 2px;"" background: ") + Theme::pri + QStringLiteral("; color: #ffffff; font-size: 13px; font-weight: 600;"" padding: 7px 24px; }""QPushButton#btnOk:hover { background: ") + Theme::priDark + QStringLiteral("; }"));
 
     QVBoxLayout *root = new QVBoxLayout(&dlg);
     root->setContentsMargins(16, 14, 16, 14);
@@ -7595,10 +7509,7 @@ void MainWindow::showAssemblyDialog()
         b->setText(text);
         b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         b->setCursor(Qt::PointingHandCursor);
-        b->setStyleSheet(QStringLiteral(
-            "QToolButton { background: ) + Theme::light + QStringLiteral(; border: 1px solid #c3c6d6; border-radius: 3px;"
-            " padding: 4px 10px; font-size: 12px; color: #121c2a; }"
-            "QToolButton:hover { background: ) + Theme::hover + QStringLiteral(; }"));
+        b->setStyleSheet(QStringLiteral("QToolButton { background: ") + Theme::light + QStringLiteral("; border: 1px solid #c3c6d6; border-radius: 3px;"" padding: 4px 10px; font-size: 12px; color: #121c2a; }""QToolButton:hover { background: ") + Theme::hover + QStringLiteral("; }"));
         hr->addWidget(b);
         return b;
     };
@@ -7626,8 +7537,7 @@ void MainWindow::showAssemblyDialog()
 
     // 表格底状态条: N items selected | Total size
     QWidget *statRow = new QWidget(&dlg);
-    statRow->setStyleSheet(QStringLiteral("background: ) + Theme::panel + QStringLiteral(; border: 1px solid #c3c6d6;"
-                                          " border-top: none;"));
+    statRow->setStyleSheet(QStringLiteral("background: ") + Theme::panel + QStringLiteral("; border: 1px solid #c3c6d6;"" border-top: none;"));
     QHBoxLayout *sr = new QHBoxLayout(statRow);
     sr->setContentsMargins(8, 3, 8, 3);
     QLabel *lblSel = new QLabel(QStringLiteral("0 items selected"), statRow);
@@ -7660,7 +7570,7 @@ void MainWindow::showAssemblyDialog()
     QWidget *foot = new QWidget(&dlg);
     foot->setObjectName(QStringLiteral("asmFoot"));
     foot->setAttribute(Qt::WA_StyledBackground, true);
-    foot->setStyleSheet(QStringLiteral("#asmFoot { background: ) + Theme::panel + QStringLiteral(; border: none; }"));
+    foot->setStyleSheet(QStringLiteral("#asmFoot { background: ") + Theme::panel + QStringLiteral("; border: none; }"));
     QHBoxLayout *fr = new QHBoxLayout(foot);
     fr->setContentsMargins(0, 10, 0, 0);
     fr->addStretch(1);
@@ -7837,31 +7747,7 @@ void MainWindow::showWorkPathDialog()
     dlg.setWindowTitle(QString::fromUtf8("工作路径设置"));
     dlg.setModal(true);
     dlg.setFixedSize(480, 260);
-    dlg.setStyleSheet(QStringLiteral(
-        "QDialog { background: #f8f9ff; }"
-        "QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"
-        " letter-spacing: 1px; border: none; background: transparent; }"
-        "QLabel#desc { font-size: 12px; color: #424654; border: none; background: transparent; }"
-        "QLineEdit { border: 1px solid #c3c6d6; border-radius: 0px; background: #ffffff;"
-        " font-size: 12px; color: #121c2a; padding: 4px 8px; }"
-        "QLineEdit:focus { border: 1px solid ) + Theme::pri + QStringLiteral(; }"
-        "QToolButton#btnBrowse { background: ) + Theme::light + QStringLiteral(; border: 1px solid #c3c6d6;"
-        " border-left: 1px solid #c3c6d6; font-size: 11px; font-weight: bold;"
-        " color: #121c2a; padding: 5px 10px; }"
-        "QToolButton#btnBrowse:hover { background: ) + Theme::hover + QStringLiteral(; }"
-        "QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }"
-        "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
-        " border-radius: 0px; background: #ffffff; }"
-        "QCheckBox::indicator:checked { background: ) + Theme::pri + QStringLiteral(; border-color: ) + Theme::pri + QStringLiteral(;"
-        " image: url(:/icons/check_white.png); }"
-        "QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 0px;"
-        " background: #ffffff; color: #121c2a; font-size: 11px; font-weight: bold;"
-        " padding: 6px 16px; }"
-        "QPushButton#btnCancel:hover { background: ) + Theme::light + QStringLiteral(; }"
-        "QPushButton#btnApply { border: 1px solid ) + Theme::pri + QStringLiteral(; border-radius: 0px;"
-        " background: ) + Theme::pri + QStringLiteral(; color: #ffffff; font-size: 11px; font-weight: bold;"
-        " padding: 6px 16px; }"
-        "QPushButton#btnApply:hover { background: ) + Theme::priMid + QStringLiteral(; }"));
+    dlg.setStyleSheet(QStringLiteral("QDialog { background: #f8f9ff; }""QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"" letter-spacing: 1px; border: none; background: transparent; }""QLabel#desc { font-size: 12px; color: #424654; border: none; background: transparent; }""QLineEdit { border: 1px solid #c3c6d6; border-radius: 0px; background: #ffffff;"" font-size: 12px; color: #121c2a; padding: 4px 8px; }""QLineEdit:focus { border: 1px solid ") + Theme::pri + QStringLiteral("; }""QToolButton#btnBrowse { background: ") + Theme::light + QStringLiteral("; border: 1px solid #c3c6d6;"" border-left: 1px solid #c3c6d6; font-size: 11px; font-weight: bold;"" color: #121c2a; padding: 5px 10px; }""QToolButton#btnBrowse:hover { background: ") + Theme::hover + QStringLiteral("; }""QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }""QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"" border-radius: 0px; background: #ffffff; }""QCheckBox::indicator:checked { background: ") + Theme::pri + QStringLiteral("; border-color: ") + Theme::pri + QStringLiteral(";"" image: url(:/icons/check_white.png); }""QPushButton#btnCancel { border: 1px solid #c3c6d6; border-radius: 0px;"" background: #ffffff; color: #121c2a; font-size: 11px; font-weight: bold;"" padding: 6px 16px; }""QPushButton#btnCancel:hover { background: ") + Theme::light + QStringLiteral("; }""QPushButton#btnApply { border: 1px solid ") + Theme::pri + QStringLiteral("; border-radius: 0px;"" background: ") + Theme::pri + QStringLiteral("; color: #ffffff; font-size: 11px; font-weight: bold;"" padding: 6px 16px; }""QPushButton#btnApply:hover { background: ") + Theme::priMid + QStringLiteral("; }"));
 
     QVBoxLayout *root = new QVBoxLayout(&dlg);
     root->setContentsMargins(12, 12, 12, 10);
@@ -7906,7 +7792,7 @@ void MainWindow::showWorkPathDialog()
     QWidget *foot = new QWidget(&dlg);
     foot->setObjectName(QStringLiteral("wpFoot"));
     foot->setAttribute(Qt::WA_StyledBackground, true);
-    foot->setStyleSheet(QStringLiteral("#wpFoot { background: ) + Theme::panel + QStringLiteral(; border: none; }"));
+    foot->setStyleSheet(QStringLiteral("#wpFoot { background: ") + Theme::panel + QStringLiteral("; border: none; }"));
     QHBoxLayout *fr = new QHBoxLayout(foot);
     fr->setContentsMargins(0, 8, 0, 0);
     fr->addStretch(1);
@@ -7972,36 +7858,7 @@ void MainWindow::showConvertDialog()
     dlg.setWindowTitle(QString::fromUtf8("数据格式转换"));
     dlg.setModal(true);
     dlg.setFixedSize(520, 400);
-    dlg.setStyleSheet(QStringLiteral(
-        "QDialog { background: #f8f9ff; }"
-        "QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"
-        " letter-spacing: 1px; border: none; background: transparent; }"
-        "QLabel#hint { font-size: 11px; color: #737785; border: none; background: transparent; }"
-        "QLineEdit { border: 1px solid #c3c6d6; background: #ffffff; padding: 5px 8px;"
-        " font-size: 12px; color: #121c2a; }"
-        "QLineEdit:focus { border: 1px solid ) + Theme::pri + QStringLiteral(; }"
-        "QLineEdit:disabled { color: #424654; background: #ffffff; }"
-        "QComboBox { border: 1px solid #c3c6d6; background: #ffffff; padding: 5px 26px 5px 8px;"
-        " font-size: 13px; color: #121c2a; }"
-        "QComboBox::drop-down { border: none; width: 22px; }"
-        "QComboBox::down-arrow { image: url(none); border-left: 4px solid transparent;"
-        " border-right: 4px solid transparent; border-top: 5px solid #424654; margin-right: 8px; }"
-        "QToolButton#btnPick { background: ) + Theme::light + QStringLiteral(; border: 1px solid #c3c6d6;"
-        " font-size: 11px; color: #121c2a; }"
-        "QToolButton#btnPick:hover { background: ) + Theme::hover + QStringLiteral(; }"
-        "QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }"
-        "QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"
-        " background: #ffffff; }"
-        "QCheckBox::indicator:checked { background: ) + Theme::pri + QStringLiteral(; border-color: ) + Theme::pri + QStringLiteral(;"
-        " image: url(:/icons/check_white.png); }"
-        "QProgressBar#cvBar { border: none; background: ) + Theme::status + QStringLiteral(; height: 6px; }"
-        "QProgressBar#cvBar::chunk { background: ) + Theme::pri + QStringLiteral(; }"
-        "QPushButton#btnCancel { border: 1px solid #c3c6d6; background: #ffffff;"
-        " color: #121c2a; font-size: 13px; font-weight: 600; padding: 6px 16px; }"
-        "QPushButton#btnCancel:hover { background: ) + Theme::light + QStringLiteral(; }"
-        "QPushButton#btnGo { border: 1px solid ) + Theme::pri + QStringLiteral(; background: ) + Theme::pri + QStringLiteral(; color: #ffffff;"
-        " font-size: 13px; font-weight: 600; padding: 6px 20px; }"
-        "QPushButton#btnGo:hover { background: ) + Theme::priMid + QStringLiteral(; }"));
+    dlg.setStyleSheet(QStringLiteral("QDialog { background: #f8f9ff; }""QLabel#secTitle { font-size: 11px; font-weight: bold; color: #424654;"" letter-spacing: 1px; border: none; background: transparent; }""QLabel#hint { font-size: 11px; color: #737785; border: none; background: transparent; }""QLineEdit { border: 1px solid #c3c6d6; background: #ffffff; padding: 5px 8px;"" font-size: 12px; color: #121c2a; }""QLineEdit:focus { border: 1px solid ") + Theme::pri + QStringLiteral("; }""QLineEdit:disabled { color: #424654; background: #ffffff; }""QComboBox { border: 1px solid #c3c6d6; background: #ffffff; padding: 5px 26px 5px 8px;"" font-size: 13px; color: #121c2a; }""QComboBox::drop-down { border: none; width: 22px; }""QComboBox::down-arrow { image: url(none); border-left: 4px solid transparent;"" border-right: 4px solid transparent; border-top: 5px solid #424654; margin-right: 8px; }""QToolButton#btnPick { background: ") + Theme::light + QStringLiteral("; border: 1px solid #c3c6d6;"" font-size: 11px; color: #121c2a; }""QToolButton#btnPick:hover { background: ") + Theme::hover + QStringLiteral("; }""QCheckBox { font-size: 12px; color: #121c2a; spacing: 8px; }""QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #c3c6d6;"" background: #ffffff; }""QCheckBox::indicator:checked { background: ") + Theme::pri + QStringLiteral("; border-color: ") + Theme::pri + QStringLiteral(";"" image: url(:/icons/check_white.png); }""QProgressBar#cvBar { border: none; background: ") + Theme::status + QStringLiteral("; height: 6px; }""QProgressBar#cvBar::chunk { background: ") + Theme::pri + QStringLiteral("; }""QPushButton#btnCancel { border: 1px solid #c3c6d6; background: #ffffff;"" color: #121c2a; font-size: 13px; font-weight: 600; padding: 6px 16px; }""QPushButton#btnCancel:hover { background: ") + Theme::light + QStringLiteral("; }""QPushButton#btnGo { border: 1px solid ") + Theme::pri + QStringLiteral("; background: ") + Theme::pri + QStringLiteral("; color: #ffffff;"" font-size: 13px; font-weight: 600; padding: 6px 20px; }""QPushButton#btnGo:hover { background: ") + Theme::priMid + QStringLiteral("; }"));
 
     QVBoxLayout *root = new QVBoxLayout(&dlg);
     root->setContentsMargins(16, 12, 16, 12);
@@ -8080,8 +7937,7 @@ void MainWindow::showConvertDialog()
     QWidget *progCard = new QWidget(&dlg);
     progCard->setObjectName(QStringLiteral("cvProgCard"));
     progCard->setAttribute(Qt::WA_StyledBackground, true);
-    progCard->setStyleSheet(QStringLiteral("#cvProgCard { background: ) + Theme::panel + QStringLiteral(;"
-                                           " border: 1px solid #c3c6d6; }"));
+    progCard->setStyleSheet(QStringLiteral("#cvProgCard { background: ") + Theme::panel + QStringLiteral(";"" border: 1px solid #c3c6d6; }"));
     QVBoxLayout *pc = new QVBoxLayout(progCard);
     pc->setContentsMargins(10, 8, 10, 8);
     pc->setSpacing(5);
@@ -8117,7 +7973,7 @@ void MainWindow::showConvertDialog()
     QWidget *foot = new QWidget(&dlg);
     foot->setObjectName(QStringLiteral("cvFoot"));
     foot->setAttribute(Qt::WA_StyledBackground, true);
-    foot->setStyleSheet(QStringLiteral("#cvFoot { background: ) + Theme::panel + QStringLiteral(; border: none; }"));
+    foot->setStyleSheet(QStringLiteral("#cvFoot { background: ") + Theme::panel + QStringLiteral("; border: none; }"));
     QHBoxLayout *fr = new QHBoxLayout(foot);
     fr->setContentsMargins(0, 8, 0, 0);
     fr->addStretch(1);
@@ -8317,7 +8173,7 @@ void MainWindow::createOneClickPanel()
     // 头条 40px
     QWidget *head = new QWidget(inner);
     head->setFixedHeight(40);
-    head->setStyleSheet(QStringLiteral("background: ) + Theme::panel + QStringLiteral(; border-bottom: 1px solid #c3c6d6;"));
+    head->setStyleSheet(QStringLiteral("background: ") + Theme::panel + QStringLiteral("; border-bottom: 1px solid #c3c6d6;"));
     QHBoxLayout *hl = new QHBoxLayout(head);
     hl->setContentsMargins(12, 0, 12, 0);
     hl->setSpacing(8);
@@ -8453,7 +8309,9 @@ void MainWindow::createOneClickPanel()
     it = makeOneClickItem(card, QStringLiteral("layers_clear"), QString::fromUtf8("背景去除"),
                           m_ocBg, pb, sum, refreshSums);
     m_ocBgSum = sum;
-    m_ocBgWin = spin(3, 9999, 50, pb);
+    m_ocBgWin = spin(3, 99999, 50, pb);
+    m_ocBgWin->setToolTip(QString::fromUtf8(
+        "窗口≥2×总道数=全部(全局均值, RADAN'背景去除-全部'语义, 已标定逐字节一致)"));
     subRow(pb, QString::fromUtf8("窗口"), m_ocBgWin, QString::fromUtf8("道"));
     cl->addWidget(it);
     // 4 带通滤波(MHz)
@@ -8510,32 +8368,37 @@ void MainWindow::createOneClickPanel()
     QVBoxLayout *fol = new QVBoxLayout(foot);
     fol->setContentsMargins(12, 10, 12, 10);
     fol->setSpacing(8);
+    // v1.0.152 底部按钮严格按 数据处理-一键处理.html:
+    // 开始=全宽主色+play_arrow; 应用=surface-container浅底+描边; 恢复=白底红字(error)+描边+restart_alt
     QPushButton *btnRun = new QPushButton(QString::fromUtf8("开始"), foot);
     if (MatIcon::ready())
         btnRun->setIcon(MatIcon::icon(QStringLiteral("play_arrow"), QColor(0xff, 0xff, 0xff),
                                       QColor(), QColor(), 20, 1.0));
     btnRun->setCursor(Qt::PointingHandCursor);
-    btnRun->setStyleSheet(QStringLiteral(
-        "QPushButton { background: ) + Theme::pri + QStringLiteral(; color: #ffffff; border: 1px solid ) + Theme::pri + QStringLiteral(;"
-        " border-radius: 4px; padding: 8px; font-size: 14px; font-weight: 600; }"
-        "QPushButton:hover { background: ) + Theme::priDark + QStringLiteral(; }"));
+    btnRun->setStyleSheet(QStringLiteral("QPushButton { background: ") + Theme::pri + QStringLiteral(
+        "; color: #ffffff; border: 1px solid ") + Theme::pri + QStringLiteral(
+        "; border-radius: 4px; padding: 8px; font-size: 14px; font-weight: 600; }"
+        "QPushButton:hover { background: ") + Theme::priMid + QStringLiteral("; }"));
     fol->addWidget(btnRun);
     QWidget *row2 = new QWidget(foot);
     QHBoxLayout *r2 = new QHBoxLayout(row2);
     r2->setContentsMargins(0, 0, 0, 0);
     r2->setSpacing(8);
     QPushButton *btnApply = new QPushButton(QString::fromUtf8("应用"), row2);
+    btnApply->setCursor(Qt::PointingHandCursor);
+    btnApply->setStyleSheet(QStringLiteral("QPushButton { background: ") + Theme::light + QStringLiteral(
+        "; color: #121c2a; border: 1px solid #c3c6d6; border-radius: 4px;"
+        " padding: 6px; font-size: 13px; }"
+        "QPushButton:hover { background: ") + Theme::hover + QStringLiteral("; }"));
     QPushButton *btnReset = new QPushButton(QString::fromUtf8("恢复"), row2);
-    for (QPushButton *b : { btnApply, btnReset }) {
-        b->setCursor(Qt::PointingHandCursor);
-        b->setStyleSheet(QStringLiteral(
-            "QPushButton { background: ) + Theme::light + QStringLiteral(; color: #121c2a; border: 1px solid #c3c6d6;"
-            " border-radius: 4px; padding: 6px; font-size: 13px; }"
-            "QPushButton:hover { background: ) + Theme::hover + QStringLiteral(; }"));
-    }
+    btnReset->setCursor(Qt::PointingHandCursor);
     if (MatIcon::ready())
         btnReset->setIcon(MatIcon::icon(QStringLiteral("restart_alt"), QColor(0xba, 0x1a, 0x1a),
-                                        QColor(), QColor(), 14));
+                                        QColor(), QColor(), 16));
+    btnReset->setStyleSheet(QStringLiteral(
+        "QPushButton { background: #ffffff; color: #ba1a1a; border: 1px solid #c3c6d6;"
+        " border-radius: 4px; padding: 6px; font-size: 13px; }"
+        "QPushButton:hover { background: #ffdad6; border: 1px solid #ba1a1a; }"));
     r2->addWidget(btnApply, 1);
     r2->addWidget(btnReset, 1);
     fol->addWidget(row2);
@@ -8591,18 +8454,18 @@ void MainWindow::createOneClickPanel()
         m_ocPresetBox->setCurrentIndex(idx);
     });
 
-    // 开始: 执行流水线(内存)
-    QObject::connect(btnRun, &QPushButton::clicked, this, [this]() {
-        if (!requireOpenFile()) return;
-        runOneClickPipeline();
-    });
-    // 应用: 执行(如未) + 保存输出DZT
-    QObject::connect(btnApply, &QPushButton::clicked, this, [this]() {
+    // v1.0.152 逻辑(按用户定义): 应用=临时应用到当前图并显示(不落盘);
+    // 恢复=还原处理前; 开始=把处理结果+处理记录写入 _P#.DZT 文件
+    QObject::connect(btnRun, &QPushButton::clicked, this, [this]() {   // 开始 → 落盘
         if (!requireOpenFile()) return;
         if (!m_pipelineApplied)
             runOneClickPipeline();
         if (m_pipelineApplied)
             saveProcessedFile();
+    });
+    QObject::connect(btnApply, &QPushButton::clicked, this, [this]() { // 应用 → 预览
+        if (!requireOpenFile()) return;
+        runOneClickPipeline();
     });
     // 恢复: 还原原始数据
     QObject::connect(btnReset, &QPushButton::clicked, this, [this]() {
@@ -8640,16 +8503,18 @@ void MainWindow::runOneClickPipeline()
     const int numTraces = int(totalSamples / nsamp);
     if (numTraces == 0 || nsamp == 0) return;
 
-    // 备份原始数据(仅首次)
-    if (m_currentTab->originalRawData.isEmpty() || !m_pipelineApplied)
+    // 备份原始数据(仅首次); 已应用过 → 先还原再重算(改参数重复"应用"不叠加, v1.0.152)
+    if (m_currentTab->originalRawData.isEmpty()) {
         m_currentTab->originalRawData = m_rawData;
+    } else if (m_pipelineApplied) {
+        m_rawData = m_currentTab->originalRawData;
+    }
 
+    // v1.0.153: memcpy 取/存(小端原生, 与 DZT 字节序一致) — 替代手工字节拼装, 全流水线提速
     auto sample = [&](int t, int s) -> qint32 {
-        int idx = (t * nsamp + s) * 4;
-        return (static_cast<quint8>(m_rawData[idx + 3]) << 24)
-               | (static_cast<quint8>(m_rawData[idx + 2]) << 16)
-             | (static_cast<quint8>(m_rawData[idx + 1]) << 8)
-             | static_cast<quint8>(m_rawData[idx]);
+        qint32 v;
+        memcpy(&v, m_rawData.constData() + (t * nsamp + s) * 4, 4);
+        return v;
     };
     auto setSample = [&](int t, int s, qint32 v) {
         int idx = (t * nsamp + s) * 4;
@@ -8710,22 +8575,19 @@ void MainWindow::runOneClickPipeline()
     }
 
     // ---- 3 背景去除: 滑动窗(道方向)均值 ----
+    // v1.0.153: 行前缀和算法 O(N) — 旧三重循环 O(N×W) 每样本重扫50道字节拼装, 5953道时>10s
     if (m_ocBg && m_ocBg->isChecked() && m_ocBgWin) {
         const int W = qMax(3, m_ocBgWin->value() | 1);   // 奇数窗
-        QByteArray snap = m_rawData;
-        auto rd = [&](int t, int s) -> qint32 {
-            int idx = (t * nsamp + s) * 4;
-            return (static_cast<quint8>(snap[idx + 3]) << 24)
-                   | (static_cast<quint8>(snap[idx + 2]) << 16)
-                   | (static_cast<quint8>(snap[idx + 1]) << 8)
-                   | static_cast<quint8>(snap[idx]);
-        };
-        for (int t = 0; t < numTraces; ++t) {
-            const int t0 = qMax(0, t - W / 2), t1 = qMin(numTraces - 1, t + W / 2);
-            for (int s = 0; s < nsamp; ++s) {
-                double sum = 0;
-                for (int k = t0; k <= t1; ++k) sum += rd(k, s);
-                setSample(t, s, qint32(double(sample(t, s)) - sum / (t1 - t0 + 1)));
+        const int hw = W / 2;
+        QVector<double> cum(numTraces + 1);
+        for (int s = 0; s < nsamp; ++s) {
+            cum[0] = 0.0;
+            for (int t = 0; t < numTraces; ++t)          // 原始值前缀和(本行)
+                cum[t + 1] = cum[t] + sample(t, s);
+            for (int t = 0; t < numTraces; ++t) {
+                const int t0 = qMax(0, t - hw), t1 = qMin(numTraces - 1, t + hw);
+                const double mean = (cum[t1 + 1] - cum[t0]) / (t1 - t0 + 1);
+                setSample(t, s, qint32(double(sample(t, s)) - mean));   // 同位先读后写=安全
             }
         }
     }
@@ -8820,7 +8682,7 @@ void MainWindow::createAiPanel()
     // 头条 32px
     QWidget *head = new QWidget(inner);
     head->setFixedHeight(32);
-    head->setStyleSheet(QStringLiteral("background: ) + Theme::panel + QStringLiteral(; border-bottom: 1px solid #c3c6d6;"));
+    head->setStyleSheet(QStringLiteral("background: ") + Theme::panel + QStringLiteral("; border-bottom: 1px solid #c3c6d6;"));
     QHBoxLayout *hl = new QHBoxLayout(head);
     hl->setContentsMargins(12, 0, 12, 0);
     QLabel *hTitle = new QLabel(QString::fromUtf8("AI智能检测引擎"), head);
@@ -8856,8 +8718,7 @@ void MainWindow::createAiPanel()
         cl->setContentsMargins(0, 0, 0, 0);
         cl->setSpacing(0);
         QWidget *h = new QWidget(c);
-        h->setStyleSheet(QStringLiteral("background: ) + Theme::panel + QStringLiteral(; border-bottom: 1px solid #c3c6d6;"
-                                        " border-top-left-radius: 3px; border-top-right-radius: 3px;"));
+        h->setStyleSheet(QStringLiteral("background: ") + Theme::panel + QStringLiteral("; border-bottom: 1px solid #c3c6d6;"" border-top-left-radius: 3px; border-top-right-radius: 3px;"));
         QHBoxLayout *t = new QHBoxLayout(h);
         t->setContentsMargins(10, 5, 10, 5);
         QLabel *ic = new QLabel(h);
@@ -8910,8 +8771,7 @@ void MainWindow::createAiPanel()
     lTh->setStyleSheet(QStringLiteral("font-size: 12px; color: #424654; border: none;"
                                       " background: transparent;"));
     m_aiConfVal = new QLabel(QStringLiteral("0.70"), thRow);
-    m_aiConfVal->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: bold; color: ) + Theme::pri + QStringLiteral(;"
-                                              " border: none; background: transparent;"));
+    m_aiConfVal->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: bold; color: ") + Theme::pri + QStringLiteral(";"" border: none; background: transparent;"));
     if (MatIcon::ready()) m_aiConfVal->setFont(MatIcon::monoFont(13));
     thr->addWidget(lTh);
     thr->addStretch(1);
@@ -8942,15 +8802,14 @@ void MainWindow::createAiPanel()
     // --- 卡2: 检测统计 ---
     QVBoxLayout *stL = card(QStringLiteral("donut_small"), QString::fromUtf8("检测统计"));
     QWidget *totRow = new QWidget(body);
-    totRow->setStyleSheet(QStringLiteral("background: ) + Theme::status + QStringLiteral(; border-radius: 4px;"));
+    totRow->setStyleSheet(QStringLiteral("background: ") + Theme::status + QStringLiteral("; border-radius: 4px;"));
     QHBoxLayout *tr = new QHBoxLayout(totRow);
     tr->setContentsMargins(10, 8, 10, 8);
     QLabel *lTot = new QLabel(QString::fromUtf8("总识别数量"), totRow);
     lTot->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: 600; color: #121c2a;"
                                        " border: none; background: transparent;"));
     m_aiTotalLbl = new QLabel(QStringLiteral("0"), totRow);
-    m_aiTotalLbl->setStyleSheet(QStringLiteral("font-size: 22px; font-weight: bold; color: ) + Theme::pri + QStringLiteral(;"
-                                               " border: none; background: transparent;"));
+    m_aiTotalLbl->setStyleSheet(QStringLiteral("font-size: 22px; font-weight: bold; color: ") + Theme::pri + QStringLiteral(";"" border: none; background: transparent;"));
     if (MatIcon::ready()) m_aiTotalLbl->setFont(MatIcon::monoFont(22));
     tr->addWidget(lTot);
     tr->addStretch(1);
@@ -9029,11 +8888,7 @@ void MainWindow::createAiPanel()
         btnRun->setIcon(MatIcon::icon(QStringLiteral("play_arrow"), QColor(0xff, 0xff, 0xff),
                                       QColor(), QColor(), 18, 1.0));
     btnRun->setCursor(Qt::PointingHandCursor);
-    btnRun->setStyleSheet(QStringLiteral(
-        "QPushButton { background: ) + Theme::pri + QStringLiteral(; color: #ffffff; border: 1px solid ) + Theme::pri + QStringLiteral(;"
-        " border-radius: 4px; padding: 9px 12px; font-size: 14px; font-weight: 600; }"
-        "QPushButton:hover { background: ) + Theme::priDark + QStringLiteral(; }"
-        "QPushButton:disabled { background: #93a8c9; border-color: #93a8c9; }"));
+    btnRun->setStyleSheet(QStringLiteral("QPushButton { background: ") + Theme::pri + QStringLiteral("; color: #ffffff; border: 1px solid ") + Theme::pri + QStringLiteral(";"" border-radius: 4px; padding: 9px 12px; font-size: 14px; font-weight: 600; }""QPushButton:hover { background: ") + Theme::priDark + QStringLiteral("; }""QPushButton:disabled { background: #93a8c9; border-color: #93a8c9; }"));
     connect(btnRun, &QPushButton::clicked, this, [this]() {
         if (!requireOpenFile()) return;
         runAiDetection();
@@ -10312,6 +10167,65 @@ void MainWindow::saveProcessedFile()
     }
     QByteArray header = srcFile.read(m_currentTab->dataOffset);
     patchDztHeaderForTab(header);   // v1.0.98: 裁剪后头一致性补丁
+
+    // v1.0.152: 一键处理输出按"以前的逻辑"追加处理记录(DZT头 proc history 追加式)
+    // + rhf_position 归零 + rhb_mdt 编辑时间更新 — 模式同 saveProcessedWithDzx 既有实现
+    if (m_pipelineApplied && header.size() >= 128) {
+        auto appendProcRec = [&header](const QByteArray &rec) {
+            qint16 procOff = (header.size() >= 50)
+                ? qint16((quint8(header[48]) << 0) | (quint8(header[49]) << 8)) : 128;
+            qint16 procSize = (header.size() >= 52)
+                ? qint16((quint8(header[50]) << 0) | (quint8(header[51]) << 8)) : 0;
+            if (procOff <= 0) procOff = 128;
+            const int writeOff = procOff + procSize;
+            if (writeOff + rec.size() > header.size()) return;
+            memcpy(header.data() + writeOff, rec.constData(), rec.size());
+            const qint16 newSize = qint16(procSize + rec.size());
+            header[50] = char(newSize & 0xFF);
+            header[51] = char((newSize >> 8) & 0xFF);
+        };
+        // 1) 时间零点(以前的逻辑): 原 position 归零 + 0x4d 记录(仅 position≠0 时)
+        if (header.size() >= 26) {
+            float pos = 0.f;
+            memcpy(&pos, header.constData() + 22, 4);
+            if (pos != 0.f) {
+                const float zero = 0.f;
+                memcpy(header.data() + 22, &zero, 4);
+                QByteArray rec;
+                rec.append(char(0x4d));   // typeId 77 = 时间零点
+                rec.append(char(0x00));   // sub = 0
+                rec.append(reinterpret_cast<const char *>(&pos), 4);
+                appendProcRec(rec);
+            }
+        }
+        // 2) 各流水线步骤记录(typeId 见 处理process文档.md; 参数区留默认)
+        if (m_ocDewow && m_ocDewow->isChecked())
+            appendProcRec(QByteArray("\x63\x00", 2));                    // 99 DC去除(空)
+        if (m_ocBg && m_ocBg->isChecked())
+            appendProcRec(QByteArray("\x5f\x00\x00\x00\x00", 5));        // 95 背景去除-全部
+        if (m_ocBp && m_ocBp->isChecked()) {
+            QByteArray rec;
+            rec.append(char(0x40)); rec.append(char(0x00));              // 64 FIR垂直
+            const float c1 = 0.76f, c2 = 21.0f;                          // 参数编码待标定对齐
+            rec.append(reinterpret_cast<const char *>(&c1), 4);
+            rec.append(reinterpret_cast<const char *>(&c2), 4);
+            appendProcRec(rec);
+        }
+        if (m_ocGain && m_ocGain->isChecked())
+            appendProcRec(QByteArray("\x3b\x00\x01\x00\x00\x00\x00", 7)); // 59 增益(1点0dB占位)
+        // 3) rhb_mdt 编辑时间(以前的逻辑)
+        {
+            const QDateTime now = QDateTime::currentDateTime();
+            quint32 mdt = quint32((now.time().second() / 2) & 0x1F)
+                          | (quint32(now.time().minute() & 0x3F) << 5)
+                          | (quint32(now.time().hour() & 0x1F) << 11)
+                          | (quint32(now.date().day() & 0x1F) << 16)
+                          | (quint32(now.date().month() & 0xF) << 21)
+                          | (quint32(now.date().year() - 1980) << 25);
+            memcpy(header.data() + 36, &mdt, 4);
+        }
+    }
+
     outFile.write(header);
     srcFile.close();
     outFile.write(m_rawData);
