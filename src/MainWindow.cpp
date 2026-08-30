@@ -4393,7 +4393,7 @@ void MarkerThumbWidget::paintEvent(QPaintEvent *)
         p.drawLine(x, 1, x, height() - 1);
     }
 
-    // 数据块(蓝): trace→x, sample→y 等比映射
+    // 数据块(蓝): trace→x 等比映射; y 上顶下底(全高, v1.0.155 — 块的横向范围才是关键信息)
     if (m_traceCount > 1 && m_sampleCount > 1) {
         p.setPen(QPen(QColor(Theme::pri), 1));
         p.setBrush(Qt::NoBrush);
@@ -4401,10 +4401,8 @@ void MarkerThumbWidget::paintEvent(QPaintEvent *)
             const QRectF bn = b.normalized();
             const int x1 = 1 + qRound(bn.left() / (m_traceCount - 1) * inner.width());
             const int x2 = 1 + qRound(bn.right() / (m_traceCount - 1) * inner.width());
-            const int y1 = 1 + qRound(bn.top() / (m_sampleCount - 1) * inner.height());
-            const int y2 = 1 + qRound(bn.bottom() / (m_sampleCount - 1) * inner.height());
-            p.drawRect(QRect(QPoint(qMin(x1, x2), qMin(y1, y2)),
-                             QPoint(qMax(x1, x2), qMax(y1, y2))));
+            p.drawRect(QRect(QPoint(qMin(x1, x2), 1),
+                             QPoint(qMax(x1, x2), inner.bottom())));
         }
     }
 
