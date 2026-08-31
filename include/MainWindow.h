@@ -351,7 +351,8 @@ struct TabData {
     bool zeroApplied = false;
     int zeroSkipRows = 0;
     int zeroTopDead = 0;   // v1.0.162 时间零点顶部死区行(row0原值+row1哨兵), 显示跳过并拉伸
-    double zeroPosNs = 0.0; // v1.0.163 零点位置ns(RADAN 1位小数, 标尺=range−|pos|: 20−2=18)
+    double zeroPosNs = 0.0; // v1.0.163 零点位置ns(2ns整倍数, 标尺=range−|pos|: 20−2=18)
+    double zeroOffsetNs = 0.0; // v1.0.165 偏移量=位置−峰时间(永远正值, 余量存待处理记录)
     float signalPosition = 0.0f;  // rhf_position from offset 22
     float hZoom = 1.0f;           // 水平缩放因子(像素/道,1.0=原始)
     bool wiggleMode = false;      // 堆积图(wiggle)显示模式

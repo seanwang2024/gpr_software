@@ -2258,6 +2258,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_currentTab->zeroSkipRows = 0;
         m_currentTab->zeroTopDead = 0;
         m_currentTab->zeroPosNs = 0.0;
+        m_currentTab->zeroOffsetNs = 0.0;
         if (m_zeroBtnApply) m_zeroBtnApply->setText(QString::fromUtf8("应用"));
         refreshImage();
         updateRulers();
@@ -2277,6 +2278,7 @@ MainWindow::MainWindow(QWidget *parent)
             m_currentTab->zeroSkipRows = 0;
             m_currentTab->zeroTopDead = 0;
         m_currentTab->zeroPosNs = 0.0;
+        m_currentTab->zeroOffsetNs = 0.0;
             m_zeroBtnApply->setText("应用");
             refreshImage();
             updateRulers();
@@ -4108,6 +4110,7 @@ void MainWindow::performCropSelection()
     tab->zeroSkipRows = 0;
     tab->zeroTopDead = 0;
     tab->zeroPosNs = 0.0;
+    tab->zeroOffsetNs = 0.0;
     tab->traceCount = newTraceCount;
     m_traceCount = newTraceCount;
     tab->dataRev++;
@@ -8599,7 +8602,10 @@ void MainWindow::runOneClickPipeline()
             m_currentTab->zeroSkipRows = skip;
             // v1.0.165 显示从峰值行起(峰值以上不显示): 顶切=峰值在移位后数据中的行号 pk−skip
             m_currentTab->zeroTopDead = qMax(0, pk - skip);
-            m_currentTab->zeroPosNs = std::round(posNs * 10.0) / 10.0;   // 1位小数(1.953→2.0, RADAN显示-2.00)
+            // v1.0.166 RADAN规律: 信号位置=2ns整倍数(ceil保证≥峰时间, 显示-2.00);
+            // 不足部分成为新偏移量(永远正值): offset = 位置 − 峰时间
+            m_currentTab->zeroPosNs = 2.0 * std::ceil(posNs / 2.0);
+            m_currentTab->zeroOffsetNs = m_currentTab->zeroPosNs - posNs;
         }
     }
 
@@ -10095,7 +10101,9 @@ void MainWindow::saveProcessedWithDzx(const QString &origDztPath, const QList<Dz
         QByteArray rec;
         rec.append(static_cast<char>(0x4d));  // typeId
         rec.append(static_cast<char>(0x00));  // sub = 时间零点
-        float val = m_dzxOriginalSignalPos;
+        // v1.0.166: 偏移量=位置−峰时间(永远正值)补偿2ns整倍数剩下的值, 存待处理记录
+        float val = float(m_currentTab && m_currentTab->zeroOffsetNs > 0.0
+                              ? m_currentTab->zeroOffsetNs : m_dzxOriginalSignalPos);
         rec.append(reinterpret_cast<const char*>(&val), 4);
         if (writeOff + rec.size() <= header.size()) {
             memcpy(header.data() + writeOff, rec.constData(), rec.size());
@@ -10411,6 +10419,7 @@ void MainWindow::saveProcessedFile()
     origTab->zeroApplied = false;
     origTab->zeroTopDead = 0;
     origTab->zeroPosNs = 0.0;
+    origTab->zeroOffsetNs = 0.0;
     m_rawData = origData;
     m_btnApply->setText(QString::fromUtf8("应用"));
     refreshImage();
