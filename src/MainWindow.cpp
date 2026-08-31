@@ -8597,8 +8597,9 @@ void MainWindow::runOneClickPipeline()
             }
             m_currentTab->zeroApplied = true;
             m_currentTab->zeroSkipRows = skip;
-            m_currentTab->zeroTopDead = qMin(2, skip);   // row0原值+row1哨兵=顶部死区
-            m_currentTab->zeroPosNs = std::round(posNs * 10.0) / 10.0;   // 1位小数(1.95→2.0, RADAN头)
+            // v1.0.165 显示从峰值行起(峰值以上不显示): 顶切=峰值在移位后数据中的行号 pk−skip
+            m_currentTab->zeroTopDead = qMax(0, pk - skip);
+            m_currentTab->zeroPosNs = std::round(posNs * 10.0) / 10.0;   // 1位小数(1.953→2.0, RADAN显示-2.00)
         }
     }
 
