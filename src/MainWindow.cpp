@@ -2257,6 +2257,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_currentTab->zeroApplied = false;
         m_currentTab->zeroSkipRows = 0;
         m_currentTab->zeroTopDead = 0;
+        m_currentTab->zeroPosNs = 0.0;
         if (m_zeroBtnApply) m_zeroBtnApply->setText(QString::fromUtf8("应用"));
         refreshImage();
         updateRulers();
@@ -2275,6 +2276,7 @@ MainWindow::MainWindow(QWidget *parent)
             m_currentTab->zeroApplied = false;
             m_currentTab->zeroSkipRows = 0;
             m_currentTab->zeroTopDead = 0;
+        m_currentTab->zeroPosNs = 0.0;
             m_zeroBtnApply->setText("应用");
             refreshImage();
             updateRulers();
@@ -2287,6 +2289,7 @@ MainWindow::MainWindow(QWidget *parent)
             m_currentTab->zeroApplied = true;
             m_currentTab->zeroSkipRows = skip;
             m_currentTab->zeroTopDead = qMin(2, skip);   // row0原值+row1哨兵=顶部死区
+            m_currentTab->zeroPosNs = -zeroOff;          // 手动零点: 位置=用户偏移ns
             m_zeroBtnApply->setText("重设");
             refreshImage();
             updateRulers();
@@ -4104,6 +4107,7 @@ void MainWindow::performCropSelection()
     tab->zeroApplied = false;
     tab->zeroSkipRows = 0;
     tab->zeroTopDead = 0;
+    tab->zeroPosNs = 0.0;
     tab->traceCount = newTraceCount;
     m_traceCount = newTraceCount;
     tab->dataRev++;
@@ -8594,6 +8598,7 @@ void MainWindow::runOneClickPipeline()
             m_currentTab->zeroApplied = true;
             m_currentTab->zeroSkipRows = skip;
             m_currentTab->zeroTopDead = qMin(2, skip);   // row0原值+row1哨兵=顶部死区
+            m_currentTab->zeroPosNs = std::round(posNs * 10.0) / 10.0;   // 1位小数(1.95→2.0, RADAN头)
         }
     }
 
@@ -8817,6 +8822,7 @@ void MainWindow::runOneClickPipeline()
     m_oneClickApplied = false;
     m_currentTab->rawData = m_rawData;
     refreshImage();
+    updateRulers();          // v1.0.163 标尺随零点缩短(range−|pos|)
     updateChart(m_lastChartX);
 }
 
@@ -10403,6 +10409,7 @@ void MainWindow::saveProcessedFile()
     origTab->gainApplied = false;
     origTab->zeroApplied = false;
     origTab->zeroTopDead = 0;
+    origTab->zeroPosNs = 0.0;
     m_rawData = origData;
     m_btnApply->setText(QString::fromUtf8("应用"));
     refreshImage();
@@ -10968,7 +10975,11 @@ void MainWindow::updateRulers()
     // 时间零点处理后(zeroApplied),时间范围按实际显示行数缩短
     int skipR = (m_currentTab->zeroApplied) ? m_currentTab->zeroSkipRows : 0;
     int drawR = m_pixelsPerRow - skipR - ((m_currentTab->zeroApplied) ? m_currentTab->zeroTopDead : 0);
-    m_timeRange = range * drawR / m_pixelsPerRow;  // 时间标尺 RANGE(处理后的有效范围)
+    // v1.0.163 RADAN标尺规律(P_H实测): RANGE = range − |零点位置|(1位小数) → 20−2=18
+    if (m_currentTab->zeroApplied && m_currentTab->zeroPosNs > 0.0)
+        m_timeRange = qMax(1.0, range - m_currentTab->zeroPosNs);
+    else
+        m_timeRange = range * drawR / m_pixelsPerRow;  // 旧比例公式(兜底)
     if (epsr > 0.0)
         m_depthRange = 0.299792458 * m_timeRange / (2.0 * std::sqrt(epsr));  // c·t/(2√εr), c=0.2998 m/ns
     else

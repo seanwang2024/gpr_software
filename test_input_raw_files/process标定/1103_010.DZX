@@ -86,20 +86,7 @@
     <hide>0</hide>
     <onePerFile>0</onePerFile>
     <paired>0</paired>
-  </WayPtNameProperties>  <WayPtNameProperties>
-    <name>MARK04</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>  <WayPtNameProperties>
-    <name>MARK08</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <File>
+  </WayPtNameProperties>  <File>
     <scanRange>0,5952</scanRange>
     <name>1103_010.DZT</name>
     <Profile>
