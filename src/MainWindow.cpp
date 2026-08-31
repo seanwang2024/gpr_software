@@ -8230,7 +8230,7 @@ void MainWindow::createOneClickPanel()
     // 参数摘要统一刷新
     auto refreshSums = [&]() {
         if (m_ocZero && m_ocZeroThresh)
-            m_ocZeroSum->setText(QStringLiteral("Range: %1%%").arg(m_ocZeroThresh->value()));
+            m_ocZeroSum->setText(QStringLiteral("Range: %1%").arg(m_ocZeroThresh->value()));
         if (m_ocDewow && m_ocDewowWin)
             m_ocDewowSum->setText(QStringLiteral("Window: %1ns").arg(m_ocDewowWin->value(), 0, 'f', 1));
         if (m_ocBg && m_ocBgWin)
@@ -8373,15 +8373,8 @@ void MainWindow::createOneClickPanel()
         pb->layout()->addWidget(r);
     }
     cl->addWidget(it);
-    // 6 增益AGC(v1.0.159: 参数=AGC点数, 窗宽=nsamp/点数, 对齐RADAN对话框口径)
-    it = makeOneClickItem(card, QStringLiteral("signal_cellular_alt"), QString::fromUtf8("增益"),
-                          m_ocAgc, pb, sum, refreshSums);
-    m_ocAgcSum = sum;
-    m_ocAgc->setChecked(false);
-    m_ocAgcWin = spin(1, 32, 2, pb);   // AGC 点数(窗=nsamp/点数)
-    m_ocAgcWin->setToolTip(QString::fromUtf8("AGC 点数: 归一窗宽 = 采样点数/点数"));
-    subRow(pb, QString::fromUtf8("AGC 点数"), m_ocAgcWin, QString());
-    cl->addWidget(it);
+    // 6 增益AGC — v1.0.168 按用户指示移除(RADAN'自适应增益'已含增益语义, 不单独显示)
+    m_ocAgc = nullptr; m_ocAgcWin = nullptr; m_ocAgcSum = nullptr;
     // 7 偏移归位(速度, 后续版本)
     it = makeOneClickItem(card, QStringLiteral("compare_arrows"), QString::fromUtf8("偏移归位"),
                           m_ocMig, pb, sum, refreshSums);
@@ -8458,12 +8451,11 @@ void MainWindow::createOneClickPanel()
     };
     QObject::connect(m_ocZeroThresh, &QSpinBox::valueChanged, body, markCustom);
     QObject::connect(m_ocBgWin, &QSpinBox::valueChanged, body, markCustom);
-    QObject::connect(m_ocAgcWin, &QSpinBox::valueChanged, body, markCustom);
     QObject::connect(m_ocDewowWin, &QDoubleSpinBox::valueChanged, body, markCustom);
     QObject::connect(m_ocBpLo, &QDoubleSpinBox::valueChanged, body, markCustom);
     QObject::connect(m_ocBpHi, &QDoubleSpinBox::valueChanged, body, markCustom);
     QObject::connect(m_ocGainSlope, &QDoubleSpinBox::valueChanged, body, markCustom);
-    for (auto c : { m_ocZero, m_ocDewow, m_ocBg, m_ocBp, m_ocGain, m_ocAgc, m_ocMig, m_ocBgAll, m_ocGainAdaptive })
+    for (auto c : { m_ocZero, m_ocDewow, m_ocBg, m_ocBp, m_ocGain, m_ocMig, m_ocBgAll, m_ocGainAdaptive })
         QObject::connect(c, &QCheckBox::toggled, body, markCustom);
 
     // 预设方案
@@ -8575,17 +8567,38 @@ void MainWindow::runOneClickPipeline()
     };
     const double rangeNs = m_currentTab->headerRange > 0 ? double(m_currentTab->headerRange) : 100.0;
 
+    // v1.0.168 分步进度(状态栏): 用户可见每步进展; 步内每512道刷新一次UI
+    const char *stepNames[5] = { "时间零点", "校正零偏", "背景去除", "带通滤波", "自适应增益" };
+    auto stepBegin = [this](int i, const char *nm) {
+        if (!m_progressBar) return;
+        m_progressBar->setRange(0, 500);
+        m_progressBar->setValue(i * 100);
+        m_progressBar->setFormat(QString::fromUtf8("%1/5 %2 %3%").arg(i + 1)
+                                     .arg(QString::fromUtf8(nm)).arg(0));
+        m_progressBar->show();
+        QCoreApplication::processEvents();
+    };
+    auto stepTick = [this](int i, const char *nm, int t, int tot) {
+        if (!m_progressBar || (t & 511)) return;   // 每512道
+        m_progressBar->setValue(i * 100 + qMin(99, t * 100 / qMax(1, tot)));
+        m_progressBar->setFormat(QString::fromUtf8("%1/5 %2 %3%").arg(i + 1)
+                                     .arg(QString::fromUtf8(nm))
+                                     .arg(t * 100 / qMax(1, tot)));
+        QCoreApplication::processEvents();
+    };
+
+    stepBegin(0, stepNames[0]);
     // ---- 1 时间零点校正(自动选峰-从平均扫描选择峰值, v1.0.160 P_H标定) ----
     // RADAN规则(P_H逐字节99.6%验证): 平均扫描=逐行全道均值; 在前"位置范围%"行内取|峰|行p;
     // pos_ns = p·range/nsamp(写入头rhf_position, 本例50→1.953→-2.0); 数据上移 round(pos_ns) 行(2)
     if (m_ocZero && m_ocZero->isChecked() && m_ocZeroThresh) {
         const int rng = qMax(2, nsamp * m_ocZeroThresh->value() / 100);
         QVector<double> avg(nsamp, 0.0);
-        for (int s = 0; s < nsamp; ++s) {
-            double m = 0;
-            for (int t = 0; t < numTraces; ++t) m += sample(t, s);
-            avg[s] = m / numTraces;
+        for (int t = 0; t < numTraces; ++t) {
+            stepTick(0, stepNames[0], t, numTraces);
+            for (int s = 0; s < nsamp; ++s) avg[s] += sample(t, s);
         }
+        for (int s = 0; s < nsamp; ++s) avg[s] /= numTraces;
         int pk = 0;
         double best = 0;
         for (int s = 0; s < rng && s < nsamp; ++s)
@@ -8615,6 +8628,7 @@ void MainWindow::runOneClickPipeline()
         }
     }
 
+    stepBegin(1, stepNames[1]);
     // ---- 2 校正零偏(dewow): 滑动窗均值去除 ----
     if (m_ocDewow && m_ocDewow->isChecked() && m_ocDewowWin) {
         const double sampleIntervalNs = rangeNs / nsamp;
@@ -8622,6 +8636,7 @@ void MainWindow::runOneClickPipeline()
         const int halfWin = windowSamples / 2;
         QVector<double> trace(nsamp), cum(nsamp + 1, 0.0);   // v1.0.161: 缓冲区外提复用
         for (int t = 0; t < numTraces; ++t) {
+            stepTick(1, stepNames[1], t, numTraces);
             for (int s = 0; s < nsamp; ++s) trace[s] = double(sample(t, s));
             for (int s = 0; s < nsamp; ++s) cum[s + 1] = cum[s] + trace[s];
             for (int s = 0; s < nsamp; ++s) {
@@ -8633,6 +8648,7 @@ void MainWindow::runOneClickPipeline()
         }
     }
 
+    stepBegin(2, stepNames[2]);
     // ---- 3 背景去除 ----
     // v1.0.156: "全部"模式=全局行均值(RADAN'背景去除-全部', 已标定8位精度≤1LSB);
     //           否则滑动窗(道方向, 行前缀和 O(N), 旧三重循环 O(N×W) >10s)
@@ -8643,6 +8659,7 @@ void MainWindow::runOneClickPipeline()
         const int hw = W / 2;
         QVector<double> cum(numTraces + 1);
         for (int s = 0; s < nsamp; ++s) {
+            stepTick(2, stepNames[2], s, nsamp);
             cum[0] = 0.0;
             for (int t = 0; t < numTraces; ++t)          // 原始值前缀和(本行)
                 cum[t + 1] = cum[t] + sample(t, s);
@@ -8654,6 +8671,7 @@ void MainWindow::runOneClickPipeline()
         }
     }
 
+    stepBegin(3, stepNames[3]);
     // ---- 4 带通滤波 (v1.0.157 RADAN FIR 标定版): HP→LP 级联滑动平均 ----
     // 实测规则(处理process文档.md): HP(fc)=x−MA(N), N=round(2/3·fs/fc);
     // LP(fc)=MA(N), N=round(0.443·fs/fc)(−3dB=fc); 中心窗(-N/2..N/2-1)边缘钳位
@@ -8683,6 +8701,7 @@ void MainWindow::runOneClickPipeline()
             }
         };
         for (int t = 0; t < numTraces; ++t) {
+            stepTick(3, stepNames[3], t, numTraces);
             for (int s = 0; s < nsamp; ++s) x[s] = sample(t, s);
             maClamp(x, y, Nh);                         // HP: x − MA(Nh)
             for (int s = 0; s < nsamp; ++s) y[s] = x[s] - y[s];
@@ -8716,6 +8735,7 @@ void MainWindow::runOneClickPipeline()
     }
 #endif
 
+    stepBegin(4, stepNames[4]);
     // ---- 5 自适应增益(2点Normal) — v1.0.159 依 P_G 重标定 ----
     // 模型(P_G/P_F字节级相同): y = x · g0·10^(dB·s/(N-1)/20) · adapt_t^0.3
     //   dB = 20·lg(首窗RMS/尾窗RMS)  窗W=nsamp/8, 行均值去DC
@@ -8728,11 +8748,11 @@ void MainWindow::runOneClickPipeline()
             const int W = qMax(8, nsamp / 8);
             // 行均值(全道) → 去行DC的RMS统计
             QVector<double> rowMean(nsamp, 0.0);
-            for (int s = 0; s < nsamp; ++s) {
-                double m = 0;
-                for (int t = 0; t < numTraces; ++t) m += sample(t, s);
-                rowMean[s] = m / numTraces;
+            for (int t = 0; t < numTraces; ++t) {
+                stepTick(4, stepNames[4], t, numTraces);
+                for (int s = 0; s < nsamp; ++s) rowMean[s] += sample(t, s);
             }
+            for (int s = 0; s < nsamp; ++s) rowMean[s] /= numTraces;
             double sa = 0, sb = 0, sg = 0;
             for (int t = 0; t < numTraces; ++t) {
                 for (int s = 0; s < W; ++s) {
@@ -8764,6 +8784,7 @@ void MainWindow::runOneClickPipeline()
             for (int s = 0; s < nsamp; ++s)
                 g[s] = g0 * qPow(10.0, dB * s / (nsamp - 1) / 20.0);
             for (int t = 0; t < numTraces; ++t) {
+                stepTick(4, stepNames[4], t, numTraces);
                 const double adapt = (l1[t] > 0) ? qPow(l1mean / l1[t], 0.3) : 1.0;
                 for (int s = 0; s < nsamp; ++s)
                     setSample(t, s, qint32(double(sample(t, s)) * g[s] * adapt));
@@ -8831,12 +8852,20 @@ void MainWindow::runOneClickPipeline()
         }
     }
 
+    if (m_progressBar) {
+        m_progressBar->setValue(500);
+        m_progressBar->setFormat(QString::fromUtf8("完成 100%"));
+        QCoreApplication::processEvents();
+    }
     m_pipelineApplied = true;
     m_oneClickApplied = false;
     m_currentTab->rawData = m_rawData;
     refreshImage();
     updateRulers();          // v1.0.163 标尺随零点缩短(range−|pos|)
     updateChart(m_lastChartX);
+    QTimer::singleShot(1000, this, [this]() {
+        if (m_progressBar) { m_progressBar->setValue(0); m_progressBar->setFormat(""); m_progressBar->hide(); }
+    });
 }
 
 // ==================== v1.0.135 AI智能检测引擎面板 (按 AI分析-AI检测.html) ====================
