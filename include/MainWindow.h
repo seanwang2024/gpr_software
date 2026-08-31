@@ -350,6 +350,7 @@ struct TabData {
     bool gainApplied = false;
     bool zeroApplied = false;
     int zeroSkipRows = 0;
+    int zeroTopDead = 0;   // v1.0.162 时间零点顶部死区行(row0原值+row1哨兵), 显示跳过并拉伸
     float signalPosition = 0.0f;  // rhf_position from offset 22
     float hZoom = 1.0f;           // 水平缩放因子(像素/道,1.0=原始)
     bool wiggleMode = false;      // 堆积图(wiggle)显示模式

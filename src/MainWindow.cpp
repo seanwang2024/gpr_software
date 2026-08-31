@@ -2256,6 +2256,7 @@ MainWindow::MainWindow(QWidget *parent)
         // 必须在 loadDZTFile/createTab 之前刷新,此时 m_currentTab 仍是原 tab。
         m_currentTab->zeroApplied = false;
         m_currentTab->zeroSkipRows = 0;
+        m_currentTab->zeroTopDead = 0;
         if (m_zeroBtnApply) m_zeroBtnApply->setText(QString::fromUtf8("应用"));
         refreshImage();
         updateRulers();
@@ -2273,6 +2274,7 @@ MainWindow::MainWindow(QWidget *parent)
             // 重设: restore original image, keep spinbox values
             m_currentTab->zeroApplied = false;
             m_currentTab->zeroSkipRows = 0;
+            m_currentTab->zeroTopDead = 0;
             m_zeroBtnApply->setText("应用");
             refreshImage();
             updateRulers();
@@ -2284,6 +2286,7 @@ MainWindow::MainWindow(QWidget *parent)
             if (skip <= 0) return;
             m_currentTab->zeroApplied = true;
             m_currentTab->zeroSkipRows = skip;
+            m_currentTab->zeroTopDead = qMin(2, skip);   // row0原值+row1哨兵=顶部死区
             m_zeroBtnApply->setText("重设");
             refreshImage();
             updateRulers();
@@ -4100,6 +4103,7 @@ void MainWindow::performCropSelection()
     m_signalPos = tab->signalPosition;
     tab->zeroApplied = false;
     tab->zeroSkipRows = 0;
+    tab->zeroTopDead = 0;
     tab->traceCount = newTraceCount;
     m_traceCount = newTraceCount;
     tab->dataRev++;
@@ -8589,6 +8593,7 @@ void MainWindow::runOneClickPipeline()
             }
             m_currentTab->zeroApplied = true;
             m_currentTab->zeroSkipRows = skip;
+            m_currentTab->zeroTopDead = qMin(2, skip);   // row0原值+row1哨兵=顶部死区
         }
     }
 
@@ -10397,6 +10402,7 @@ void MainWindow::saveProcessedFile()
     origTab->rawData = origData;
     origTab->gainApplied = false;
     origTab->zeroApplied = false;
+    origTab->zeroTopDead = 0;
     m_rawData = origData;
     m_btnApply->setText(QString::fromUtf8("应用"));
     refreshImage();
@@ -10852,10 +10858,11 @@ void MainWindow::refreshImage()
     // zeroApplied(时间零点处理后):数据已上移,只减少 drawRows,不偏移 srcX
     int drawRows = pixelsPerRow;
     int srcOffset = sigPad;  // 数据读取偏移(仅 sigPad 跳预触发;zeroApplied 不偏移)
+    int topDead = 0;
     if (m_currentTab->zeroApplied) {
-        drawRows -= m_currentTab->zeroSkipRows;  // 只减少显示行数,去掉底部零区
-    } else {
-        srcOffset += 0;
+        topDead = m_currentTab->zeroTopDead;          // v1.0.162 顶部死区(row0原值+row1哨兵)
+        srcOffset += topDead;                          // 显示从新零点开始
+        drawRows -= m_currentTab->zeroSkipRows + topDead;   // 去顶死区+底部零区
     }
     int skipRows = srcOffset;  // 兼容旧代码变量名
 
@@ -10937,6 +10944,10 @@ void MainWindow::refreshImage()
     }
 
     image = image.convertToFormat(QImage::Format_RGB32);
+    // v1.0.162 时间零点后拉伸: 有效行(drawRows)竖向拉伸回全高(pixelsPerRow) —
+    // RADAN显示规律: 高度不变, 从新零点起显示, 标尺缩短(相当于图片拉伸)
+    if (topDead > 0 && drawRows > 0 && drawRows < pixelsPerRow)
+        image = image.scaled(rows, pixelsPerRow, Qt::IgnoreAspectRatio, Qt::FastTransformation);
     imageLabel->setImage(image);
 }
 
@@ -10956,7 +10967,7 @@ void MainWindow::updateRulers()
     (void)sigPos;
     // 时间零点处理后(zeroApplied),时间范围按实际显示行数缩短
     int skipR = (m_currentTab->zeroApplied) ? m_currentTab->zeroSkipRows : 0;
-    int drawR = m_pixelsPerRow - skipR;
+    int drawR = m_pixelsPerRow - skipR - ((m_currentTab->zeroApplied) ? m_currentTab->zeroTopDead : 0);
     m_timeRange = range * drawR / m_pixelsPerRow;  // 时间标尺 RANGE(处理后的有效范围)
     if (epsr > 0.0)
         m_depthRange = 0.299792458 * m_timeRange / (2.0 * std::sqrt(epsr));  // c·t/(2√εr), c=0.2998 m/ns
