@@ -8576,11 +8576,16 @@ void MainWindow::runOneClickPipeline()
         const double posNs = double(pk) * rangeNs / nsamp;
         const int skip = qRound(posNs);
         if (skip > 0) {
+            // v1.0.162 边缘行为复刻P_H(行2+已100%逐字节对齐): row0保留原值, row1=−2^24哨兵(黑线),
+            // 行2..N-skip←原值上移, 底部skip行清零 — 顶部不再混入移上来的数据(视觉"移够")
             for (int t = 0; t < numTraces; ++t) {
+                const qint32 row0 = sample(t, 0);
                 for (int s = 0; s < nsamp - skip; ++s)
                     setSample(t, s, sample(t, s + skip));
                 for (int s = nsamp - skip; s < nsamp; ++s)
                     setSample(t, s, 0);
+                setSample(t, 0, row0);
+                setSample(t, 1, qint32(-16777216));   // 0xFF000000
             }
             m_currentTab->zeroApplied = true;
             m_currentTab->zeroSkipRows = skip;
