@@ -8219,7 +8219,7 @@ void MainWindow::createOneClickPanel()
     // 参数摘要统一刷新
     auto refreshSums = [&]() {
         if (m_ocZero && m_ocZeroThresh)
-            m_ocZeroSum->setText(QStringLiteral("Threshold: %1%").arg(m_ocZeroThresh->value()));
+            m_ocZeroSum->setText(QStringLiteral("Range: %1%%").arg(m_ocZeroThresh->value()));
         if (m_ocDewow && m_ocDewowWin)
             m_ocDewowSum->setText(QStringLiteral("Window: %1ns").arg(m_ocDewowWin->value(), 0, 'f', 1));
         if (m_ocBg && m_ocBgWin)
@@ -8297,8 +8297,8 @@ void MainWindow::createOneClickPanel()
     it = makeOneClickItem(card, QStringLiteral("timer"), QString::fromUtf8("时间零点校正"),
                           m_ocZero, pb, sum, refreshSums);
     m_ocZeroSum = sum;
-    m_ocZeroThresh = spin(1, 90, 5, pb);
-    subRow(pb, QString::fromUtf8("判定阈值"), m_ocZeroThresh, QStringLiteral("%"));
+    m_ocZeroThresh = spin(1, 90, 10, pb);   // 默认10%(RADAN)
+    subRow(pb, QString::fromUtf8("位置范围"), m_ocZeroThresh, QStringLiteral("%"));   // v1.0.160 自动选峰搜索范围
     cl->addWidget(it);
     // 2 校正零偏(dewow 时窗ns)
     it = makeOneClickItem(card, QStringLiteral("graphic_eq"), QString::fromUtf8("校正零偏"),
@@ -8558,34 +8558,32 @@ void MainWindow::runOneClickPipeline()
     };
     const double rangeNs = m_currentTab->headerRange > 0 ? double(m_currentTab->headerRange) : 100.0;
 
-    // ---- 1 时间零点校正: 全局最大幅值×阈值% 的初至(逐道首超阈值采样, 取中位数) 上移 ----
+    // ---- 1 时间零点校正(自动选峰-从平均扫描选择峰值, v1.0.160 P_H标定) ----
+    // RADAN规则(P_H逐字节99.6%验证): 平均扫描=逐行全道均值; 在前"位置范围%"行内取|峰|行p;
+    // pos_ns = p·range/nsamp(写入头rhf_position, 本例50→1.953→-2.0); 数据上移 round(pos_ns) 行(2)
     if (m_ocZero && m_ocZero->isChecked() && m_ocZeroThresh) {
-        qint32 gmax = 1;
-        for (int t = 0; t < numTraces; ++t)
-            for (int s = 0; s < nsamp; ++s) {
-                const qint32 v = qAbs(sample(t, s));
-                if (v > gmax) gmax = v;
-            }
-        const qint32 thr = qMax<qint32>(1, qint32(double(gmax) * m_ocZeroThresh->value() / 100.0));
-        QVector<int> firsts;
-        firsts.reserve(numTraces);
-        for (int t = 0; t < numTraces; ++t) {
-            for (int s = 0; s < nsamp; ++s)
-                if (qAbs(sample(t, s)) >= thr) { firsts.append(s); break; }
+        const int rng = qMax(2, nsamp * m_ocZeroThresh->value() / 100);
+        QVector<double> avg(nsamp, 0.0);
+        for (int s = 0; s < nsamp; ++s) {
+            double m = 0;
+            for (int t = 0; t < numTraces; ++t) m += sample(t, s);
+            avg[s] = m / numTraces;
         }
-        if (!firsts.isEmpty()) {
-            std::sort(firsts.begin(), firsts.end());
-            const int skip = qBound(0, firsts[firsts.size() / 2], nsamp - 2);
-            if (skip > 0) {
-                for (int t = 0; t < numTraces; ++t) {
-                    for (int s = 0; s < nsamp - skip; ++s)
-                        setSample(t, s, sample(t, s + skip));
-                    for (int s = nsamp - skip; s < nsamp; ++s)
-                        setSample(t, s, 0);
-                }
-                m_currentTab->zeroApplied = true;
-                m_currentTab->zeroSkipRows = skip;
+        int pk = 0;
+        double best = 0;
+        for (int s = 0; s < rng && s < nsamp; ++s)
+            if (qAbs(avg[s]) > best) { best = qAbs(avg[s]); pk = s; }
+        const double posNs = double(pk) * rangeNs / nsamp;
+        const int skip = qRound(posNs);
+        if (skip > 0) {
+            for (int t = 0; t < numTraces; ++t) {
+                for (int s = 0; s < nsamp - skip; ++s)
+                    setSample(t, s, sample(t, s + skip));
+                for (int s = nsamp - skip; s < nsamp; ++s)
+                    setSample(t, s, 0);
             }
+            m_currentTab->zeroApplied = true;
+            m_currentTab->zeroSkipRows = skip;
         }
     }
 
