@@ -8511,14 +8511,20 @@ void MainWindow::createOneClickPanel()
         if (!requireOpenFile()) return;
         runOneClickPipeline();
     });
-    // 恢复: 还原原始数据
+    // 恢复: 还原原始数据 + 零点显示状态(轴/顶切/拉伸全部复位, v1.0.167修BUG)
     QObject::connect(btnReset, &QPushButton::clicked, this, [this]() {
         if (!m_currentTab || m_currentTab->originalRawData.isEmpty()) return;
         m_rawData = m_currentTab->originalRawData;
         m_currentTab->rawData = m_rawData;
         m_pipelineApplied = false;
         m_oneClickApplied = false;
+        m_currentTab->zeroApplied = false;
+        m_currentTab->zeroSkipRows = 0;
+        m_currentTab->zeroTopDead = 0;
+        m_currentTab->zeroPosNs = 0.0;
+        m_currentTab->zeroOffsetNs = 0.0;
         refreshImage();
+        updateRulers();   // 标尺回满量程(0~range)
         updateChart(m_lastChartX);
     });
 
