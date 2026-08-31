@@ -8612,7 +8612,36 @@ void MainWindow::runOneClickPipeline()
         }
     }
 
-    // ---- 4 带通滤波: 逐道FFT(cv::dft) 频带置零 ----
+    // ---- 4 带通滤波 (v1.0.157 RADAN FIR 标定版): HP→LP 级联滑动平均 ----
+    // 实测规则(处理process文档.md): HP(fc)=x−MA(N), N=round(2/3·fs/fc);
+    // LP(fc)=MA(N), N=round(0.443·fs/fc)(−3dB=fc); 中心窗(-N/2..N/2-1)边缘钳位
+    if (m_ocBp && m_ocBp->isChecked() && m_ocBpLo && m_ocBpHi && m_ocBpHi->value() > m_ocBpLo->value()) {
+        const double fHp = m_ocBpLo->value(), fLp = m_ocBpHi->value();
+        const double fsMHz = 1000.0 * nsamp / rangeNs;
+        const int Nh = qMax(2, qRound(2.0 * fsMHz / (3.0 * fHp)));
+        const int Nl = qMax(2, qRound(0.443 * fsMHz / fLp));
+        // 钳位中心窗滑动平均: y[s]=mean(x[s-N/2 .. s+N/2-1]) 越界索引钳到 0/nsamp-1
+        auto maClamp = [&](const QVector<double> &x, int N) {
+            QVector<double> y(x.size());
+            for (int s = 0; s < x.size(); ++s) {
+                const int a = s - N / 2, b = s + (N - N / 2) - 1;   // 窗含 b(半开补齐偶数窗)
+                double sum = 0;
+                for (int k = a; k <= b; ++k)
+                    sum += x[qBound(0, k, int(x.size()) - 1)];
+                y[s] = sum / N;
+            }
+            return y;
+        };
+        for (int t = 0; t < numTraces; ++t) {
+            QVector<double> x(nsamp), y(nsamp), z(nsamp);
+            for (int s = 0; s < nsamp; ++s) x[s] = sample(t, s);
+            y = maClamp(x, Nh);                       // HP: x − MA(Nh)
+            for (int s = 0; s < nsamp; ++s) y[s] = x[s] - y[s];
+            z = maClamp(y, Nl);                       // LP: MA(Nl)
+            for (int s = 0; s < nsamp; ++s) setSample(t, s, qint32(z[s]));
+        }
+    }
+#if 0   // 旧FFT砖墙实现(已被RADAN标定版替代, 留档)
     if (m_ocBp && m_ocBp->isChecked() && m_ocBpLo && m_ocBpHi && m_ocBpHi->value() > m_ocBpLo->value()) {
         const double fLo = m_ocBpLo->value(), fHi = m_ocBpHi->value();
         const double mhzPerBin = 1000.0 / rangeNs;   // bin k ↔ k*1000/range MHz
@@ -8636,6 +8665,7 @@ void MainWindow::runOneClickPipeline()
                 setSample(t, s, qint32(row.at<float>(s)));
         }
     }
+#endif
 
     // ---- 5 指数/能量增益: g(d)=10^(slope·d/20) 按深度 ----
     if (m_ocGain && m_ocGain->isChecked() && m_ocGainSlope) {

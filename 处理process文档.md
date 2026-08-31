@@ -13,7 +13,7 @@
 | RADAN 操作 | DZT proc typeId | 本程序函数 | 参数对齐 | 结果对齐 | 状态 |
 |---|---|---|---|---|---|
 | 时间零点(执行) | 0x4d(77) sub=0 | 时间零点处理(rhf_position) | ✅ | 待标 | ⚠ |
-| FIR 垂直带通 | 0x40(64)族 | applyDigitalFilter-FIR | ⚠ 800→785 量化未复现 | 未测 | ❌ |
+| FIR 垂直高通 | 0x40(64)〔DZT proc `40 00`+3B〕 | 一键-带通滤波(HP半段) | **✅ x−MA, N=round(2/3·fs/fc)** | P_C | **✅ 已标定** |
 | IIR 垂直带通 | 0x04/0x03 族 | applyDigitalFilter-IIR | ⚠ 200→256 量化未复现 | 未测 | ❌ |
 | 背景去除 | 0x5f(95) sub=0 | applyBackgroundRemoval | ⚠ 模式字对齐 | 见§3 | ⚠ |
 | 噪音带去除 | 0x54(84) sub=1 | ⬜未实现 | — | — | ⬜ |
@@ -25,7 +25,7 @@
 | **增益** | 0x3b(59)〔DZX BinaryData〕 | applyGain / 一键-指数能量增益 | 点数@0x09; dB f32@0x0B 每4B | 无素材 | **待标定** |
 | **IIR 水平-叠加** | 0x0d(13)〔DZX BinaryData〕 | applyMovingAverage(叠加/平滑) | 截止 f32@0x0A(扫描数) | 无素材 | **待标定** |
 | **IIR 水平-背景去除** | 0x0e(14)〔DZX BinaryData〕 | applyBackgroundRemoval(IIR模式) | 截止 f32@0x0A(扫描数) | 无素材 | **待标定** |
-| **FIR 垂直低通-方块** | 0x3f(63)〔DZX BinaryData; P_B链中出现〕 | applyDigitalFilter-FIR LP | LP u16@0x1E; 采样末 u16@0x24 | 部分(P_1为HP族) | **待标定** |
+| **FIR 垂直低通** | 0x3f(63)〔DZT proc `3f 00`+3B〕 | 一键-带通滤波(LP半段) | **✅ MA滑动平均 N=round(0.443·fs/fc)** | P_D | **✅ 已标定** |
 | **FIR 垂直低通-三角** | 0x41(65)〔DZX BinaryData〕 | applyDigitalFilter-FIR | LP u16@0x1E | 无素材 | **待标定** |
 | **FIR 垂直高通-三角** | 0x42(66)〔DZX BinaryData〕 | applyDigitalFilter-FIR | HP u16@0x20 | 无素材 | **待标定** |
 | **FIR 水平-方块×平滑** | 0x43(67)〔DZX BinaryData〕 | applyMovingAverage | 长度 f32@0x0A(DZX)/f32@0x1(DZT) | 无素材 | **待标定** |
@@ -56,7 +56,9 @@
 
 | 用例 | 处理 | RADAN参数(备注) | 本程序算法 corr | 基线corr(原始vs处理) | 结论 |
 |---|---|---|---|---|---|
-| P_1 | FIR | LP800(读785)/HP200 | 未跑 | 0.569 | 待标 |
+| **P_1** | **FIR带通** | **HP200+LP800(读785)** | **✅ 已标定(级联滑动平均, 8位MAE=0.655灰阶, corr=0.986)** | 0.569 | **✅ 对齐(v1.0.157)** |
+| **P_C** | **FIR仅HP200** | HP200 | **✅ HP=x−MA(85), N=round(2/3·fs/fc), 8位MAE=0.64** | — | **✅** |
+| **P_D** | **FIR仅LP800** | LP800 | **✅ LP=MA(14), N=round(0.443·fs/fc)(−3dB=fc), 8位MAE=0.19, 85%逐点相等** | — | **✅** |
 | P_2 | IIR | LP800/HP256 极点1 | 未跑 | 0.400 | 待标 |
 | **P_3** | **背景去除-全部** | **全部** | **✅ 已标定: 全局行均值扣除, 扣每行常数后逐字节100%相等(corr=0.999997)** | 0.305 | **✅ 对齐(v1.0.153)** |
 | P_4 | 噪音带去除-全扫描 | | 未跑 | 0.370 | ⬜ 本程序未实现 |
