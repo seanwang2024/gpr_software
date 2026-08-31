@@ -8592,8 +8592,8 @@ void MainWindow::runOneClickPipeline()
         const double sampleIntervalNs = rangeNs / nsamp;
         const int windowSamples = qMax(1, int(m_ocDewowWin->value() / sampleIntervalNs));
         const int halfWin = windowSamples / 2;
+        QVector<double> trace(nsamp), cum(nsamp + 1, 0.0);   // v1.0.161: 缓冲区外提复用
         for (int t = 0; t < numTraces; ++t) {
-            QVector<double> trace(nsamp), cum(nsamp + 1, 0.0);
             for (int s = 0; s < nsamp; ++s) trace[s] = double(sample(t, s));
             for (int s = 0; s < nsamp; ++s) cum[s + 1] = cum[s] + trace[s];
             for (int s = 0; s < nsamp; ++s) {
@@ -8629,29 +8629,36 @@ void MainWindow::runOneClickPipeline()
     // ---- 4 带通滤波 (v1.0.157 RADAN FIR 标定版): HP→LP 级联滑动平均 ----
     // 实测规则(处理process文档.md): HP(fc)=x−MA(N), N=round(2/3·fs/fc);
     // LP(fc)=MA(N), N=round(0.443·fs/fc)(−3dB=fc); 中心窗(-N/2..N/2-1)边缘钳位
+    // v1.0.161 性能: 前缀和 O(1)/样本(内部区) + 边缘钳位区 O(N) — 旧逐样本 O(N) 扫描在 Nh=85 时
+    // 3M样本×85≈2.6亿次读 = 流水线十几秒的主因
     if (m_ocBp && m_ocBp->isChecked() && m_ocBpLo && m_ocBpHi && m_ocBpHi->value() > m_ocBpLo->value()) {
         const double fHp = m_ocBpLo->value(), fLp = m_ocBpHi->value();
         const double fsMHz = 1000.0 * nsamp / rangeNs;
         const int Nh = qMax(2, qRound(2.0 * fsMHz / (3.0 * fHp)));
         const int Nl = qMax(2, qRound(0.443 * fsMHz / fLp));
-        // 钳位中心窗滑动平均: y[s]=mean(x[s-N/2 .. s+N/2-1]) 越界索引钳到 0/nsamp-1
-        auto maClamp = [&](const QVector<double> &x, int N) {
-            QVector<double> y(x.size());
-            for (int s = 0; s < x.size(); ++s) {
-                const int a = s - N / 2, b = s + (N - N / 2) - 1;   // 窗含 b(半开补齐偶数窗)
-                double sum = 0;
-                for (int k = a; k <= b; ++k)
-                    sum += x[qBound(0, k, int(x.size()) - 1)];
-                y[s] = sum / N;
+        QVector<double> x(nsamp), y(nsamp), z(nsamp), cum(nsamp + 1);
+        // 钳位中心窗滑动平均(前缀和): y[s]=mean(x[s-N/2..s+N/2-1]), 越界索引钳到 0/n-1
+        auto maClamp = [&](const QVector<double> &in, QVector<double> &out, int N) {
+            cum[0] = 0.0;
+            for (int s = 0; s < nsamp; ++s) cum[s + 1] = cum[s] + in[s];
+            const int h0 = N / 2;                       // 左半窗
+            for (int s = 0; s < nsamp; ++s) {
+                const int a = s - h0, b = s + (N - h0) - 1;   // 半开窗[a,b]
+                if (a >= 0 && b < nsamp) {                    // 内部: 前缀和 O(1)
+                    out[s] = (cum[b + 1] - cum[a]) / N;
+                } else {                                      // 边缘: 钳位求和 O(N)
+                    double sum = 0;
+                    for (int k = qMax(a, 0); k <= qMin(b, nsamp - 1); ++k)
+                        sum += in[k];
+                    out[s] = sum / N;
+                }
             }
-            return y;
         };
         for (int t = 0; t < numTraces; ++t) {
-            QVector<double> x(nsamp), y(nsamp), z(nsamp);
             for (int s = 0; s < nsamp; ++s) x[s] = sample(t, s);
-            y = maClamp(x, Nh);                       // HP: x − MA(Nh)
+            maClamp(x, y, Nh);                         // HP: x − MA(Nh)
             for (int s = 0; s < nsamp; ++s) y[s] = x[s] - y[s];
-            z = maClamp(y, Nl);                       // LP: MA(Nl)
+            maClamp(y, z, Nl);                         // LP: MA(Nl)
             for (int s = 0; s < nsamp; ++s) setSample(t, s, qint32(z[s]));
         }
     }
