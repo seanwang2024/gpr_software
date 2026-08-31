@@ -8231,7 +8231,9 @@ void MainWindow::createOneClickPanel()
                                    .arg(m_ocBpLo->value(), 0, 'f', 0)
                                    .arg(m_ocBpHi->value(), 0, 'f', 0));
         if (m_ocGain && m_ocGainSlope)
-            m_ocGainSum->setText(QStringLiteral("Slope: %1 dB/m").arg(m_ocGainSlope->value(), 0, 'f', 1));
+            m_ocGainSum->setText((m_ocGainAdaptive && m_ocGainAdaptive->isChecked())
+                                  ? QStringLiteral("Adaptive: 2pt Normal")
+                                  : QStringLiteral("Slope: %1 dB/m").arg(m_ocGainSlope->value(), 0, 'f', 1));
         if (m_ocAgc && m_ocAgcWin)
             m_ocAgcSum->setText(QStringLiteral("AGC Win: %1").arg(m_ocAgcWin->value()));
         if (m_ocMig && m_ocMigVel)
@@ -8340,12 +8342,25 @@ void MainWindow::createOneClickPanel()
     subRow(pb, QString::fromUtf8("低频截止"), m_ocBpLo, QStringLiteral("MHz"));
     subRow(pb, QString::fromUtf8("高频截止"), m_ocBpHi, QStringLiteral("MHz"));
     cl->addWidget(it);
-    // 5 指数/能量增益(dB/m)
+    // 5 指数/能量增益(dB/m); v1.0.158 自适应(2点NORMAL, RADAN标定: 首尾1/4窗去DC均值绝对值比定斜率)
     it = makeOneClickItem(card, QStringLiteral("signal_cellular_alt"), QString::fromUtf8("指数/能量增益"),
                           m_ocGain, pb, sum, refreshSums);
     m_ocGainSum = sum;
-    m_ocGainSlope = dspin(0.1, 30, 1.5, 1, pb);
+    m_ocGainSlope = dspin(0.1, 60, 1.5, 1, pb);
     subRow(pb, QString::fromUtf8("斜率"), m_ocGainSlope, QStringLiteral("dB/m"));
+    m_ocGainAdaptive = new QCheckBox(QString::fromUtf8("自适应(2点 Normal)"), pb);
+    m_ocGainAdaptive->setChecked(true);   // 默认对齐RADAN'自适应增益-2点Normal'
+    m_ocGainAdaptive->setStyleSheet(QStringLiteral("font-size: 12px; color: #121c2a; spacing: 6px;"
+                                                   " background: transparent; border: none;"));
+    {
+        QWidget *r = new QWidget(pb);
+        QHBoxLayout *rl = new QHBoxLayout(r);
+        rl->setContentsMargins(0, 0, 0, 0);
+        rl->setSpacing(8);
+        rl->addStretch(1);
+        rl->addWidget(m_ocGainAdaptive);
+        pb->layout()->addWidget(r);
+    }
     cl->addWidget(it);
     // 6 增益AGC(窗口采样)
     it = makeOneClickItem(card, QStringLiteral("signal_cellular_alt"), QString::fromUtf8("增益"),
@@ -8436,7 +8451,7 @@ void MainWindow::createOneClickPanel()
     QObject::connect(m_ocBpLo, &QDoubleSpinBox::valueChanged, body, markCustom);
     QObject::connect(m_ocBpHi, &QDoubleSpinBox::valueChanged, body, markCustom);
     QObject::connect(m_ocGainSlope, &QDoubleSpinBox::valueChanged, body, markCustom);
-    for (auto c : { m_ocZero, m_ocDewow, m_ocBg, m_ocBp, m_ocGain, m_ocAgc, m_ocMig, m_ocBgAll })
+    for (auto c : { m_ocZero, m_ocDewow, m_ocBg, m_ocBp, m_ocGain, m_ocAgc, m_ocMig, m_ocBgAll, m_ocGainAdaptive })
         QObject::connect(c, &QCheckBox::toggled, body, markCustom);
 
     // 预设方案
@@ -8668,14 +8683,36 @@ void MainWindow::runOneClickPipeline()
 #endif
 
     // ---- 5 指数/能量增益: g(d)=10^(slope·d/20) 按深度 ----
+    // v1.0.158 自适应(2点Normal, RADAN标定 P_F): slope由数据自定 —
+    // 首尾各1/4窗(去行均值)的均值绝对值比 = 总dB, dB线性从g(0)=1到g(end); 否则用手填斜率
     if (m_ocGain && m_ocGain->isChecked() && m_ocGainSlope) {
-        const double mPerSample = interpMPerSample();
-        const double slope = m_ocGainSlope->value();
         QVector<double> g(nsamp);
-        for (int s = 0; s < nsamp; ++s) {
-            g[s] = mPerSample > 0 ? qPow(10.0, slope * s * mPerSample / 20.0) : 1.0;
-            if (g[s] > 5000.0) g[s] = 5000.0;   // 上限防溢出
+        if (m_ocGainAdaptive && m_ocGainAdaptive->isChecked()) {
+            const int W = qMax(4, nsamp / 4);
+            double s0 = 0, s1 = 0;
+            for (int t = 0; t < numTraces; ++t) {
+                double m0 = 0, m1 = 0;
+                for (int s = 0; s < W; ++s) {
+                    m0 += sample(t, s);
+                    m1 += sample(t, nsamp - 1 - s);
+                }
+                m0 /= W; m1 /= W;                       // 两窗各自DC
+                for (int s = 0; s < W; ++s) {
+                    s0 += qAbs(sample(t, s) - m0);
+                    s1 += qAbs(sample(t, nsamp - 1 - s) - m1);
+                }
+            }
+            const double dB = (s1 > 0) ? 20.0 * std::log10(qMax(s0, 1.0) / s1) : 0.0;
+            for (int s = 0; s < nsamp; ++s)
+                g[s] = qPow(10.0, dB * s / (nsamp - 1) / 20.0);
+        } else {
+            const double mPerSample = interpMPerSample();
+            const double slope = m_ocGainSlope->value();
+            for (int s = 0; s < nsamp; ++s)
+                g[s] = mPerSample > 0 ? qPow(10.0, slope * s * mPerSample / 20.0) : 1.0;
         }
+        for (int s = 0; s < nsamp; ++s)
+            if (g[s] > 5000.0) g[s] = 5000.0;   // 上限防溢出
         for (int t = 0; t < numTraces; ++t)
             for (int s = 0; s < nsamp; ++s)
                 setSample(t, s, qint32(double(sample(t, s)) * g[s]));

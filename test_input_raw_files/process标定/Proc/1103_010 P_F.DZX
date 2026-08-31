@@ -40,7 +40,7 @@
     <Setting>
       <name>RibbonCategory</name>
       <state>0</state>
-      <value>4</value>
+      <value>1</value>
     </Setting>
     <Setting>
       <name>R3DXViewRotAngle</name>
@@ -56,6 +56,11 @@
       <name>R3DZViewRotAngle</name>
       <state>0</state>
       <value>0</value>
+    </Setting>
+    <Setting>
+      <name>PickType</name>
+      <state>0</state>
+      <value>1</value>
     </Setting>
   </GlobalProperties>
   <ChannelProperties>
@@ -159,7 +164,7 @@
   </WayPtNameProperties>
   <File>
     <scanRange>0,5952</scanRange>
-    <name>1103_010.DZT</name>
+    <name>1103_010 P_F.DZT</name>
     <Profile>
       <scanRange>0,5952</scanRange>
       <Comment>

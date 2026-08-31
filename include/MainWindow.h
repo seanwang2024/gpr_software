@@ -525,6 +525,7 @@ private:
     QCheckBox *m_ocBp = nullptr;      QDoubleSpinBox *m_ocBpLo = nullptr;       // 带通滤波(MHz)
     QDoubleSpinBox *m_ocBpHi = nullptr;
     QCheckBox *m_ocGain = nullptr;    QDoubleSpinBox *m_ocGainSlope = nullptr;  // 指数/能量增益(dB/m)
+    QCheckBox *m_ocGainAdaptive = nullptr;  // v1.0.158 自适应(2点Normal)模式
     QCheckBox *m_ocAgc = nullptr;     QSpinBox *m_ocAgcWin = nullptr;           // 增益AGC(窗口采样)
     QCheckBox *m_ocMig = nullptr;     QDoubleSpinBox *m_ocMigVel = nullptr;     // 偏移归位(速度,后续版本)
     QLabel *m_ocZeroSum = nullptr;    // 各条目参数摘要行(mono)

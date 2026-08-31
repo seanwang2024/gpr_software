@@ -22,7 +22,8 @@
 | 希尔伯特 能量/相位/频率 | 0x1c(28) sub=0/1/2(+f32标尺) | applyHilbertTransform | 待定 | 未测 | ⬜ |
 | 快速简易处理 | 0x4d1+0x5f0+0x3f0 | runOneClickPipeline | 待定 | ≡背景去除(P_B==P_3) | ⬜ |
 | **DC去除(振幅偏移去除)** | 0x63(99)〔DZX BinaryData〕 | applyCorrectOffset(dewow) | 参数=无(空记录) | 无素材 | **待标定** |
-| **增益** | 0x3b(59)〔DZX BinaryData〕 | applyGain / 一键-指数能量增益 | 点数@0x09; dB f32@0x0B 每4B | 无素材 | **待标定** |
+| **自适应增益(2点Normal)** | 0x72(114) sub=2〔DZT proc `72 02`〕 | 一键-指数能量增益(自适应模式) | **✅ 2点dB线性: slope=20·log10(首尾1/4窗去DC均值绝对值比)** | P_F | **✅ 已标定(corr=0.975, MAE≈2灰阶)** |
+| 增益(手动曲线) | 0x3b(59)〔DZX BinaryData〕 | applyGain / 一键-指数能量增益(手动斜率) | 点数@0x09; dB f32@0x0B 每4B | 无素材 | **待标定** |
 | **IIR 水平-叠加** | 0x0d(13)〔DZX BinaryData〕 | applyMovingAverage(叠加/平滑) | 截止 f32@0x0A(扫描数) | 无素材 | **待标定** |
 | **IIR 水平-背景去除** | 0x0e(14)〔DZX BinaryData〕 | applyBackgroundRemoval(IIR模式) | 截止 f32@0x0A(扫描数) | 无素材 | **待标定** |
 | **FIR 垂直低通** | 0x3f(63)〔DZT proc `3f 00`+3B〕 | 一键-带通滤波(LP半段) | **✅ MA滑动平均 N=round(0.443·fs/fc)** | P_D | **✅ 已标定** |
@@ -68,6 +69,8 @@
 | P_8 | 希尔伯特-相位 | | 未跑 | -0.070 | 待标(强变换) |
 | P_9 | 希尔伯特-频率 | 标尺500MHz | 未跑 | 0.107 | 待标 |
 | P_A | 希尔伯特-频率 | 标尺100MHz | 未跑 | 0.106 | 待标 |
+| **P_F** | **自适应增益 2点Normal** | Normal | **✅ 指数(dB线性)增益: 实测0.055dB/行·总28dB; 规则=首尾1/4窗(去DC)均值绝对值比(27.0dB), MAE=2.03 corr=0.975** | — | **✅ 对齐(v1.0.158)** |
+| P_E | (0x1a sub1, 待识别) | | 未跑 | — | 待定 |
 | P_B | 简易处理 | 零点0/背景全部/FIR无 | **== P_3 字节级相同** | ✅链路等价确认 |
 
 ## 4. 已确认的 RADAN 行为规律（P_3 标定后修订）
