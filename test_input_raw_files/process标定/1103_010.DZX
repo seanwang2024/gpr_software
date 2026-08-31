@@ -88,21 +88,7 @@
     <paired>0</paired>
   </WayPtNameProperties>
   <WayPtNameProperties>
-    <name>MARK01</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
     <name>MARK02</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
-    <name>MARK03</name>
     <readOnly>0</readOnly>
     <hide>0</hide>
     <onePerFile>0</onePerFile>
@@ -116,13 +102,6 @@
     <paired>0</paired>
   </WayPtNameProperties>
   <WayPtNameProperties>
-    <name>MARK05</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
     <name>MARK06</name>
     <readOnly>0</readOnly>
     <hide>0</hide>
@@ -130,21 +109,7 @@
     <paired>0</paired>
   </WayPtNameProperties>
   <WayPtNameProperties>
-    <name>MARK07</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
     <name>MARK08</name>
-    <readOnly>0</readOnly>
-    <hide>0</hide>
-    <onePerFile>0</onePerFile>
-    <paired>0</paired>
-  </WayPtNameProperties>
-  <WayPtNameProperties>
-    <name>MARK09</name>
     <readOnly>0</readOnly>
     <hide>0</hide>
     <onePerFile>0</onePerFile>

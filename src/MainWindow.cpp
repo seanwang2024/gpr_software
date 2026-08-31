@@ -8235,7 +8235,7 @@ void MainWindow::createOneClickPanel()
                                   ? QStringLiteral("Adaptive: 2pt Normal")
                                   : QStringLiteral("Slope: %1 dB/m").arg(m_ocGainSlope->value(), 0, 'f', 1));
         if (m_ocAgc && m_ocAgcWin)
-            m_ocAgcSum->setText(QStringLiteral("AGC Win: %1").arg(m_ocAgcWin->value()));
+            m_ocAgcSum->setText(QStringLiteral("AGC Points: %1").arg(m_ocAgcWin->value()));
         if (m_ocMig && m_ocMigVel)
             m_ocMigSum->setText(QStringLiteral("Velocity: %1 m/ns").arg(m_ocMigVel->value(), 0, 'f', 2));
     };
@@ -8342,8 +8342,8 @@ void MainWindow::createOneClickPanel()
     subRow(pb, QString::fromUtf8("低频截止"), m_ocBpLo, QStringLiteral("MHz"));
     subRow(pb, QString::fromUtf8("高频截止"), m_ocBpHi, QStringLiteral("MHz"));
     cl->addWidget(it);
-    // 5 指数/能量增益(dB/m); v1.0.158 自适应(2点NORMAL, RADAN标定: 首尾1/4窗去DC均值绝对值比定斜率)
-    it = makeOneClickItem(card, QStringLiteral("signal_cellular_alt"), QString::fromUtf8("指数/能量增益"),
+    // 5 自适应增益(v1.0.159 对齐RADAN'自适应增益-2点Normal'); 取消勾选=手动指数斜率
+    it = makeOneClickItem(card, QStringLiteral("signal_cellular_alt"), QString::fromUtf8("自适应增益"),
                           m_ocGain, pb, sum, refreshSums);
     m_ocGainSum = sum;
     m_ocGainSlope = dspin(0.1, 60, 1.5, 1, pb);
@@ -8362,13 +8362,14 @@ void MainWindow::createOneClickPanel()
         pb->layout()->addWidget(r);
     }
     cl->addWidget(it);
-    // 6 增益AGC(窗口采样)
+    // 6 增益AGC(v1.0.159: 参数=AGC点数, 窗宽=nsamp/点数, 对齐RADAN对话框口径)
     it = makeOneClickItem(card, QStringLiteral("signal_cellular_alt"), QString::fromUtf8("增益"),
                           m_ocAgc, pb, sum, refreshSums);
     m_ocAgcSum = sum;
     m_ocAgc->setChecked(false);
-    m_ocAgcWin = spin(8, 2048, 64, pb);
-    subRow(pb, QString::fromUtf8("AGC窗口"), m_ocAgcWin, QString::fromUtf8("采样"));
+    m_ocAgcWin = spin(1, 32, 2, pb);   // AGC 点数(窗=nsamp/点数)
+    m_ocAgcWin->setToolTip(QString::fromUtf8("AGC 点数: 归一窗宽 = 采样点数/点数"));
+    subRow(pb, QString::fromUtf8("AGC 点数"), m_ocAgcWin, QString());
     cl->addWidget(it);
     // 7 偏移归位(速度, 后续版本)
     it = makeOneClickItem(card, QStringLiteral("compare_arrows"), QString::fromUtf8("偏移归位"),
@@ -8682,12 +8683,72 @@ void MainWindow::runOneClickPipeline()
     }
 #endif
 
-    // ---- 5 指数/能量增益: g(d)=10^(slope·d/20) 按深度 ----
-    // v1.0.158 自适应(2点Normal, RADAN标定 P_F): slope由数据自定 —
-    // 首尾各1/4窗(去行均值)的均值绝对值比 = 总dB, dB线性从g(0)=1到g(end); 否则用手填斜率
+    // ---- 5 自适应增益(2点Normal) — v1.0.159 依 P_G 重标定 ----
+    // 模型(P_G/P_F字节级相同): y = x · g0·10^(dB·s/(N-1)/20) · adapt_t^0.3
+    //   dB = 20·lg(首窗RMS/尾窗RMS)  窗W=nsamp/8, 行均值去DC
+    //   g0 = 全局RMS/首窗RMS
+    //   adapt_t = (全道L1均值 / 该道L1)^0.3 (逐道弱补偿, α≈-1的全量过补→0.3最优)
+    // 端到端(P_G): MAE=2.58灰阶 corr=0.981(实测参数上限2.55)
     if (m_ocGain && m_ocGain->isChecked() && m_ocGainSlope) {
         QVector<double> g(nsamp);
         if (m_ocGainAdaptive && m_ocGainAdaptive->isChecked()) {
+            const int W = qMax(8, nsamp / 8);
+            // 行均值(全道) → 去行DC的RMS统计
+            QVector<double> rowMean(nsamp, 0.0);
+            for (int s = 0; s < nsamp; ++s) {
+                double m = 0;
+                for (int t = 0; t < numTraces; ++t) m += sample(t, s);
+                rowMean[s] = m / numTraces;
+            }
+            double sa = 0, sb = 0, sg = 0;
+            for (int t = 0; t < numTraces; ++t) {
+                for (int s = 0; s < W; ++s) {
+                    const double v0 = sample(t, s) - rowMean[s];
+                    const double v1 = sample(t, nsamp - 1 - s) - rowMean[nsamp - 1 - s];
+                    sa += v0 * v0;
+                    sb += v1 * v1;
+                }
+                for (int s = 0; s < nsamp; ++s) {
+                    const double v = sample(t, s) - rowMean[s];
+                    sg += v * v;
+                }
+            }
+            const double rmsA = std::sqrt(sa / (double(numTraces) * W));
+            const double rmsB = std::sqrt(sb / (double(numTraces) * W));
+            const double rmsG = std::sqrt(sg / (double(numTraces) * nsamp));
+            const double dB = (rmsB > 0) ? 20.0 * std::log10(qMax(rmsA, 1e-12) / rmsB) : 0.0;
+            const double g0 = (rmsA > 0) ? rmsG / rmsA : 1.0;
+            // 逐道 L1 包络
+            QVector<double> l1(numTraces);
+            double l1mean = 0;
+            for (int t = 0; t < numTraces; ++t) {
+                double a = 0;
+                for (int s = 0; s < nsamp; ++s) a += qAbs(sample(t, s));
+                l1[t] = a / nsamp;
+                l1mean += l1[t];
+            }
+            l1mean /= numTraces;
+            for (int s = 0; s < nsamp; ++s)
+                g[s] = g0 * qPow(10.0, dB * s / (nsamp - 1) / 20.0);
+            for (int t = 0; t < numTraces; ++t) {
+                const double adapt = (l1[t] > 0) ? qPow(l1mean / l1[t], 0.3) : 1.0;
+                for (int s = 0; s < nsamp; ++s)
+                    setSample(t, s, qint32(double(sample(t, s)) * g[s] * adapt));
+            }
+        } else {
+            const double mPerSample = interpMPerSample();
+            const double slope = m_ocGainSlope->value();
+            for (int s = 0; s < nsamp; ++s)
+                g[s] = mPerSample > 0 ? qPow(10.0, slope * s * mPerSample / 20.0) : 1.0;
+            for (int t = 0; t < numTraces; ++t)
+                for (int s = 0; s < nsamp; ++s)
+                    setSample(t, s, qint32(double(sample(t, s)) * g[s]));
+        }
+    }
+#if 0   // v1.0.158 旧自适应实现(已被P_G重标定替代)
+    if (m_ocGain && m_ocGain->isChecked() && m_ocGainSlope && false) {
+        QVector<double> g(nsamp);
+        {
             const int W = qMax(4, nsamp / 4);
             double s0 = 0, s1 = 0;
             for (int t = 0; t < numTraces; ++t) {
@@ -8696,7 +8757,7 @@ void MainWindow::runOneClickPipeline()
                     m0 += sample(t, s);
                     m1 += sample(t, nsamp - 1 - s);
                 }
-                m0 /= W; m1 /= W;                       // 两窗各自DC
+                m0 /= W; m1 /= W;
                 for (int s = 0; s < W; ++s) {
                     s0 += qAbs(sample(t, s) - m0);
                     s1 += qAbs(sample(t, nsamp - 1 - s) - m1);
@@ -8717,10 +8778,11 @@ void MainWindow::runOneClickPipeline()
             for (int s = 0; s < nsamp; ++s)
                 setSample(t, s, qint32(double(sample(t, s)) * g[s]));
     }
+#endif
 
-    // ---- 6 增益AGC: 时间方向滑动RMS归一 ----
+    // ---- 6 增益AGC: 时间方向滑动RMS归一(窗=nsamp/AGC点数, v1.0.159 口径对齐) ----
     if (m_ocAgc && m_ocAgc->isChecked() && m_ocAgcWin) {
-        const int W = qMax(8, m_ocAgcWin->value());
+        const int W = qMax(8, nsamp / qMax(1, m_ocAgcWin->value()));
         for (int t = 0; t < numTraces; ++t) {
             QVector<double> sq(nsamp + 1, 0.0);
             for (int s = 0; s < nsamp; ++s) {
