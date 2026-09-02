@@ -8785,7 +8785,10 @@ void MainWindow::createOneClickPanel()
     QObject::connect(m_ocPresetBox, &QComboBox::currentIndexChanged, body, [this](int idx) {
         if (!m_ocZero || idx < 0 || idx > 3) return;   // 4=自定义不改
         //            零点阈值  dewow时窗  背景窗  带通lo  带通hi  增益斜率  勾选: 零/偏/背/带/指/AGC/偏移
-        static const int th[4] = { 5, 5, 8, 3 };
+        // v1.0.176 零点阈值统一10%: 旧值5/5/8/3搜索窗太窄, 实测1103_010首波@行50(≈10%行深),
+        // 窄窗只搜到顶部杂波(行8, skip=round(0.31)=0)→零点校正整个无操作("没起作用"的根因);
+        // 10%=P_H标定值(逐字节99.6%对齐RADAN)
+        static const int th[4] = { 10, 10, 10, 10 };
         static const double dw[4] = { 5.0, 5.0, 8.0, 3.0 };
         static const int bw[4] = { 50, 80, 50, 30 };
         static const double lo[4] = { 100, 80, 100, 300 };
