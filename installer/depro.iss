@@ -4,7 +4,7 @@
 
 #define MyAppName "地听AI数据处理"
 #define MyAppNameEn "depro"
-#define MyAppVersion "1.0.171"
+#define MyAppVersion "1.0.172"
 #define MyAppPublisher "地听"
 #define MyAppExeName "depro.exe"
 
@@ -28,6 +28,8 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 PrivilegesRequired=admin
+; v1.0.172 .DT/.DX 数据文件图标关联(见 [Registry])
+ChangesAssociations=yes
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
@@ -38,6 +40,15 @@ Name: "desktopicon"; Description: "创建桌面快捷方式(&D)"; GroupDescripti
 [Files]
 ; 整个 Release 部署目录(含 Qt DLL、插件、MinGW 运行时、AI 模型),排除测试用的 log 目录
 Source: "D:\gpr_test\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "log,log\*,dzx_diag.log"
+; v1.0.172 DT/DX 数据文件图标
+Source: "D:\gpr_software\resources\diting_file.ico"; DestDir: "{app}"; Flags: ignoreversion
+
+[Registry]
+; v1.0.172 .DT/.DX 文件图标关联(全局, 卸载自动清理; 不注册打开方式——软件暂不支持直接打开DT)
+Root: HKCR; Subkey: ".DT"; ValueType: string; ValueName: ""; ValueData: "Diting.GprData"; Flags: uninsdeletekeyifempty
+Root: HKCR; Subkey: ".DX"; ValueType: string; ValueName: ""; ValueData: "Diting.GprData"; Flags: uninsdeletekeyifempty
+Root: HKCR; Subkey: "Diting.GprData"; ValueType: string; ValueName: ""; ValueData: "地听探地雷达数据文件"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "Diting.GprData\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\diting_file.ico,0"; Flags: uninsdeletekey
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
