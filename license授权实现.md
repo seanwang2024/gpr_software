@@ -32,7 +32,7 @@ depro.exe(内置RSA公钥) ──HTTPS──> www.sxfpga.cn/license/api/*.php �
 - PDO 预处理防注入; license_key 唯一索引保 1Key=1机
 - API 失败限速: 同IP 15min 内 activate_fail/unbind_fail/login_fail ≥10 → 拒绝
 - X-Client-Key 弱防刷(编译进exe, spec三类密钥之第3类, 强度低属预期)
-- spec三类密钥: ①RSA对(云私钥/exe公钥) ②服务间Secret(暂无业务云, 预留) ③X-Client-Key
+- spec三类密钥: ①RSA对(云私钥/exe公钥) ②服务间Secret **X-Server-Secret已实现**(verify.php 双密钥: 客户端X-Client-Key或业务云X-Server-Secret; 密钥在secrets/server_secret.txt, 交接见 **业务云接入-授权云接口文档.md**) ③X-Client-Key
 
 ## 二、客户端(depro.exe)
 

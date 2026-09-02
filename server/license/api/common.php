@@ -54,11 +54,18 @@ function lic_log($db, $action, $key = '', $deviceId = '', $detail = '') {
     } catch (PDOException $e) { /* 日志失败不阻断主流程 */ }
 }
 
-/** 接口入口统一检查: 方法/Header/字段, 返回 [db, licenseKey, deviceId] 或直接 lic_err 退出 */
-function lic_guard($fields) {
+/** 接口入口统一检查: 方法/Header/字段, 返回 [db, licenseKey, deviceId] 或直接 lic_err 退出
+ *  $allowServerSecret=true 时额外接受业务云的 X-Server-Secret(服务间二次校验, spec §4.2) */
+function lic_guard($fields, $allowServerSecret = false) {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') lic_err('ERR_METHOD', '仅接受 POST');
+    $okAuth = false;
     $ck = $_SERVER['HTTP_X_CLIENT_KEY'] ?? '';
-    if ($ck === '' || !hash_equals(LIC_CLIENT_KEY, $ck)) lic_err('ERR_CLIENT', '客户端标识无效');
+    if ($ck !== '' && hash_equals(LIC_CLIENT_KEY, $ck)) $okAuth = true;
+    if (!$okAuth && $allowServerSecret) {
+        $ss = $_SERVER['HTTP_X_SERVER_SECRET'] ?? '';
+        if ($ss !== '' && hash_equals(LIC_SERVER_SECRET, $ss)) $okAuth = true;
+    }
+    if (!$okAuth) lic_err('ERR_CLIENT', '客户端标识无效');
     $in = lic_input();
     $vals = [];
     foreach ($fields as $f) {

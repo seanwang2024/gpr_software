@@ -16,6 +16,9 @@ define('LIC_RSA_PRIVATE_PEM', "__PRIVATE_KEY_PLACEHOLDER__");
 // 客户端接口弱防刷头 X-Client-Key 的值(编译进 exe, 仅防爬虫批量刷)
 define('LIC_CLIENT_KEY', '5193f860d4777d6504cbf3bcf8b5ab23');
 
+// 服务间通信密钥 X-Server-Secret(业务云→授权云 二次校验用; 严禁下发客户端, 部署时替换)
+define('LIC_SERVER_SECRET', '__SERVER_SECRET_PLACEHOLDER__');
+
 // install.php 一次性安装密钥(安装完成后作废)
 define('LIC_SETUP_SECRET', 'ad11e44446a05774615a69d61f46fe29');
 
