@@ -73,5 +73,8 @@ docs*/
 
 # Training datasets and large data (local only, not pushed)
 GPR_data/
+
+# License 授权云密钥与部署凭据(绝不入库)
+server/license/secrets/
 .qtc_clangd/
 build/
