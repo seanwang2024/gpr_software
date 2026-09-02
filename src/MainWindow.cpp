@@ -9942,7 +9942,10 @@ void MainWindow::dropEvent(QDropEvent *event)
     for (const QUrl &url : urls) {
         QString path = url.toLocalFile();
         if (path.isEmpty()) continue;
-        if (QFileInfo(path).suffix().compare("dzt", Qt::CaseInsensitive) != 0) continue;
+        const QString suf = QFileInfo(path).suffix();
+        // v1.0.174 修拖放BUG: dragEnter 已接受 .dt 但 drop 只放行 .dzt → 拖DT松手无反应
+        if (suf.compare("dzt", Qt::CaseInsensitive) != 0
+            && suf.compare("dt", Qt::CaseInsensitive) != 0) continue;
         openDztFile(path);   // supports dropping multiple files -> one tab each
         opened = true;
     }
