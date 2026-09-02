@@ -281,15 +281,10 @@ TopBar::TopBar(QWidget *parent)
     });
     corner->addWidget(helpBtn);
 
-    // ◯ 账号: 账号信息
-    QToolButton *accountBtn = iconBtn(QStringLiteral("account_circle"));
-    QMenu *accountMenu = new QMenu(this);
-    accountMenu->setStyleSheet(kMenuSS);
-    QAction *aAccount = accountMenu->addAction(QStringLiteral("账号信息"));
-    connect(aAccount, &QAction::triggered, this, [this] { emit accountRequested(); });
-    connect(accountBtn, &QToolButton::clicked, this, [accountBtn, accountMenu, popupRight]() {
-        popupRight(accountBtn, accountMenu);
-    });
+    // 🔑 授权: 点击直达「软件授权管理」(v1.0.169 License 激活/解绑)
+    QToolButton *accountBtn = iconBtn(QStringLiteral("key"));
+    accountBtn->setToolTip(QStringLiteral("授权"));
+    connect(accountBtn, &QToolButton::clicked, this, [this] { emit accountRequested(); });
     corner->addWidget(accountBtn);
 
     lay->addLayout(corner);

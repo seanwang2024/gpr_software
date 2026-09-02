@@ -31,12 +31,14 @@ set(OpenCV_LIBS
 set(SOURCES
     src/main.cpp
     src/MainWindow.cpp
+    src/License.cpp
     src/MatIcon.cpp
     src/TopBar.cpp
 )
 
 set(HEADERS
     include/MainWindow.h
+    include/License.h
     include/MatIcon.h
     include/TopBar.h
 )
@@ -54,6 +56,8 @@ add_executable(depro ${SOURCES} ${HEADERS} ${RESOURCES} ${CMAKE_CURRENT_BINARY_D
 target_include_directories(depro PRIVATE include ${OpenCV_INCLUDE_DIRS})
 
 target_link_libraries(depro PRIVATE Qt6::Core Qt6::Widgets Qt6::Charts Qt6::Quick Qt6::QuickWidgets Qt6::Quick3D Qt6::PrintSupport Qt6::Network ${OpenCV_LIBS})
+# License 验签: Windows 原生 CryptoAPI(公钥导入/签名校验), 零外部 DLL 依赖
+target_link_libraries(depro PRIVATE crypt32 advapi32)
 
 if(WIN32)
     set_target_properties(depro PROPERTIES WIN32_EXECUTABLE TRUE)

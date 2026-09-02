@@ -2,6 +2,7 @@
 #include <QFile>
 #include <QCoreApplication>
 #include "MainWindow.h"
+#include "License.h"
 #include "MatIcon.h"
 #include "Theme.h"
 #include "version.h"
@@ -39,6 +40,13 @@ static void silentMessageHandler(QtMsgType, const QMessageLogContext &, const QS
 
 int main(int argc, char *argv[])
 {
+    // License 自检: 验签通路/篡改检测/凭证往返/机器指纹(通过=0, 失败=2) — 早于控制台初始化, 输出直通管道
+    if (qEnvironmentVariableIsSet("GPR_LICENSE_SELFTEST")) {
+        const bool ok = License::selfTest();
+        fprintf(stderr, "GPR_LICENSE_SELFTEST %s\n", ok ? "PASS" : "FAIL");
+        return ok ? 0 : 2;
+    }
+
 #ifdef Q_OS_WIN
     // 【诊断版】启动即弹出终端窗口,显示 DZX 处理信息(供与 RADAN 对照)
     bool hasConsole = AllocConsole();

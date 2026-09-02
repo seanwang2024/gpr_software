@@ -399,6 +399,7 @@ private slots:
     void onOpenFile();
     void showAbout();
     void showUpgrade();
+    void showLicenseDialog();   // v1.0.169 🔑软件授权管理(未激活=激活表单 / 已激活=状态+解绑+导出)
     void onImageClicked(const QPoint &pos);
 
 private:
@@ -421,6 +422,8 @@ private:
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     void updateWindowTitle();
     bool requireOpenFile();  // 检查是否已打开文件,未打开则弹提示
+    bool requireLicense();   // v1.0.169 AI分析授权闸: 未激活弹授权窗拦截
+    void licensePatrol();    // v1.0.169 启动+24h 巡检: 后台作废→清凭证锁AI(网络失败静默放行)
     // DZX 自动处理
     struct DzxProcess {
         int typeId = 0;          // offset 0x08 的类型 ID

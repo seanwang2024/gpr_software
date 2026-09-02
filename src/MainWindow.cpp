@@ -2,6 +2,7 @@
 #include "Theme.h"
 #include "version.h"
 #include "TopBar.h"
+#include "License.h"
 #include "MatIcon.h"
 
 // 诊断终端输出(定义在 main.cpp,直接写 UTF-8 到控制台 stderr)
@@ -70,6 +71,10 @@ static void relockLineEditEdit(QLineEdit *ed)
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
+#include <QEventLoop>
+#include <QApplication>
+#include <QStatusBar>
+#include <QClipboard>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
@@ -2345,6 +2350,24 @@ MainWindow::MainWindow(QWidget *parent)
     // --- 状态栏 (v1.0.87 28px,按设计稿: 左 ●就绪 | 右 道号/深度 等宽 + 进度条) ---
     m_progressBar = new QProgressBar(this);
     m_net = new QNetworkAccessManager(this);
+    // v1.0.169 授权巡检: 启动即校验一次 + 每24h复查(作废授权联网即锁, 断网静默)
+    licensePatrol();
+    QTimer *licTimer = new QTimer(this);
+    licTimer->setInterval(24 * 3600 * 1000);
+    connect(licTimer, &QTimer::timeout, this, &MainWindow::licensePatrol);
+    licTimer->start();
+    // 授权对话框渲染自检: GPR_LICENSE_RENDER=1 → 自动打开授权窗截图存 license_dialog.png
+    if (qEnvironmentVariableIsSet("GPR_LICENSE_RENDER")) {
+        QTimer::singleShot(600, this, [this]() { showLicenseDialog(); });
+        QTimer::singleShot(1600, this, [this]() {
+            if (QWidget *act = QApplication::activeModalWidget()) {
+                act->grab().save(QCoreApplication::applicationDirPath()
+                                 + QStringLiteral("/license_dialog.png"));
+                act->close();
+            }
+            QTimer::singleShot(300, this, []() { QCoreApplication::quit(); });
+        });
+    }
     m_progressBar->setRange(0, 100);
     m_progressBar->setValue(0);
     m_progressBar->setTextVisible(true);
@@ -2478,7 +2501,15 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     // 顶栏 5 模块标签 ↔ ribbon 页双向联动(程序化 setChecked 不发 idClicked, 无环)
-    connect(m_topBar, &TopBar::moduleChanged, ribbonTab, &QTabWidget::setCurrentIndex);
+    // v1.0.169: AI分析(idx=4)需授权解锁 — 未激活时拦截切换并弹授权窗(spec: 按钮可见不置灰)
+    connect(m_topBar, &TopBar::moduleChanged, this, [this](int idx) {
+        if (idx == 4 && !License::isUnlocked()) {
+            m_topBar->setModuleIndex(ribbonTab->currentIndex());   // 回拨原标签
+            showLicenseDialog();
+            return;
+        }
+        ribbonTab->setCurrentIndex(idx);
+    });
     connect(ribbonTab, &QTabWidget::currentChanged, m_topBar, &TopBar::setModuleIndex);
     // v1.0.100: 进入编辑页默认激活"编辑标记"; 切走自动收起编辑工具面板
     connect(ribbonTab, &QTabWidget::currentChanged, this, [this](int idx) {
@@ -2544,12 +2575,8 @@ MainWindow::MainWindow(QWidget *parent)
             "8. 多文件: 可同时打开多个文件, 文档区标签页切换, 右上角三角按钮快速切换\n"
             "9. 关于与升级: 顶栏右上角齿轮菜单"));
     });
-    // 账号: 账号信息
-    connect(m_topBar, &TopBar::accountRequested, this, [this]() {
-        QMessageBox::information(this, QString::fromUtf8("账号信息"),
-            QString::fromUtf8("地听探地雷达数据处理软件\n版本: v%1\n\n账号登录与授权管理将在后续版本提供。")
-                .arg(APP_VERSION));
-    });
+    // 🔑 授权: 软件授权管理(激活/解绑)
+    connect(m_topBar, &TopBar::accountRequested, this, [this]() { showLicenseDialog(); });
     loadLUT(12);
     connect(m_docTabWidget, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
     connect(m_docTabWidget, &QTabWidget::currentChanged, this, &MainWindow::switchToTab);
@@ -3458,6 +3485,13 @@ void MainWindow::showAbout()
     QLabel *name = new QLabel(QString::fromUtf8("地听"));
     QFont nf = name->font(); nf.setPointSize(15); nf.setBold(true); name->setFont(nf);
     QLabel *ver = new QLabel(QString::fromUtf8("版本 ") + APP_VERSION);
+    // v1.0.169 授权状态(售后排查)
+    License::Credential lic;
+    const bool licOk = License::checkCredential(License::loadStored(), &lic);
+    QLabel *licLbl = new QLabel(licOk
+        ? QString::fromUtf8("授权状态: 已激活(永久) · ") + License::maskKey(lic.licenseKey)
+        : QString::fromUtf8("授权状态: 未激活"));
+    licLbl->setStyleSheet(licOk ? "color:#177a37;" : "color:#b02626;");
     QLabel *cpy = new QLabel(QString::fromUtf8("版权 © 2026 地听"));
     QLabel *url = new QLabel(QString::fromUtf8("<a href=\"https://www.laurel.com.cn\">https://www.laurel.com.cn</a>"));
     url->setOpenExternalLinks(true);
@@ -3465,7 +3499,7 @@ void MainWindow::showAbout()
     ver->setStyleSheet("color:#333;");
     cpy->setStyleSheet("color:#333;");
     url->setStyleSheet("color:#0066cc;");
-    txt->addWidget(name); txt->addWidget(ver); txt->addWidget(cpy);
+    txt->addWidget(name); txt->addWidget(ver); txt->addWidget(licLbl); txt->addWidget(cpy);
     txt->addSpacing(4); txt->addWidget(url);
     top->addLayout(txt);
     top->addStretch();
@@ -3474,12 +3508,265 @@ void MainWindow::showAbout()
 
     QHBoxLayout *btns = new QHBoxLayout();
     btns->addStretch();
+    QPushButton *licBtn = new QPushButton(QString::fromUtf8("授权管理…"));
+    licBtn->setFixedSize(96, 30);
     QPushButton *close = new QPushButton(QString::fromUtf8("关闭"));
     close->setFixedSize(84, 30);
+    btns->addWidget(licBtn);
     btns->addWidget(close);
     main->addLayout(btns);
+    connect(licBtn, &QPushButton::clicked, &dlg, [this, &dlg]() { dlg.accept(); showLicenseDialog(); });
     connect(close, &QPushButton::clicked, &dlg, &QDialog::accept);
     dlg.exec();
+}
+
+// ================= v1.0.169 软件授权管理 =================
+// 授权云 HTTP POST 公共: JSON 响应 → 解析 {code,err/msg,...}; 网络错误给中文提示
+static QJsonObject licensePost(QNetworkAccessManager *net, const QString &api,
+                               const QString &licenseKey, const QString &deviceId)
+{
+    QNetworkRequest req{ QUrl(QLatin1String(APP_LICENSE_API) + QLatin1Char('/') + api) };
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    req.setRawHeader("X-Client-Key", APP_LICENSE_CLIENT_KEY);
+    req.setTransferTimeout(15000);
+    const QByteArray body = QStringLiteral(R"({"licenseKey":"%1","deviceId":"%2"})")
+                                 .arg(licenseKey, deviceId).toUtf8();
+    QEventLoop loop;
+    QNetworkReply *reply = net->post(req, body);
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    QJsonObject resp;
+    const QByteArray data = reply->readAll();
+    reply->deleteLater();
+    const QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (doc.isObject())
+        resp = doc.object();
+    else
+        resp.insert(QStringLiteral("err"), QStringLiteral("ERR_NETWORK"));
+    return resp;
+}
+
+void MainWindow::showLicenseDialog()
+{
+    License::Credential lic;
+    const QString stored0 = License::loadStored();
+    const bool activated = License::checkCredential(stored0, &lic);
+    if (qEnvironmentVariableIsSet("GPR_LICENSE_RENDER")) {
+        QFile dbg(QCoreApplication::applicationDirPath() + QStringLiteral("/license_debug.txt"));
+        dbg.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text);
+        dbg.write(QStringLiteral("stored=%1 parse=%2 verify=%3 devMatch=%4 activated=%5 devId=%6\n")
+            .arg(QString::number(stored0.size()),
+                 QString::number(int(License::parse(stored0, nullptr))),
+                 QString::number(int(License::parse(stored0, nullptr)
+                     && License::verifySignature(lic.payload.toUtf8(),
+                                 QByteArray::fromBase64(lic.sigB64.toLatin1())))),
+                 QString::number(int(License::parse(stored0, nullptr)
+                     && lic.credDeviceId == License::deviceId())),
+                 QString::number(int(activated)), License::deviceId()).toUtf8());
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString::fromUtf8("软件授权管理"));
+    dlg.setModal(true);
+    dlg.setFixedSize(520, activated ? 360 : 420);
+    QVBoxLayout *main = new QVBoxLayout(&dlg);
+    main->setContentsMargins(24, 20, 24, 16);
+    main->setSpacing(10);
+
+    if (!activated) {
+        // ---- 未激活: 激活表单 ----
+        QLabel *tip = new QLabel(QString::fromUtf8(
+            "⚠ 高级功能(AI分析)处于锁定状态。\n输入授权码在线激活后解锁。"));
+        tip->setStyleSheet("color:#8a5a00; background:#fff5e0; border:1px solid #eed9ac;"
+                           "border-radius:4px; padding:8px;");
+        main->addWidget(tip);
+
+        QLabel *devTitle = new QLabel(QString::fromUtf8("本机设备ID(机器指纹, 换机需重新授权)"));
+        devTitle->setStyleSheet("font-weight:600; color:#333;");
+        main->addWidget(devTitle);
+        QHBoxLayout *devRow = new QHBoxLayout();
+        QLineEdit *devEdit = new QLineEdit(License::deviceIdDisplay());
+        devEdit->setReadOnly(true);
+        devEdit->setStyleSheet("font-family:Consolas,monospace; background:#f4f6fa; color:#333;");
+        QPushButton *copyBtn = new QPushButton(QString::fromUtf8("复制"));
+        copyBtn->setFixedSize(64, 28);
+        devRow->addWidget(devEdit, 1);
+        devRow->addWidget(copyBtn);
+        main->addLayout(devRow);
+        connect(copyBtn, &QPushButton::clicked, this, [this]() {
+            QApplication::clipboard()->setText(License::deviceId());
+            statusBar()->showMessage(QString::fromUtf8("已复制本机设备ID"), 3000);
+        });
+
+        QLabel *keyTitle = new QLabel(QString::fromUtf8("授权码(License Key)"));
+        keyTitle->setStyleSheet("font-weight:600; color:#333;");
+        main->addWidget(keyTitle);
+        QLineEdit *keyEdit = new QLineEdit();
+        keyEdit->setPlaceholderText(QString::fromUtf8("DT-XXXXX-XXXXX-XXXXX"));
+        keyEdit->setStyleSheet("font-family:Consolas,monospace; font-size:14px; padding:6px;");
+        keyEdit->setMaxLength(24);
+        main->addWidget(keyEdit, 0, Qt::AlignTop);
+
+        QPushButton *actBtn = new QPushButton(QString::fromUtf8("在线激活"));
+        actBtn->setFixedSize(110, 34);
+        actBtn->setStyleSheet(QStringLiteral("QPushButton { background: ") + Theme::pri
+            + QStringLiteral("; color:#fff; border:none; border-radius:4px; font-weight:600; }"
+              "QPushButton:hover { background: ") + Theme::priDark + QStringLiteral("; }"
+              "QPushButton:disabled { background:#93a8c9; }"));
+        main->addWidget(actBtn, 0, Qt::AlignLeft);
+        QLabel *status = new QLabel(QString::fromUtf8(
+            "授权码是唯一凭证, 丢失请联系客服查询找回。"));
+        status->setStyleSheet("color:#889; font-size:12px;");
+        status->setWordWrap(true);
+        main->addWidget(status);
+
+        connect(actBtn, &QPushButton::clicked, this, [this, keyEdit, actBtn, status, &dlg]() {
+            QString key = keyEdit->text().simplified().remove(QLatin1Char(' ')).toUpper();
+            keyEdit->setText(key);
+            if (key.size() != 17) {
+                status->setText(QString::fromUtf8("❌ 授权码格式不正确, 应为 DT-XXXXX-XXXXX-XXXXX"));
+                status->setStyleSheet("color:#b02626; font-size:12px;");
+                return;
+            }
+            actBtn->setEnabled(false);
+            actBtn->setText(QString::fromUtf8("激活中…"));
+            const QJsonObject resp = licensePost(m_net, QStringLiteral("activate.php"),
+                                                 key, License::deviceId());
+            actBtn->setEnabled(true);
+            actBtn->setText(QString::fromUtf8("在线激活"));
+            if (resp.value(QStringLiteral("code")).toInt() != 0
+                || resp.value(QStringLiteral("credential")).toString().isEmpty()) {
+                const QString msg = resp.value(QStringLiteral("msg")).toString(
+                    QString::fromUtf8("网络连接失败, 请检查网络后重试"));
+                status->setText(QString::fromUtf8("❌ ") + msg);
+                status->setStyleSheet("color:#b02626; font-size:12px;");
+                return;
+            }
+            // 服务端凭证先本地验签, 通过才落盘(防中间层伪造)
+            License::Credential c;
+            if (!License::checkCredential(resp.value(QStringLiteral("credential")).toString(), &c)
+                || c.licenseKey != key) {
+                status->setText(QString::fromUtf8("❌ 授权凭证无效或已被篡改, 请重新激活软件"));
+                status->setStyleSheet("color:#b02626; font-size:12px;");
+                return;
+            }
+            License::saveStored(resp.value(QStringLiteral("credential")).toString());
+            statusBar()->showMessage(QString::fromUtf8("✅ 激活成功, AI分析模块已解锁"), 5000);
+            dlg.accept();
+            showLicenseDialog();   // 重开为已激活态
+        });
+    } else {
+        // ---- 已激活: 状态 + 解绑 + 导出 ----
+        QLabel *tip = new QLabel(QString::fromUtf8("✅ 本机已激活 · 永久授权"));
+        tip->setStyleSheet("color:#177a37; background:#e8f7ec; border:1px solid #bfe6c9;"
+                           "border-radius:4px; padding:8px; font-weight:600;");
+        main->addWidget(tip);
+
+        auto row = [&main](const QString &k, const QString &v) {
+            QHBoxLayout *r = new QHBoxLayout();
+            QLabel *kl = new QLabel(k);
+            kl->setStyleSheet("color:#667; width:90px;");
+            QLabel *vl = new QLabel(v);
+            vl->setStyleSheet("font-family:Consolas,monospace; color:#222;");
+            vl->setTextInteractionFlags(Qt::TextBrowserInteraction);
+            vl->setSelection(0, v.size());
+            r->addWidget(kl); r->addWidget(vl, 1);
+            main->addLayout(r);
+        };
+        row(QString::fromUtf8("授权码"), License::maskKey(lic.licenseKey));
+        row(QString::fromUtf8("设备ID"), License::deviceIdDisplay());
+        row(QString::fromUtf8("授权类型"),
+            lic.isPermanent ? QString::fromUtf8("永久授权") : QString::fromUtf8("期限授权"));
+        row(QString::fromUtf8("已解锁"), lic.featureMask & 1
+            ? QString::fromUtf8("AI分析模块") : QString::fromUtf8("无"));
+
+        main->addStretch();
+        QHBoxLayout *btns = new QHBoxLayout();
+        QPushButton *unbindBtn = new QPushButton(QString::fromUtf8("解绑授权"));
+        unbindBtn->setFixedSize(96, 30);
+        QPushButton *exportBtn = new QPushButton(QString::fromUtf8("导出授权信息"));
+        exportBtn->setFixedSize(110, 30);
+        QPushButton *closeBtn = new QPushButton(QString::fromUtf8("关闭"));
+        closeBtn->setFixedSize(72, 30);
+        btns->addWidget(unbindBtn);
+        btns->addWidget(exportBtn);
+        btns->addStretch();
+        btns->addWidget(closeBtn);
+        main->addLayout(btns);
+
+        connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+        connect(exportBtn, &QPushButton::clicked, this, [this, lic]() {
+            const QString path = QFileDialog::getSaveFileName(this,
+                QString::fromUtf8("导出授权信息"),
+                QCoreApplication::applicationDirPath() + QStringLiteral("/license_info.txt"),
+                QStringLiteral("Text (*.txt)"));
+            if (path.isEmpty()) return;
+            QFile f(path);
+            if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+            f.write(QStringLiteral(u"地听 授权信息\n================\n授权码: %1\n设备ID: %2\n"
+                                   "授权类型: %3\n功能: AI分析模块\n导出时间: %4\n")
+                        .arg(lic.licenseKey, License::deviceIdFullGrouped(),
+                             lic.isPermanent ? QString::fromUtf8("永久授权")
+                                             : QString::fromUtf8("期限授权"),
+                             QDateTime::currentDateTime().toString(QStringLiteral(
+                                 "yyyy-MM-dd hh:mm:ss"))).toUtf8());
+            statusBar()->showMessage(QString::fromUtf8("授权信息已导出: ") + path, 5000);
+        });
+        connect(unbindBtn, &QPushButton::clicked, this, [this, unbindBtn, &dlg]() {
+            License::Credential c;
+            if (!License::checkCredential(License::loadStored(), &c)) {
+                dlg.accept();
+                showLicenseDialog();
+                return;
+            }
+            if (QMessageBox::question(this, QString::fromUtf8("解绑授权"),
+                    QString::fromUtf8("解绑后本机高级功能将锁定, 授权码可迁移到新电脑。\n确认解绑?"))
+                != QMessageBox::Yes)
+                return;
+            unbindBtn->setEnabled(false);
+            const QJsonObject resp = licensePost(m_net, QStringLiteral("unbind.php"),
+                                                 c.licenseKey, License::deviceId());
+            unbindBtn->setEnabled(true);
+            if (resp.value(QStringLiteral("code")).toInt() != 0) {
+                QMessageBox::warning(this, QString::fromUtf8("解绑授权"),
+                    resp.value(QStringLiteral("msg")).toString(
+                        QString::fromUtf8("网络连接失败, 未解绑。离线环境请联系客服后台解绑。")));
+                return;
+            }
+            License::clearStored();
+            statusBar()->showMessage(QString::fromUtf8("已解绑, 授权码已释放"), 5000);
+            dlg.accept();
+            showLicenseDialog();   // 重开为未激活态
+        });
+    }
+    dlg.exec();
+}
+
+// v1.0.169 授权巡检: 后台作废的授权联网时立刻锁定(断网静默放行, spec §4.3)
+void MainWindow::licensePatrol()
+{
+    License::Credential c;
+    if (!License::checkCredential(License::loadStored(), &c))
+        return;
+    QNetworkRequest req{ QUrl(QLatin1String(APP_LICENSE_API) + QStringLiteral("/verify.php")) };
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    req.setRawHeader("X-Client-Key", APP_LICENSE_CLIENT_KEY);
+    req.setTransferTimeout(10000);
+    const QByteArray body = QStringLiteral(R"({"licenseKey":"%1","deviceId":"%2"})")
+                                 .arg(c.licenseKey, License::deviceId()).toUtf8();
+    QNetworkReply *reply = m_net->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+        if (!doc.isObject())
+            return;   // 网络失败: 静默放行(离线靠本地凭证)
+        const QJsonObject o = doc.object();
+        if (o.value(QStringLiteral("code")).toInt() == 0
+            && o.value(QStringLiteral("valid")).toInt() == 0) {
+            License::clearStored();
+            statusBar()->showMessage(QString::fromUtf8("⚠ 授权已失效, AI分析模块已锁定"), 8000);
+        }
+    });
 }
 
 void MainWindow::showUpgrade()
@@ -9102,6 +9389,7 @@ void MainWindow::createAiPanel()
     btnRun->setCursor(Qt::PointingHandCursor);
     btnRun->setStyleSheet(QStringLiteral("QPushButton { background: ") + Theme::pri + QStringLiteral("; color: #ffffff; border: 1px solid ") + Theme::pri + QStringLiteral(";"" border-radius: 4px; padding: 9px 12px; font-size: 14px; font-weight: 600; }""QPushButton:hover { background: ") + Theme::priDark + QStringLiteral("; }""QPushButton:disabled { background: #93a8c9; border-color: #93a8c9; }"));
     connect(btnRun, &QPushButton::clicked, this, [this]() {
+        if (!requireLicense()) return;
         if (!requireOpenFile()) return;
         runAiDetection();
     });
@@ -11409,6 +11697,15 @@ bool MainWindow::requireOpenFile()
     return true;
 }
 
+// v1.0.169 高级功能授权闸: AI分析需激活解锁(未激活弹授权窗拦截, 不置灰 — spec §1)
+bool MainWindow::requireLicense()
+{
+    if (License::isUnlocked())
+        return true;
+    showLicenseDialog();
+    return false;
+}
+
 void MainWindow::loadLUT(int index)
 {
     m_paletteIndex = index;
@@ -12202,10 +12499,12 @@ void MainWindow::createMenuBar()
                                              QString::fromUtf8("AI报告"), false, 88);
         connect(m_btnAiDetect, &QToolButton::clicked, this, [this]() {
             m_btnAiDetect->setChecked(true);   // 运行检测保持选中蓝底
+            if (!requireLicense()) return;
             if (!requireOpenFile()) return;
             runAiDetection();
         });
         connect(btnAiReport, &QToolButton::clicked, this, [this]() {
+            if (!requireLicense()) return;
             if (!requireOpenFile()) return;
             showAiReportDialog();
         });
