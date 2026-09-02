@@ -12273,9 +12273,10 @@ void MainWindow::createMenuBar()
         gl->setContentsMargins(6, 4, 6, 2);
         gl->setSpacing(2);
         m_btnOneClick = new QToolButton();
+        // v1.0.175 改为与其他ribbon按钮一致的样式(原priMid/pri实底大色块在岩土橙主题下显全红)
         if (MatIcon::ready())
-            m_btnOneClick->setIcon(MatIcon::icon(QStringLiteral("bolt"), QColor(0xff, 0xff, 0xff),
-                                                 QColor(), QColor(), 28, 1.0));
+            m_btnOneClick->setIcon(MatIcon::icon(QStringLiteral("bolt"), QColor(Theme::pri),
+                                                 QColor(Theme::onMid), QColor(), 28, 1.0));
         m_btnOneClick->setText(QString::fromUtf8("一键处理"));
         m_btnOneClick->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         m_btnOneClick->setIconSize(QSize(28, 28));
@@ -12283,10 +12284,12 @@ void MainWindow::createMenuBar()
         m_btnOneClick->setCheckable(true);
         m_btnOneClick->setCursor(Qt::PointingHandCursor);
         m_btnOneClick->setStyleSheet(
-            "QToolButton { background: " + Theme::priMid + "; border: 1px solid " + Theme::pri + "; border-radius: 4px;"
-            " color: #ffffff; font-size: 11px; padding: 4px; }"
-            "QToolButton:hover { background: " + Theme::pri + "; }"
-            "QToolButton:checked { background: " + Theme::pri + "; border: 2px solid " + Theme::priDark + "; }");
+            "QToolButton { border: none; border-bottom: 2px solid transparent; border-radius: 2px;"
+            " background: transparent; font-size: 12px; color: #121c2a; padding: 4px; }"
+            "QToolButton:hover { background: " + Theme::hover + "; }"
+            "QToolButton:pressed { background: #c9d8f0; }"
+            "QToolButton:checked { background: " + Theme::priMid + "; color: " + Theme::onMid + ";"
+            " border-bottom: 2px solid " + Theme::pri + "; }");
         connect(m_btnOneClick, &QToolButton::toggled, this, [this](bool) { syncOneClickUiState(); });
         gl->addWidget(m_btnOneClick, 0, Qt::AlignHCenter);
         QLabel *grpLbl = new QLabel(QString::fromUtf8("一键处理"));
