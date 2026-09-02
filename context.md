@@ -1,59 +1,55 @@
-# 项目上下文 (2026-08-20)
+# 项目上下文 (2026-09-02)
 
 ## 项目概述
-地听(探地雷达)数据处理软件(原劳雷, v1.0.148起品牌=地听/LOGO=specs地听logo.jpg),Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, 当前版本 v1.0.131
+地听(探地雷达)数据处理软件(v1.0.148起品牌: 劳雷→地听, MyQtApp.exe→depro.exe, LOGO=resources/diting_logo),
+Qt 6.8.3 + MinGW + OpenCV 4.11.0 static, **当前版本 v1.0.168**(已发布FTP并验证).
+主题系统: include/Theme.h 8个inline token(科技蓝#0048af / 岩土橙#ff2000, 默认橙), QSettings("Diting","depro"), TopBar⚙主题设计子菜单切换.
 
-## 当前工作: 数据解译模块(已完成 v1.0.108-109, 待用户验收)
-按 specs/软件需求20260817/.../数据解译-追踪异常.html 实现:
-- **Ribbon 3组**: 层位/目标追踪(自动追踪magic_button/手动追踪edit, 互斥) |
-  异常标注工具(圆形/矩形/闭合多边形/文本批注, 四选一互斥) | 解译成果导出(数据导出/图像导出, 占位)
-- **右侧320px管理面板**: 层位列表(默认2层: 路基顶面#00ffff虚线/基底原土层#ff00ff实线;
-  眼睛开关/色块/名称可编辑/粗细滑条1-5; add禁用占位) | 追踪控制(拾取参考点checkable/开始/暂停禁用/停止) |
-  异常标注列表(形状图标+名称+色点+备注; 选中高亮; 删除按钮)
-- **层位追踪**: 手动=选中层后在图上点击连线; 自动=拾取参考点(黄十字种子)→开始→峰值跟随(±10窗)向两侧延伸
-- **异常标注**: 圆/矩形(点击放置默认尺寸)/多边形(逐点+切换工具闭合)/文本(弹输入框); 深度标签气泡
-- **TargetGroup持久化(v1.0.131)**: 异常写同名DZX原生`<TargetGroup>`(layerNum=7, RADAN同钢筋/空洞, 不再删组);
-  `<groupName>`=名称; `<defaultVelocity>0.106[D1形状][D2D3字号][D4魔数9]`编码私有信息(尾4位对RADAN冗余不改);
-  几何=TargetWayPt(圆=圆心+半径点/矩文本=TL+BR/多边形=N顶点); RADAN原生组导入(≥3点→多边形,振幅往返保真ptRaw);
-  旧InterpGroup仅读取回退; 编码详见 **DZX兼容编码方案.md**; flush=关闭/切换/退出时写
-- ImageLabel drawInterpOverlay: 层位折线(虚/实线+左缘名称chip)+异常形状(圆/矩/多边形/文本)+深度气泡+种子十字
-- syncInterpUiState: 进出数据解译页(ribbon idx=3)面板显隐+按钮复位+多边形闭合
-- 数据解译页交互在 imageClicked lambda 内分发(仅 ribbonTab idx=3 时拦截)
+## 已完成模块(全部)
+- **主页**(v1.0.87-97): TopBar+Ribbon 4组+文件头右栏350px+状态栏28px+色彩叠加(RADAN规律: 调色板[变换表(灰度)])
+- **编辑**(v1.0.98-107): 编辑标记(MarkGroup DZX)+数据块(多矩形框+防重叠+保留唯一+裁剪)+横向缩放; 雷达缩略图蓝框上顶下底
+- **数据解译**(v1.0.108-131): 追踪+异常标注+TargetGroup DZX兼容+数据导出CSV(RADAN 31列UTF-16LE)+图像导出(renderExportImage)
+- **AI分析**(v1.0.13x-147, 第5标签): AI检测(框选aiRects/统计/病害列表)+AI报告(无检测时提示"请先进行AI检测"); ribbon组名"AI分析", 默认AI检测选中蓝底
+- **品牌栏下拉**(v1.0.14x-15x): 打开/关闭/保存 + 数据组装(BDT)+工作路径+格式转换(DZT/DZX↔DT/DX) 三对话框已实现
 
-## 已完成模块
-- 主页(v1.0.87-97): TopBar+Ribbon 4组+文件头右栏+状态栏+色彩叠加(RADAN规律: 调色板[变换表(灰度)])
-- 编辑(v1.0.98-107): 编辑标记(MarkGroup DZX)+数据块(多矩形框+防重叠+保留唯一+裁剪)+横向缩放
-- 数据解译(v1.0.108-131): 追踪+异常标注+TargetGroup DZX兼容+数据导出CSV(RADAN 31列UTF-16)
+## 数据解译要点(v1.0.108-131)
+按 specs/软件需求20260817/.../数据解译-追踪异常.html:
+- **Ribbon 3组**: 层位/目标追踪(自动magic_button/手动edit互斥) | 异常标注工具(圆/矩/多边形/文本四选一) | 解译成果导出(数据导出/图像导出)
+- **右侧320px面板**: 层位列表(默认2层: 路基顶面#00ffff虚线/基底原土层#ff00ff实线) | 追踪控制 | 异常标注列表
+- **异常列表交互**: ListRowWidget几何hit-test — 单击任意位置=切换选中, 双击=改名(不靠itemClicked不响应区)
+- **TargetGroup持久化(v1.0.131)**: 异常写同名DZX原生`<TargetGroup>`(layerNum=7同RADAN钢筋/空洞);
+  `<defaultVelocity>0.106[D1形状][D2D3字号][D4魔数9]`编码私有信息; 几何=TargetWayPt(圆=圆心+半径点/矩文本=TL+BR/多边形=N顶点);
+  RADAN原生组导入(≥3点→多边形, ptRaw振幅往返保真); 旧InterpGroup仅读取回退; 编码详见 **DZX兼容编码方案.md**; flush=关闭/切换/退出时写
+- **数据导出**: exportInterpCsv() 31列RADAN CSV UTF-16LE, 默认同名可改, 导出后QDesktopServices本机关联程序打开
+- 数据解译页交互在 imageClicked lambda 内分发(仅 ribbonTab idx=3 拦截)
 
-## 待做
-- AI分析模块(第5标签, 占位)
-- 数据解译: 图像导出(占位→实现); 数据导出振幅/时间戳字段(占位)
-- 编辑数据块: 用户回测(多块交互/裁剪链路)
-- TargetGroup RADAN实测(用户验证: RADAN读/存后异常仍在)
+## PROCESS 标定(本软件↔RADAN, v1.0.150-160, 详见 **处理process文档.md**)
+素材 `test_input_raw_files/process标定/`(原始1103_010.DZT 5953道×512采样 + Proc/P_n.DZT数值基准), 工具 `tools/process_calib.py`.
+**已标定算法**(写进 MainWindow.cpp, 与RADAN逐字节/逐点对齐):
+| 处理 | 算法 | 对齐度 | 版本 |
+|---|---|---|---|
+| 背景去除-全部 | 全局行均值扣除(整道均值, 非滑动窗); 窗口spin上限99999, ≥2×道数即全局 | 逐字节100% | v1.0.153 |
+| FIR垂直高通 | x−MA(N), **N=round(2/3·fs/fc)**, 中心窗+边缘钳位 | 8位MAE=0.64灰阶 | v1.0.157 |
+| FIR垂直低通 | MA(N), **N=round(0.443·fs/fc)**(−3dB=fc) | 8位MAE=0.19, 85%逐点相等 | v1.0.157 |
+| FIR带通 | 上两者级联 | MAE=0.655, corr=0.986 | v1.0.157 |
+| 自适应增益(2点Normal) | 指数dB线性斜率=20·log10(首尾1/4窗去DC均值绝对值比) + 逐道L1^0.3补偿 | MAE≈2灰阶, corr=0.975 | v1.0.158-159 |
+| 时间零点-自动选峰 | 平均扫描前P%行取|峰|→pos_ns=p·range/N, 数据上移round(pos_ns)行 | 99.6%逐字节 | v1.0.160 |
+**时间零点显示规则(v1.0.162-166, RADAN规律已闭环)**:
+- 顶部死区: row0保留原值+row1=-2^24哨兵(黑线); 有效行(峰行−移位量起)竖向拉伸满高(图高不变=拉伸)
+- 标尺 RANGE = range−|零点位置|(1位小数, 实测20−2.00=18); updateRulers()刷新
+- 信号位置(ns)=2ns整倍数(ceil, 显示-2.00); **偏移量=位置−峰时间永远正值**(补偿整倍数剩下的值), 存待处理proc记录`4d 00 f32(正偏移)`
+- 恢复(v1.0.167): 必须清零 zeroApplied/skipRows/topDead/posNs/offsetNs + updateRulers() 回满量程
+**性能**: FIR前缀和maClamp O(1)内部(旧O(N)每样3M×85≈260M次>10s→现<1s); 样本访问memcpy
+**待标定**: IIR(P_2, 200→256量化未复现) | 噪音带去除(P_4, 本程序未实现) | 反褶积(P_5) | 克西霍夫(P_6) | 希尔伯特能量/相位/频率(P_7/P_8/P_9/P_A, 频率RADAN自身报错) | P_E(0x1a sub1未识别)
+**已证伪**: "所有P_n先应用头挂起时间零点" — P_3与原始零滞后corr=1.0, 头`4d 00`记录处理后保留未执行
 
-### 已完成(v1.0.87 头部彻底重构):
-- **图标系统**: 内嵌 Material Symbols Outlined 矢量字体(设计稿同款) + JetBrains Mono
-  - `include/MatIcon.h/.cpp`: MatIcon::icon(name,color,checked,hover,size,fill) 按码点渲染
-  - resources/fonts/ 三件套(ttf+codepoints+mono), qrc /fonts 前缀
-- **顶栏 TopBar** (`include/TopBar.h/.cpp`, 40px, 替代旧CustomTitleBar已删除):
-  劳雷▾品牌下拉(打开/关闭/保存+数据组装/工作路径/格式转换占位) | 5模块标签(互斥,active=蓝字+底2px蓝线)
-  | 右上角⚙(关于+检查升级)/?(占位)/◯(占位) | —□×
-- **Ribbon 120px**: tabBar隐藏,模块切换由TopBar驱动; 主页4组(组名在底+竖分隔线):
-  文件操作 | 图像显示(线扫描/线扫描+波形互斥active=#1e60d5, 波列图独立checkable=m_btnStack)
-  | 色彩渲染=两行下拉框样式(挂原30调色板/20变换表菜单) | 数据信息(文件头toggle)
-- **文件头右侧350px栏**: 标题栏40px(文件头属性+✕) + 8行两列表格(键白/值等宽mono),
-  字段: 文件名/天线频率(型号→MHz表)/采样点数/总道数/时窗/介电常数/采集日期/道间距
-  - readDztHeaderInfo()/createHeaderPanel()/setHeaderPanelVisible()/refreshHeaderPanel()
-  - 切tab刷新, 无文件收起, toggle后重定位悬浮切换按钮
-- **状态栏28px**: 左●就绪 | 右mono"道号:N 深度:X m"(其余3项进tooltip)+进度条
-- 删除: 主页简易处理/其他组(功能在数据处理tab)、旧缩放按钮、左侧树形文件头面板
-- 配色token: #0048af主色(原#004aae)/#f8f9ff面/#dee9fc悬停/#d9e3f6状态栏/#c3c6d6线
+## 一键处理(v1.0.168)
+- 隧道衬砌标准流程5步(零点/背景/带通/增益/自适应增益), 状态栏分步进度条(stepBegin/stepTick: 步名+步内百分比, 每512道刷新, 完成100%后1s隐藏)
+- 增益条目=自适应增益(AGC点数:2, 与RADAN对齐); 独立"增益(AGC)"条目已移除
+- 开始/应用/恢复三按钮逻辑; 恢复走closeCurrentTab同链路复位
 
-### v1.0.85-1.0.86(已被1.0.87替代):
-- 5个菜单标签框架/波列图切换/浅蓝主题雏形
-
-## DZX PROCESS 逆向(已完成)
-完整typeId映射已验证(27组文件交叉对照):
+## DZX/DZT 格式逆向(历史成果)
+完整typeId映射(27组文件交叉对照):
 
 | typeId | 含义 | 格式 |
 |---|---|---|
@@ -66,66 +62,51 @@
 | 67-70 | FIR水平(方块/三角×平滑/背景去除) | f@0x09(DZX)/f@1(DZT) |
 | 95 | 专用背景去除 | 5B: type(全部通过/扫描范围/自适应/无) |
 
-**typeId规律**: 垂直=63+形×2+(HP?1:0), 水平=67+形×2+(背景去除?1:0)
-形状: 方块=0, 三角=1
+typeId规律: 垂直=63+形×2+(HP?1:0), 水平=67+形×2+(背景去除?1:0); 形状: 方块=0三角=1
 
 ### DZT proc history 机制
-- 处理历史存DZT头 offset 128+ (rh_nproc@50)
-- **追加式**(非覆写), 每次操作追加记录
-- DZX 处理后干净(0 BinaryData)
-- 时间零点主机参数存DZT头 0x82
+- 处理历史存DZT头 rh_proc@0x30(=128)+rh_nproc@0x32; **追加式**, 每条 `typeId(1B)+sub(1B)+变长参数`
+- 本轮实测: `40 00 f32 f32`(FIR) `04 01 f32`(IIR, 15.9155=50/π) `5f 00 00 00 00`(背景全部) `54 01`(噪音带) `24 3f …f32(4.0)`(反褶积) `1e 1f 05 …f32(10.0)`(克西霍夫) `1c 00/01/02 +f32`(希尔伯特) `4d 04 4B(10%→60)`(自动选峰)
+- DZX处理后干净(0 BinaryData); 时间零点主机参数存DZT头0x82
 
 ### DZX BinaryData 偏移表
-| 偏移 | 含义 |
-|---|---|
-| 0x00-0x01 | 记录长度 |
-| 0x02-0x07 | 固定头 |
-| 0x08 | typeId |
-| 0x09 | 点数/阶数 |
-| 参数区 | 0x09或0x0A起 |
+0x00-0x01记录长度 | 0x02-0x07固定头 | 0x08 typeId | 0x09点数/阶数 | 参数区0x09或0x0A起
 
-## 时间零点处理(已实现 v1.0.67+)
-- 读 rhf_position(offset 22)
-- skip = nsamp×|sigPos|/rhf_range
-- 数据上移, 底部补零, 显示 drawRows=nsamp-skip
-- B-SCAN只显示有效行(486), 无底部零条
-- 波形Y轴保持 0-511 不变
-- 处理后DZT: proc history追加 0x4d sub=0 + float(rhf_position原值)
-- 输出DZT头: rhf_position归零, 编辑时间更新
+## 工程陷阱(踩过的坑, 勿再踩)
+- **QStringLiteral宏内不能拼接变量**: `" + Theme::pri + "`在宏内=编译错误, 必须拆成 `QStringLiteral("…") + Theme::pri + …`; 批量修复工具 tools/fix_qsl.py
+- **QSS裸声明级联**: 父容器`background/border`裸声明会覆盖所有子控件(无视选择器特异性), 容器样式必须用限定选择器或去掉裸声明
+- **closeTab sender()依赖**: lambda直调时sender()=nullptr静默返回 — 三入口架构 closeCurrentTab()/closeTabInGroup()/closeTab()
+- **表格半构建期crash**: itemChanged刷新合计时读item(r,c)为nullptr — 建行期blockSignals+null守卫
+- **QString格式双%**: `%1%%`显示错, 需转义
+- **渲染自检**: 环境变量 GPR_SELF_RENDER/GPR_EXPORT_RENDER/GPR_AI_RENDER 离屏QWidget::grab()→PNG→PIL像素分析定位UI bug
+- 升级重启(v1.0.69): ShellExecuteW启批处理(不共享AllocConsole), 批处理等PID→taskkill兜底→copy→start
 
-## 颜色变换表(v1.0.82-1.0.84)
-- 20种灰度映射LUT, 从PNG精确提取
-- 内嵌到代码 s_cxLUTData[20][256], 不需要外部bin
-- LUT数据来源: specs/颜色变换表.png, bar位置(2, 21+i*16)-(257, 32+i*16)
+## 历史修复(摘要)
+- 采样点数自适应: pixelsPerRow=m_nsamp(非写死512), 256/512等(v1.0.62)
+- 增益表gN=m_pixelsPerRow, 手柄Y跨度0..nsamp-1(v1.0.63)
+- 颜色变换表20种LUT内嵌 s_cxLUTData[20][256], 源specs/颜色变换表.png(v1.0.82-84)
+- 时间零点手动: skip=nsamp×|sigPos|/range, 数据上移底部补零(v1.0.67)
 
-## 升级重启(已修复 v1.0.69)
-- 用 ShellExecuteW 启动批处理(不共享AllocConsole控制台)
-- 批处理: 等PID退出→taskkill兜底→copy覆盖→start新版本
-
-## 采样点数(已修复 v1.0.62-1.0.63)
-- pixelsPerRow = m_nsamp(从文件头读, 非写死512)
-- 256/512等自适应
-
-## 增益(已修复 v1.0.63)
-- 增益表gN=m_pixelsPerRow(4处: applyGain/saveProcessedFile/一键×2)
-- 手柄Y跨度0..nsamp-1 (CustomChartView::setSampleCount)
-- 结束点=nsamp-1(m_gainSampleEndItem)
+## 待做
+- **PROCESS标定剩余**: IIR(P_2) / 噪音带去除(P_4未实现) / 反褶积(P_5) / 克西霍夫(P_6) / 希尔伯特(P_7-9,P_A) / P_E(0x1a)
+- AI分析细化(检测统计/病害列表已通)
+- 数据导出振幅/时间戳字段(占位)
+- 编辑数据块用户回测; MarkGroup/TargetGroup RADAN实测(RADAN读/存后仍在)
 
 ## 关键文件
-- `specs/UI重构-主页-文件头.md` — UI规格
-- `specs/RADAN_DZT_DZX生成规律.md` — RADAN文件生成机制
-- `test_input_raw_files/DZX格式反推测试/参数.md` — DZX完整解码方案
-- `test_input_raw_files/DZX格式反推测试/*.py` — 解码工具
-- `resources/ui_ref/*.png` — UI参考图标(56个)
-- `specs/color_transform_luts.json` — 颜色变换LUT数据
+- **处理process文档.md** — PROCESS标定总表(op对照/用例corr/RADAN行为规律/未对齐清单)
+- DZX兼容编码方案.md / DZT文件破解.MD / DZX文件破解.MD / BDT格式.md / DT和DX格式.md — 格式文档
+- tools/process_calib.py(标定harness) / tools/fix_qsl.py(QStringLiteral修复)
+- specs/软件需求20260817/软件需求20260817/UI/*.html — 各模块交互UI规格
+- specs/RADAN_DZT_DZX生成规律.md; specs/color_transform_luts.json; specs/UI重构-主页-文件头.md
+- test_input_raw_files/process标定/ — 标定素材; resources/ui_ref/*.png — UI参考(56个)
+- include/Theme.h(主题token) / include/MatIcon.h(矢量图标, Material Symbols+JetBrains Mono字体resources/fonts/)
 
 ## 发布流程
-1. 改 version.h APP_VERSION
+1. 改 include/version.h APP_VERSION + installer/depro.iss MyAppVersion及OutputBaseFilename
 2. cmake --build . --target depro (产物 depro.exe)
-3. cp depro.exe /d/gpr_test/ (先删旧 MyQtApp.exe)
-4. git add -A && git commit && git push
+3. cp depro.exe /d/gpr_test/ (先删旧exe)
+4. git add -A && git commit -m "[vX.Y.Z] …" && git push
 5. curl FTP上传 depro.exe + version.json(downloadUrl/fileName=depro.exe) 到 seanwang.gotoftp5.com/wwwroot/
-6. FTP密码: sean2020
-
-## 安装包
-installer/depro.iss → ISCC.exe → D:\gpr_release\MyQtApp_Setup_<ver>.exe
+   (FTP用户seanwang 密码sean2020, 2026-09-02已验证登录230/上传/大小一致)
+6. 安装包: installer/depro.iss → ISCC.exe → D:\gpr_release\depro_Setup_<ver>.exe (需先确保D:\gpr_test为最新Release部署)
