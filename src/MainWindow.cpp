@@ -9892,6 +9892,15 @@ void MainWindow::openDztFile(const QString &filePath)
     createTab(filePath, image);
 }
 
+// v1.0.173 双击 .DT 关联打开: 资源管理器/命令行入口(公开给 main 的 argv 转发)
+void MainWindow::openFileFromShell(const QString &path)
+{
+    if (path.isEmpty() || !QFile::exists(path))
+        return;
+    openDztFile(path);   // DT与DZT字节级相同(DT和DX格式.md V1), 现有读取链路直接可用
+    diagPrint(QString("[ShellOpen] %1 -> %2").arg(path, m_currentTab ? "OK" : "FAIL"));
+}
+
 void MainWindow::onOpenFile()
 {
     QString fileName = QFileDialog::getOpenFileName(this,

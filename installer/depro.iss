@@ -4,7 +4,7 @@
 
 #define MyAppName "地听AI数据处理"
 #define MyAppNameEn "depro"
-#define MyAppVersion "1.0.172"
+#define MyAppVersion "1.0.173"
 #define MyAppPublisher "地听"
 #define MyAppExeName "depro.exe"
 
@@ -44,11 +44,12 @@ Source: "D:\gpr_test\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdir
 Source: "D:\gpr_software\resources\diting_file.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]
-; v1.0.172 .DT/.DX 文件图标关联(全局, 卸载自动清理; 不注册打开方式——软件暂不支持直接打开DT)
+; v1.0.173 .DT 文件关联(仅DT, 不含DX): 图标 + 双击用 depro 打开(DT与DZT字节级相同可直接读); 卸载自动清理
 Root: HKCR; Subkey: ".DT"; ValueType: string; ValueName: ""; ValueData: "Diting.GprData"; Flags: uninsdeletekeyifempty
-Root: HKCR; Subkey: ".DX"; ValueType: string; ValueName: ""; ValueData: "Diting.GprData"; Flags: uninsdeletekeyifempty
 Root: HKCR; Subkey: "Diting.GprData"; ValueType: string; ValueName: ""; ValueData: "地听探地雷达数据文件"; Flags: uninsdeletekey
 Root: HKCR; Subkey: "Diting.GprData\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\diting_file.ico,0"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "Diting.GprData\shell\open"; ValueType: string; ValueName: ""; ValueData: "用地听AI数据处理打开"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "Diting.GprData\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekey
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

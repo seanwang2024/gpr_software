@@ -402,6 +402,10 @@ private slots:
     void showLicenseDialog();   // v1.0.169 🔑软件授权管理(未激活=激活表单 / 已激活=状态+解绑+导出)
     void onImageClicked(const QPoint &pos);
 
+public:
+    // v1.0.173 双击 .DT 文件关联打开(资源管理器/命令行传入路径)
+    void openFileFromShell(const QString &path);
+
 private:
     QImage loadDZTFile(const QString &filePath);
     QImage renderWiggleImage(int traceCount, int drawRows, int skipRows);  // 堆积图(wiggle)渲染

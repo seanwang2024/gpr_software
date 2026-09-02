@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QFile>
 #include <QCoreApplication>
+#include <QTimer>
 #include <QScreen>
 #include "MainWindow.h"
 #include "License.h"
@@ -118,5 +119,14 @@ int main(int argc, char *argv[])
 
     MainWindow window;
     window.show();
+    // v1.0.173 双击 .DT 文件关联打开: 命令行带文件路径 → 启动后自动打开(多选全部入tab)
+    {
+        const QStringList args = app.arguments();
+        for (int i = 1; i < args.size(); ++i) {
+            const QString p = args.at(i);
+            if (QFile::exists(p))
+                QTimer::singleShot(120, &window, [&window, p]() { window.openFileFromShell(p); });
+        }
+    }
     return app.exec();
 }
