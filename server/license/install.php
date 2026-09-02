@@ -21,14 +21,11 @@ try {
 } catch (PDOException $e) { fail('数据库连接失败: ' . htmlspecialchars($e->getMessage())); }
 
 if ($installed) fail('已安装(install.lock 存在)。如需重装请先经 FTP 删除 install.lock 并清空 lic_* 表。');
-
-$hasAdmin = $db->query("SELECT COUNT(*) c FROM lic_admins")->fetch()['c'] > 0;
-if ($hasAdmin) { @file_put_contents($lockFile, date('Y-m-d H:i:s')); fail('已存在管理员, 拒绝重装(已补写 install.lock)。'); }
-
 if (!isset($_GET['setup']) || !hash_equals(LIC_SETUP_SECRET, $_GET['setup'])) fail('安装密钥(setup)错误。');
 
-$sql = <<<SQL
-CREATE TABLE IF NOT EXISTS lic_admins (
+// 1) 建表(PDO exec 不支持多语句, 逐条执行)
+$statements = [
+"CREATE TABLE IF NOT EXISTS lic_admins (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   username VARCHAR(32) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
@@ -36,8 +33,8 @@ CREATE TABLE IF NOT EXISTS lic_admins (
   disabled TINYINT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   last_login_at DATETIME NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-CREATE TABLE IF NOT EXISTS lic_keys (
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+"CREATE TABLE IF NOT EXISTS lic_keys (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   license_key VARCHAR(24) NOT NULL UNIQUE,
   feature_mask INT NOT NULL DEFAULT 1,
@@ -53,8 +50,8 @@ CREATE TABLE IF NOT EXISTS lic_keys (
   INDEX idx_status (status),
   INDEX idx_device (device_id),
   INDEX idx_customer (customer_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-CREATE TABLE IF NOT EXISTS lic_logs (
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+"CREATE TABLE IF NOT EXISTS lic_logs (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   license_key VARCHAR(24) NOT NULL DEFAULT '',
   device_id VARCHAR(64) DEFAULT '',
@@ -65,9 +62,16 @@ CREATE TABLE IF NOT EXISTS lic_logs (
   INDEX idx_key (license_key),
   INDEX idx_action (action),
   INDEX idx_time (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-SQL;
-$db->exec($sql);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+];
+foreach ($statements as $s) {
+    try { $db->exec($s); }
+    catch (PDOException $e) { fail('建表失败: ' . htmlspecialchars($e->getMessage())); }
+}
+
+// 2) 已有管理员则拒绝(幂等保护)
+$hasAdmin = $db->query("SELECT COUNT(*) c FROM lic_admins")->fetch()['c'] > 0;
+if ($hasAdmin) { @file_put_contents($lockFile, date('Y-m-d H:i:s')); fail('已存在管理员, 拒绝重装(已补写 install.lock)。'); }
 
 // 随机初始密码(仅显示一次)
 $alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';

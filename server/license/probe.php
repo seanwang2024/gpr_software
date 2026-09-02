@@ -8,4 +8,6 @@ echo 'json=' . (extension_loaded('json') ? 'YES' : 'NO') . "\n";
 echo 'mbstring=' . (extension_loaded('mbstring') ? 'YES' : 'NO') . "\n";
 echo 'writable=' . (is_writable(__DIR__) ? 'YES' : 'NO') . "\n";
 echo 'https=' . (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'YES' : 'NO') . "\n";
+echo 'xf_proto=' . ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '-') . "\n";
+echo 'server_port=' . ($_SERVER['SERVER_PORT'] ?? '-') . "\n";
 echo 'sig_test=' . (function_exists('openssl_sign') ? 'YES' : 'NO') . "\n";

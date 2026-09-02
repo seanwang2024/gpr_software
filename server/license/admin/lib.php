@@ -18,8 +18,13 @@ function db() {
 }
 
 function is_https() {
-    return (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== '' && $_SERVER['HTTPS'] !== 'off')
-        || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
+    if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== '' && $_SERVER['HTTPS'] !== 'off')
+        return true;
+    // 反向代理终结TLS时(本主机即如此), 后端只能看 X-Forwarded-Proto
+    if (isset($_SERVER['HTTP_X_FORWARDED_PROTO'])
+        && strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') === 0)
+        return true;
+    return isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443;
 }
 
 function force_https() {

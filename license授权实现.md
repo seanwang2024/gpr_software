@@ -60,11 +60,12 @@ depro.exe(内置RSA公钥) ──HTTPS──> www.sxfpga.cn/license/api/*.php �
 - 失败: `{"code":1,"err":"ERR_*","msg":"中文提示"}`; 错误码: ERR_NO_KEY/ERR_REVOKED/ERR_BOUND_OTHER/ERR_NOT_BOUND/ERR_KEY_FORMAT/ERR_CLIENT/ERR_THROTTLE/ERR_NETWORK
 - 授权码格式: `DT-XXXXX-XXXXX-XXXXX`(字母表去0/O/1/I), 输入自动大写、去空格
 
-## 四、部署(server/license/tools/deploy.md 有完整命令)
-1. FTP(若封禁先在主机后台解封)上传 config.deploy.php→config.php + install.php + api/ + admin/
-2. 浏览器 `install.php?setup=<secrets/setup_secret.txt>` 抄初始密码
-3. 删 probe.php/install.php; curl 冒烟
-> ⚠ 2026-09-02 实测: FTP 密码 530 被拒(昨日至今日间失效/锁定), 部署阻塞待恢复
+## 四、部署(✅ 已于 2026-09-02 完成并全矩阵验证)
+- 上传: config.deploy.php→config.php + install.php + api/ + admin/ (完整命令见 server/license/tools/deploy.md)
+- 安装: `install.php?setup=<secrets/setup_secret.txt>` 一次性建表+初始管理员(密码在 **secrets/admin_password.txt**, 不入库)
+- 管理后台: **https://www.sxfpga.cn/license/admin/login.php** (admin)
+- 已验证: API 8分支矩阵(激活/校验/异机拒/幂等/解绑拒/解绑/迁移/旧机失效) + 服务端凭证经客户端公钥验签OK + 真实Key端到端激活(本机指纹) + 作废→启动巡检自动清凭证锁定
+- 环境: PHP 7.4.33 + openssl + pdo_mysql; **反代终结TLS**(xf_proto=https, 后端port=80) — is_https() 已兼容
 
 ## 五、运维手册
 - **客户报"激活码绑了别的电脑"**: 后台授权码页搜码→解绑→客户重新激活

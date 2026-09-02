@@ -108,5 +108,5 @@ typeId规律: 垂直=63+形×2+(HP?1:0), 水平=67+形×2+(背景去除?1:0); �
 3. cp depro.exe /d/gpr_test/ (先删旧exe)
 4. git add -A && git commit -m "[vX.Y.Z] …" && git push
 5. curl FTP上传 depro.exe + version.json(downloadUrl/fileName=depro.exe) 到 seanwang.gotoftp5.com/wwwroot/
-   (FTP用户seanwang 密码sean2020, 2026-09-02已验证登录230/上传/大小一致)
+   (FTP用户seanwang 密码sean_20262026 — 2026-09-02用户改密, 旧sean2020失效)
 6. 安装包: installer/depro.iss → ISCC.exe → D:\gpr_release\depro_Setup_<ver>.exe (需先确保D:\gpr_test为最新Release部署)

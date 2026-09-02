@@ -1,8 +1,8 @@
 # 授权云部署手册 (server/license → wwwroot/license)
 
 ## 前置
-- secrets/ 内已有: `license_test_private.pem` / `license_test_public.pem` / `config.deploy.php`(已注入私钥) / `client_key.txt` / `setup_secret.txt`(均不入库)
-- FTP: seanwang.gotoftp5.com 账号 seanwang 密码 sean2020, 网站 https://www.sxfpga.cn/license/
+- secrets/ 内已有: `license_test_private.pem` / `license_test_public.pem` / `config.deploy.php`(已注入私钥) / `client_key.txt` / `setup_secret.txt` / `admin_password.txt`(均不入库)
+- FTP: seanwang.gotoftp5.com 账号 seanwang 密码 sean_20262026, 网站 https://www.sxfpga.cn/license/
 
 ## 部署命令 (curl, 在 server/license/ 目录执行)
 ```bash
