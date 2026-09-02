@@ -150,7 +150,7 @@ bool verifySignature(const QByteArray &payload, const QByteArray &sigDer)
     HCRYPTHASH hash = 0;
     LPVOID info = nullptr;
     auto step = [](const char *name, BOOL r) {
-        if (!r)
+        if (!r && qEnvironmentVariableIsSet("GPR_LIC_DEBUG"))
             fprintf(stderr, "  verifySignature: %s failed GLE=%lu\n", name, GetLastError());
         return r;
     };
