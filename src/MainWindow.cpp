@@ -8809,7 +8809,9 @@ void MainWindow::createOneClickPanel()
         m_ocBg->setChecked(on[idx][2]);
         m_ocBp->setChecked(on[idx][3]);
         m_ocGain->setChecked(on[idx][4]);
-        m_ocAgc->setChecked(on[idx][5]);
+        // v1.0.177 修崩溃: 增益AGC条目v1.0.168已移除(m_ocAgc恒nullptr), 此处裸调setChecked
+        // → 从"自定义"切回任一预设时空指针崩溃; AGC语义已并入自适应增益, 仅判空跳过
+        if (m_ocAgc) m_ocAgc->setChecked(on[idx][5]);
         m_ocMig->setChecked(on[idx][6]);
         // 预设写入时 valueChanged 会把索引弹回"自定义", 恢复预设名
         QSignalBlocker blk(m_ocPresetBox);
