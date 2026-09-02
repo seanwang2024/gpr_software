@@ -3621,13 +3621,22 @@ void MainWindow::showLicenseDialog()
         main->addWidget(status);
 
         connect(actBtn, &QPushButton::clicked, this, [this, keyEdit, actBtn, status, &dlg]() {
-            QString key = keyEdit->text().simplified().remove(QLatin1Char(' ')).toUpper();
-            keyEdit->setText(key);
-            if (key.size() != 17) {
+            // 归一化(与服务器 lic_norm_key 一致): 去掉全部非字母数字(连字符/空格/全角), 大写
+            QString norm;
+            for (const QChar &ch : keyEdit->text().simplified())
+                if (ch.isLetterOrNumber())
+                    norm.append(ch.toUpper());
+            QString key;
+            if (norm.size() == 17 && norm.startsWith(QLatin1String("DT")))
+                key = QStringLiteral("DT-") + norm.mid(2, 5) + QLatin1Char('-')
+                    + norm.mid(7, 5) + QLatin1Char('-') + norm.mid(12, 5);
+            if (key.size() != 20) {
+                keyEdit->setFocus();
                 status->setText(QString::fromUtf8("❌ 授权码格式不正确, 应为 DT-XXXXX-XXXXX-XXXXX"));
                 status->setStyleSheet("color:#b02626; font-size:12px;");
                 return;
             }
+            keyEdit->setText(key);
             actBtn->setEnabled(false);
             actBtn->setText(QString::fromUtf8("激活中…"));
             const QJsonObject resp = licensePost(m_net, QStringLiteral("activate.php"),
