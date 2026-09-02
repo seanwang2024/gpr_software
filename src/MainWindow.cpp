@@ -3529,6 +3529,75 @@ static void openExportedFile(QWidget *parent, const QString &path)
             QString::fromUtf8("文件已保存, 但系统没有能打开它的关联程序:\n%1\n请手动打开查看。").arg(path));
 }
 
+// ================= v1.0.178 RADAN IIR 标定算法 =================
+// 逆向结论(处理process文档.md §6.5 第4轮, P_2/P_I/P_J/P_K四样本):
+//   RADAN "IIR" = 频域 Butterworth 窗零相位滤波: 整列FFT → 乘|H| → IFFT取实部
+//   |H(f)| = [1+(|f|/fLP)^(-2n)]^(-1/2) · [1+(|f|/fHP)^(2n)]^(-1/2)   n=极点数
+//   裙摆3dB=标称截止; 窗峰值归一 × 增益 K=0.244·√(带宽MHz/100)·n^0.21(带通标定拟合)
+//   proc记录: 04(HP)+03(LP), sub=极点数, f32 c=fs/(2π·fc)
+static double iirButterMag(double fabsHz, double hpHz, double lpHz, int bandType, int poles)
+{
+    const double p2n = 2.0 * poles;
+    const double f = std::max(fabsHz, 1e3);
+    auto bw = [](double fc, double ff, int n) {              // Butterworth 单元: 1/sqrt(1+(fc/f)^{2n}) 用于HP
+        return 1.0 / std::sqrt(1.0 + std::pow(fc / ff, 2.0 * n));
+    };
+    switch (bandType) {
+    case 0:  return 1.0 / std::sqrt(1.0 + std::pow(f / lpHz, p2n));   // 低通(截止=高频框)
+    case 1:  return bw(hpHz, f, poles);                                // 高通(截止=低频框)
+    case 2:  return bw(hpHz, f, poles)                                 // 带通 = HP∧LP
+               * (1.0 / std::sqrt(1.0 + std::pow(f / lpHz, p2n)));
+    default: {                                                         // 带阻 = 1−带通(近似, 无标定样本)
+        const double bp = bw(hpHz, f, poles)
+                          * (1.0 / std::sqrt(1.0 + std::pow(f / lpHz, p2n)));
+        return 1.0 - bp;
+    }
+    }
+}
+
+// 频域滤波主体: src/dst 均为 小端i32 连续块 (traceCount 行 × N 采样); cv::dft 批量(DFT_ROWS)
+static void iirFreqDomainFilter(const char *src, char *dst, int N, int traceCount,
+                                double fsHz, double lowHz, double highHz, int bandType, int poles)
+{
+    // 1) 构窗(N点, |f| 对称), 峰值归一, 乘增益 K
+    std::vector<double> W(N, 0.0);
+    double peak = 0.0;
+    for (int k = 0; k < N; ++k) {
+        const int kk = k <= N / 2 ? k : N - k;
+        const double f = double(kk) * fsHz / N;
+        W[k] = iirButterMag(f, lowHz, highHz, bandType, poles);
+        peak = std::max(peak, W[k]);
+    }
+    if (peak <= 0.0) peak = 1.0;
+    double K = 1.0;                                    // 带通增益(标定律); 其他模式无标定样本→窗峰归一
+    if (bandType == 2) {
+        const double bwMHz = std::max(1.0, (highHz - lowHz) / 1e6);
+        K = 0.244 * std::sqrt(bwMHz / 100.0) * std::pow(double(poles), 0.21);
+    }
+    for (auto &w : W) w = w / peak * K;
+
+    // 2) 批量 FFT(cv::dft 按行), 乘窗, IFFT, 写回
+    cv::Mat m(traceCount, N, CV_64FC1);
+    for (int t = 0; t < traceCount; ++t) {
+        const qint32 *s32 = reinterpret_cast<const qint32*>(src) + qint64(t) * N;
+        double *row = m.ptr<double>(t);
+        for (int i = 0; i < N; ++i) row[i] = double(s32[i]);
+    }
+    cv::Mat sp;
+    cv::dft(m, sp, cv::DFT_ROWS | cv::DFT_COMPLEX_OUTPUT);
+    for (int t = 0; t < traceCount; ++t) {
+        cv::Vec2d *p = sp.ptr<cv::Vec2d>(t);
+        for (int k = 0; k < N; ++k) { p[k][0] *= W[k]; p[k][1] *= W[k]; }
+    }
+    cv::Mat out;
+    cv::idft(sp, out, cv::DFT_ROWS | cv::DFT_REAL_OUTPUT | cv::DFT_SCALE);
+    for (int t = 0; t < traceCount; ++t) {
+        const double *row = out.ptr<double>(t);
+        qint32 *d32 = reinterpret_cast<qint32*>(dst) + qint64(t) * N;
+        for (int i = 0; i < N; ++i) d32[i] = qint32(std::llround(row[i]));
+    }
+}
+
 // ================= v1.0.169 软件授权管理 =================
 // 授权云 HTTP POST 公共: JSON 响应 → 解析 {code,err/msg,...}; 网络错误给中文提示
 static QJsonObject licensePost(QNetworkAccessManager *net, const QString &api,
@@ -10725,7 +10794,8 @@ void MainWindow::saveProcessedFile()
 
     // v1.0.152: 一键处理输出按"以前的逻辑"追加处理记录(DZT头 proc history 追加式)
     // + rhf_position 归零 + rhb_mdt 编辑时间更新 — 模式同 saveProcessedWithDzx 既有实现
-    if (m_pipelineApplied && header.size() >= 128) {
+    // v1.0.178: 数字滤波IIR单独应用后保存也写记录(04/03, sub=极点, c=fs/2πfc)
+    if ((m_pipelineApplied || m_filterApplied) && header.size() >= 128) {
         auto appendProcRec = [&header](const QByteArray &rec) {
             qint16 procOff = (header.size() >= 50)
                 ? qint16((quint8(header[48]) << 0) | (quint8(header[49]) << 8)) : 128;
@@ -10739,6 +10809,7 @@ void MainWindow::saveProcessedFile()
             header[50] = char(newSize & 0xFF);
             header[51] = char((newSize >> 8) & 0xFF);
         };
+        if (m_pipelineApplied) {
         // 1) 时间零点(以前的逻辑): 原 position 归零 + 0x4d 记录(仅 position≠0 时)
         if (header.size() >= 26) {
             float pos = 0.f;
@@ -10768,6 +10839,27 @@ void MainWindow::saveProcessedFile()
         }
         if (m_ocGain && m_ocGain->isChecked())
             appendProcRec(QByteArray("\x3b\x00\x01\x00\x00\x00\x00", 7)); // 59 增益(1点0dB占位)
+        }
+        // v1.0.178 数字滤波IIR记录(单独应用后保存): 先04(HP)后03(LP), sub=极点数,
+        // f32 c = fs/(2π·fc) — P_2/I/J/K标定(P_2: HP256MHz→c=15.9155 逐字节验证的编码)
+        if (m_filterApplied && m_lastIirPoles > 0 && m_filterTypeGroup
+            && m_filterTypeGroup->checkedId() == 1 && m_currentTab) {
+            const double fsHz = m_currentTab->pixelsPerRow
+                / (m_currentTab->timeRange * 1e-9);
+            const quint8 subByte = quint8(qBound(1, m_lastIirPoles, 255));
+            auto appendIir = [&appendProcRec, &fsHz, subByte](quint8 typeId, double fcMHz) {
+                QByteArray rec;
+                rec.append(char(typeId));
+                rec.append(char(subByte));
+                float c = float(fsHz / (2.0 * M_PI * fcMHz * 1e6));
+                rec.append(reinterpret_cast<const char *>(&c), 4);
+                appendProcRec(rec);
+            };
+            if (m_lastIirBand == 1 || m_lastIirBand == 2)
+                appendIir(0x04, double(m_lastIirHpMHz));      // 高通因子(带通=低频框)
+            if (m_lastIirBand == 0 || m_lastIirBand == 2)
+                appendIir(0x03, double(m_lastIirLpMHz));      // 低通因子(带通=高频框)
+        }
         // 3) rhb_mdt 编辑时间(以前的逻辑)
         {
             const QDateTime now = QDateTime::currentDateTime();
@@ -13336,6 +13428,23 @@ void MainWindow::showDigitalFilter()
     m_filterSpinHigh->setFixedWidth(70);
     highFreqRow->addWidget(m_filterSpinHigh);
     freqLayout->addLayout(highFreqRow);
+
+    // v1.0.178 IIR极点数(RADAN同款参数; 频域Butterworth窗阶数, proc记录sub字节)
+    QHBoxLayout *polesRow = new QHBoxLayout();
+    polesRow->setSpacing(2);
+    polesRow->setContentsMargins(0,0,0,0);
+    QLabel *lblPoles = new QLabel(QString::fromUtf8("极点:"));
+    lblPoles->setFixedWidth(32);
+    polesRow->addWidget(lblPoles);
+    m_filterPoles = new QSpinBox();
+    m_filterPoles->setRange(1, 16);
+    m_filterPoles->setValue(4);
+    m_filterPoles->setFixedWidth(70);
+    polesRow->addWidget(m_filterPoles);
+    QLabel *polesHint = new QLabel(QString::fromUtf8("(IIR)"));
+    polesHint->setStyleSheet("color:#889; font-size:11px;");
+    polesRow->addWidget(polesHint);
+    freqLayout->addLayout(polesRow);
     ctrlLayout->addWidget(freqGroupBox);
 
     // Now spinboxes exist, apply initial band UI state
@@ -13425,106 +13534,15 @@ void MainWindow::showDigitalFilter()
         char *dst = m_rawData.data();
 
         if (isIIR) {
-            // --- IIR Butterworth 8-order per section (forward-backward → effective 16) ---
-            // Band-pass = HP(lowHz) cascade LP(highHz), Band-stop = LP(lowHz) cascade HP(highHz)
-            int order = 8;
-            int nSos = order / 2;
-
-            struct Biquad { double b0, b1, b2, a1, a2; };
-            Biquad sos[8]; // max 8 sections for cascade
-            int totalSos = nSos;
-
-            double Wc1 = tan(M_PI * lowHz / fsHz);
-            double Wc2 = tan(M_PI * highHz / fsHz);
-
-            for (int k = 0; k < nSos; ++k) {
-                double theta = M_PI * (2*k + 1) / (2*order);
-                double d = sin(theta);
-
-                switch (bandType) {
-                case 0: { // Low-pass
-                    double Wc = Wc2;
-                    double a0 = 1 + 2*d*Wc + Wc*Wc;
-                    sos[k] = {Wc*Wc/a0, 2*Wc*Wc/a0, Wc*Wc/a0,
-                              2*(Wc*Wc-1)/a0, (1-2*d*Wc+Wc*Wc)/a0};
-                    break;
-                }
-                case 1: { // High-pass
-                    double Wc = Wc1;
-                    double a0 = Wc*Wc + 2*d*Wc + 1;
-                    sos[k] = {1.0/a0, -2.0/a0, 1.0/a0,
-                              2*(Wc*Wc-1)/a0, (Wc*Wc-2*d*Wc+1)/a0};
-                    break;
-                }
-                case 2: { // Band-pass = HP(lowHz) then LP(highHz)
-                    totalSos = nSos * 2;
-                    // HP section (cutoff = lowHz)
-                    {
-                        double a0 = Wc1*Wc1 + 2*d*Wc1 + 1;
-                        sos[k] = {1.0/a0, -2.0/a0, 1.0/a0,
-                                  2*(Wc1*Wc1-1)/a0, (Wc1*Wc1-2*d*Wc1+1)/a0};
-                    }
-                    // LP section (cutoff = highHz)
-                    {
-                        double a0 = 1 + 2*d*Wc2 + Wc2*Wc2;
-                        sos[nSos + k] = {Wc2*Wc2/a0, 2*Wc2*Wc2/a0, Wc2*Wc2/a0,
-                                         2*(Wc2*Wc2-1)/a0, (1-2*d*Wc2+Wc2*Wc2)/a0};
-                    }
-                    break;
-                }
-                case 3: { // Band-stop = LP(lowHz) then HP(highHz)
-                    totalSos = nSos * 2;
-                    // LP section (cutoff = lowHz)
-                    {
-                        double a0 = 1 + 2*d*Wc1 + Wc1*Wc1;
-                        sos[k] = {Wc1*Wc1/a0, 2*Wc1*Wc1/a0, Wc1*Wc1/a0,
-                                  2*(Wc1*Wc1-1)/a0, (1-2*d*Wc1+Wc1*Wc1)/a0};
-                    }
-                    // HP section (cutoff = highHz)
-                    {
-                        double a0 = Wc2*Wc2 + 2*d*Wc2 + 1;
-                        sos[nSos + k] = {1.0/a0, -2.0/a0, 1.0/a0,
-                                         2*(Wc2*Wc2-1)/a0, (Wc2*Wc2-2*d*Wc2+1)/a0};
-                    }
-                    break;
-                }
-                }
-            }
-
-            // Apply IIR: forward-backward for zero phase
-            for (int t = 0; t < traceCount; ++t) {
-                double buf[512];
-                const qint32 *s32 = reinterpret_cast<const qint32*>(src + t * N * 4);
-                for (int i = 0; i < N; ++i) buf[i] = s32[i];
-
-                // Forward pass through all sections
-                for (int s = 0; s < totalSos; ++s) {
-                    double w1 = 0, w2 = 0;
-                    double b0=sos[s].b0, b1=sos[s].b1, b2=sos[s].b2;
-                    double a1=sos[s].a1, a2=sos[s].a2;
-                    for (int i = 0; i < N; ++i) {
-                        double w0 = buf[i] - a1*w1 - a2*w2;
-                        buf[i] = b0*w0 + b1*w1 + b2*w2;
-                        w2 = w1; w1 = w0;
-                    }
-                }
-
-                // Backward pass (reverse iteration, no array flip needed)
-                for (int s = 0; s < totalSos; ++s) {
-                    double w1 = 0, w2 = 0;
-                    double b0=sos[s].b0, b1=sos[s].b1, b2=sos[s].b2;
-                    double a1=sos[s].a1, a2=sos[s].a2;
-                    for (int i = N-1; i >= 0; --i) {
-                        double w0 = buf[i] - a1*w1 - a2*w2;
-                        buf[i] = b0*w0 + b1*w1 + b2*w2;
-                        w2 = w1; w1 = w0;
-                    }
-                }
-
-                qint32 *d32 = reinterpret_cast<qint32*>(dst + t * N * 4);
-                for (int i = 0; i < N; ++i)
-                    d32[i] = static_cast<qint32>(buf[i]);
-            }
+            // --- v1.0.178 RADAN IIR标定版(P_2/P_I/P_J/P_K四样本corr 0.99-0.999):
+            // 频域Butterworth窗零相位滤波(FFT乘|H|再IFFT), 极点数=窗阶数;
+            // 裙摆3dB=标称截止; 带通增益K=0.244*sqrt(bwMHz/100)*n^0.21(标定拟合) ---
+            const int poles = m_filterPoles ? m_filterPoles->value() : 4;
+            iirFreqDomainFilter(src, dst, N, traceCount, fsHz, lowHz, highHz, bandType, poles);
+            m_lastIirHpMHz = int(lowHz / 1e6 + 0.5);
+            m_lastIirLpMHz = int(highHz / 1e6 + 0.5);
+            m_lastIirPoles = poles;
+            m_lastIirBand = bandType;
         } else {
             // --- FIR 32-order ---
             int order = 32;
@@ -13705,49 +13723,22 @@ void MainWindow::computeFilteredSpectrumPreview()
     std::vector<std::complex<double>> H(fftN, std::complex<double>(0.0, 0.0));
 
     if (isIIR) {
-        // IIR Butterworth order 8, forward-backward → effective order 16
-        // Forward-backward squares the magnitude: |H_fb| = |H|^2
-        int N = 8;
-        double Wc1 = tan(M_PI * lowHz / fsHz);
-        double Wc2 = tan(M_PI * highHz / fsHz);
-
+        // v1.0.178 RADAN IIR标定版频响预览: 频域Butterworth窗(零相位, n=极点数)+带通增益K
+        const int poles = m_filterPoles ? m_filterPoles->value() : 4;
+        double peak = 0.0;
+        std::vector<double> Wm(fftN, 0.0);
         for (int i = 0; i < fftN; ++i) {
-            double fd = (double)i * fsHz / fftN;
-            if (fd <= 0) { H[i] = std::complex<double>(1.0, 0.0); continue; }
-            double Wa = tan(M_PI * fd / fsHz);
-            double mag = 0.0;
-            switch (bandType) {
-            case 0: { // Low-pass
-                double x = Wa / Wc2;
-                double mag1 = 1.0 / sqrt(1.0 + pow(x, 2*N));
-                mag = mag1 * mag1;  // forward-backward squares magnitude
-                break;
-            }
-            case 1: { // High-pass
-                double x = Wc1 / Wa;
-                double mag1 = 1.0 / sqrt(1.0 + pow(x, 2*N));
-                mag = mag1 * mag1;
-                break;
-            }
-            case 2: { // Band-pass
-                double BW = Wc2 - Wc1;
-                double W0sq = Wc1 * Wc2;
-                double x = (Wa*Wa - W0sq) / (BW * Wa);
-                double mag1 = 1.0 / sqrt(1.0 + pow(x, 2*N));
-                mag = mag1 * mag1;
-                break;
-            }
-            case 3: { // Band-stop
-                double BW = Wc2 - Wc1;
-                double W0sq = Wc1 * Wc2;
-                double x = BW * Wa / fabs(Wa*Wa - W0sq + 1e-30);
-                double mag1 = 1.0 / sqrt(1.0 + pow(x, 2*N));
-                mag = mag1 * mag1;
-                break;
-            }
-            }
-            H[i] = std::complex<double>(mag, 0.0);
+            Wm[i] = iirButterMag(double(i) * fsHz / fftN, lowHz, highHz, bandType, poles);
+            peak = std::max(peak, Wm[i]);
         }
+        if (peak <= 0.0) peak = 1.0;
+        double K = 1.0;
+        if (bandType == 2) {
+            const double bwMHz = std::max(1.0, (highHz - lowHz) / 1e6);
+            K = 0.244 * std::sqrt(bwMHz / 100.0) * std::pow(double(poles), 0.21);
+        }
+        for (int i = 0; i < fftN; ++i)
+            H[i] = std::complex<double>(Wm[i] / peak * K, 0.0);
     } else {
         // FIR: design coefficients then FFT for frequency response
         int order = 32, M = order, hLen = M + 1;

@@ -733,12 +733,13 @@ private:
     QChartView *m_filterChartViewBefore = nullptr;
     QLineSeries *m_filterLowMarker = nullptr;
     QLineSeries *m_filterHighMarker = nullptr;
-    QDoubleSpinBox *m_filterSpinLow = nullptr;
-    QDoubleSpinBox *m_filterSpinHigh = nullptr;
+    QDoubleSpinBox *m_filterSpinLow = nullptr;    QDoubleSpinBox *m_filterSpinHigh = nullptr;
+    QSpinBox *m_filterPoles = nullptr;            // v1.0.178 IIR极点数(RADAN同款, 频域窗阶数)
     QButtonGroup *m_filterBandGroup = nullptr;
     QButtonGroup *m_filterTypeGroup = nullptr;
     QPushButton *m_filterBtnApply = nullptr;
     bool m_filterApplied = false;
+    int m_lastIirHpMHz = 0, m_lastIirLpMHz = 0, m_lastIirPoles = 0, m_lastIirBand = 2;  // v1.0.178 proc记录用
     void updateFilterSpectrum(int traceIdx);
     void updateFilterSpectrumFiltered(int traceIdx);
     void computeFilteredSpectrumPreview();
