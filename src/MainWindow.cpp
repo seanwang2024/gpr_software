@@ -3520,6 +3520,15 @@ void MainWindow::showAbout()
     dlg.exec();
 }
 
+// v1.0.171 Win11兼容: 用系统关联程序打开导出文件; Win11 若无关联(常见于CSV) openUrl 失败,
+// 静默无事发生会让用户以为没导出 —— 明确弹窗告知保存路径。
+static void openExportedFile(QWidget *parent, const QString &path)
+{
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
+        QMessageBox::information(parent, QString::fromUtf8("已导出"),
+            QString::fromUtf8("文件已保存, 但系统没有能打开它的关联程序:\n%1\n请手动打开查看。").arg(path));
+}
+
 // ================= v1.0.169 软件授权管理 =================
 // 授权云 HTTP POST 公共: JSON 响应 → 解析 {code,err/msg,...}; 网络错误给中文提示
 static QJsonObject licensePost(QNetworkAccessManager *net, const QString &api,
@@ -3935,6 +3944,7 @@ void MainWindow::showUpgrade()
                 QString bat = QString::fromUtf8(
                     "@echo off\r\n"
                     "setlocal enabledelayedexpansion\r\n"
+                    "set \"ELEV=%~1\"\r\n"
                     "set \"APP=__APP__\"\r\n"
                     "set \"NEW=__NEW__\"\r\n"
                     "set \"PID=__PID__\"\r\n"
@@ -3969,8 +3979,16 @@ void MainWindow::showUpgrade()
                     "start \"\" \"%APP%\"\r\n"
                     "del /f /q \"%~f0\" 2>nul\r\n"
                     "exit /b\r\n"
+                    "rem v1.0.171 Win11兼容: 装在Program Files时普通权限覆盖失败 → UAC提权整脚本重跑一次\r\n"
                     ":fail\r\n"
                     ">>\"%LOG%\" echo FAIL_copy_after_30_tries\r\n"
+                    "if /i \"%ELEV%\"==\"elev\" goto giveup\r\n"
+                    ">>\"%LOG%\" echo try_elevate\r\n"
+                    "powershell -NoProfile -Command \"Start-Process -FilePath '%~f0' -ArgumentList 'elev' -Verb RunAs\"\r\n"
+                    "exit /b\r\n"
+                    ":giveup\r\n"
+                    ">>\"%LOG%\" echo GIVEUP_need_manual\r\n"
+                    "start \"\" notepad \"%LOG%\"\r\n"
                     "del /f /q \"%~f0\" 2>nul\r\n"
                     "exit /b\r\n"
                 );
@@ -4034,6 +4052,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
         QString bat = QString::fromUtf8(
             "@echo off\r\n"
             "setlocal enabledelayedexpansion\r\n"
+            "set \"ELEV=%~1\"\r\n"
             "set \"APP=__APP__\"\r\n"
             "set \"NEW=__NEW__\"\r\n"
             "set \"PID=__PID__\"\r\n"
@@ -4067,8 +4086,16 @@ void MainWindow::closeEvent(QCloseEvent *event)
             "del /f /q \"%NEW%\" >nul 2>&1\r\n"
             "del /f /q \"%~f0\" 2>nul\r\n"
             "exit /b\r\n"
+            "rem v1.0.171 Win11兼容: 装在Program Files时普通权限覆盖失败 → UAC提权整脚本重跑一次\r\n"
             ":fail\r\n"
             ">>\"%LOG%\" echo FAIL_copy_after_30_tries\r\n"
+            "if /i \"%ELEV%\"==\"elev\" goto giveup\r\n"
+            ">>\"%LOG%\" echo try_elevate\r\n"
+            "powershell -NoProfile -Command \"Start-Process -FilePath '%~f0' -ArgumentList 'elev' -Verb RunAs\"\r\n"
+            "exit /b\r\n"
+            ":giveup\r\n"
+            ">>\"%LOG%\" echo GIVEUP_need_manual\r\n"
+            "start \"\" notepad \"%LOG%\"\r\n"
             "del /f /q \"%~f0\" 2>nul\r\n"
             "exit /b\r\n"
         );
@@ -7267,7 +7294,7 @@ void MainWindow::showExportDialog(int initialTab)
                     QString::fromUtf8("导出失败: 无法写入 %1").arg(sel));
                 return;
             }
-            QDesktopServices::openUrl(QUrl::fromLocalFile(sel));   // 系统关联程序打开
+            openExportedFile(&dlg, sel);   // 系统关联程序打开(Win11无关联时明确提示)
             dlg.accept();
             return;
         }
@@ -7286,7 +7313,7 @@ void MainWindow::showExportDialog(int initialTab)
                 if (exportInterpCsv(tb, out, lay, mk, ano, dep)) done << out;
             }
             if (!done.isEmpty()) {
-                QDesktopServices::openUrl(QUrl::fromLocalFile(done.first()));
+                openExportedFile(&dlg, done.first());   // Win11无关联时明确提示
                 QMessageBox::information(&dlg, QString::fromUtf8("数据导出"),
                     QString::fromUtf8("已导出 %1 个文件:\n%2").arg(done.size()).arg(done.join(QLatin1Char('\n'))));
             } else {
@@ -7307,7 +7334,7 @@ void MainWindow::showExportDialog(int initialTab)
                 QMessageBox::information(&dlg, QString::fromUtf8("数据导出"),
                     QString::fromUtf8("所选格式将在后续版本提供，本次已按 CSV 导出。"));
             if (exportInterpCsv(m_currentTab, sel, lay, mk, ano, dep)) {
-                QDesktopServices::openUrl(QUrl::fromLocalFile(sel));   // 系统关联程序打开
+                openExportedFile(&dlg, sel);   // 系统关联程序打开(Win11无关联时明确提示)
                 dlg.accept();
             } else {
                 QMessageBox::warning(&dlg, QString::fromUtf8("数据导出"),
@@ -7756,7 +7783,7 @@ void MainWindow::showAiReportDialog()
                 QString::fromUtf8("生成失败: 无法写入 %1").arg(outPath));
             return;
         }
-        QDesktopServices::openUrl(QUrl::fromLocalFile(outPath));   // 系统关联程序打开
+        openExportedFile(&dlg, outPath);   // 系统关联程序打开(Win11无关联时明确提示)
         dlg.accept();
     });
     dlg.exec();

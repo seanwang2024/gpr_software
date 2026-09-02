@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QFile>
 #include <QCoreApplication>
+#include <QScreen>
 #include "MainWindow.h"
 #include "License.h"
 #include "MatIcon.h"
@@ -13,13 +14,18 @@
 
 // 终端诊断输出:同时写 UTF-8 到控制台(stderr) 和日志文件 dzx_diag.log(便于复制)。
 // 供 MainWindow 的 DZX 诊断调用——终端只显示这些内容。
+// v1.0.171 Win11 兼容: Win11 24H2 默认终端=Windows Terminal 时 freopen 可能失败,
+// 失败后 FILE* 不可再写(否则崩溃), g_consoleOk=false 只落日志文件。
+static bool g_consoleOk = false;
 void diagPrint(const QString &msg)
 {
     QByteArray ba = msg.toUtf8();
     // 控制台
-    fputs(ba.constData(), stderr);
-    fputc('\n', stderr);
-    fflush(stderr);
+    if (g_consoleOk) {
+        fputs(ba.constData(), stderr);
+        fputc('\n', stderr);
+        fflush(stderr);
+    }
     // 日志文件(每次运行覆盖,位于 exe 同级目录)
     static QFile logFile;
     static bool inited = false;
@@ -52,8 +58,12 @@ int main(int argc, char *argv[])
     bool hasConsole = AllocConsole();
     if (hasConsole) {
         SetConsoleOutputCP(CP_UTF8);              // 控制台按 UTF-8 显示,中文不乱码
-        freopen("CONOUT$", "w", stdout);
-        freopen("CONOUT$", "w", stderr);
+        // v1.0.171: freopen 判空防崩(Win11 24H2 Windows Terminal 下可能失败)
+        FILE *fo = freopen("CONOUT$", "w", stdout);
+        FILE *fe = freopen("CONOUT$", "w", stderr);
+        g_consoleOk = (fo != nullptr && fe != nullptr);
+        if (!g_consoleOk && fo == nullptr && fe == nullptr)
+            hasConsole = false;   // 双双向失败: 纯日志模式
         SetConsoleTitleW(L"DZX Processing Diagnostic");
         // 启用快速编辑(QuickEdit):鼠标可选中终端文字,选中后按 回车/右键 复制
         HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
@@ -69,6 +79,18 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     Theme::load();   // v1.0.149 主题(默认岩土橙)须在创建窗口前
     app.setWindowIcon(QIcon(QStringLiteral(":/icons/diting_logo.png")));   // v1.0.148 地听logo
+
+    // v1.0.171 环境自检: Win10/Win11 兼容问题排查必备信息(控制台+日志文件双写)
+    {
+        QScreen *scr = app.primaryScreen();
+        diagPrint(QString("环境: %1 | %2 | 内核 %3 | DPI缩放 %4% | 主屏 %5x%6 | 设备ID %7")
+            .arg(QSysInfo::prettyProductName(), QSysInfo::currentCpuArchitecture(),
+                 QSysInfo::kernelVersion())
+            .arg(scr ? qRound(scr->devicePixelRatio() * 100) : 100)
+            .arg(scr ? scr->size().width() : 0)
+            .arg(scr ? scr->size().height() : 0)
+            .arg(License::deviceIdDisplay()));
+    }
 
     // Material Symbols 矢量图标字体(设计稿同款) — 失败仅告警, UI 回退 PNG
     if (MatIcon::init()) {
