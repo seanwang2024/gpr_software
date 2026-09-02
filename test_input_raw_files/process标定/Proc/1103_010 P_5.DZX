@@ -40,12 +40,27 @@
     <Setting>
       <name>RibbonCategory</name>
       <state>0</state>
-      <value>1</value>
+      <value>2</value>
     </Setting>
     <Setting>
       <name>PickType</name>
       <state>0</state>
       <value>1</value>
+    </Setting>
+    <Setting>
+      <name>R3DXViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>R3DYViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>R3DZViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
     </Setting>
   </GlobalProperties>
   <ChannelProperties>
@@ -177,7 +192,7 @@
     <layerNum>0</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>11.3299999</defaultVelocity>
+    <defaultVelocity>14.9899988</defaultVelocity>
   </LayerGroup>
   <LayerGroup>
     <groupName>第 2 层</groupName>
@@ -192,7 +207,7 @@
     <layerNum>1</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>11.3299999</defaultVelocity>
+    <defaultVelocity>14.9899988</defaultVelocity>
   </LayerGroup>
   <LayerGroup>
     <groupName>第 3 层</groupName>
@@ -207,7 +222,7 @@
     <layerNum>2</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>11.3299999</defaultVelocity>
+    <defaultVelocity>14.9899988</defaultVelocity>
   </LayerGroup>
   <LayerGroup>
     <groupName>第 4 层</groupName>
@@ -222,7 +237,7 @@
     <layerNum>3</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>11.3299999</defaultVelocity>
+    <defaultVelocity>14.9899988</defaultVelocity>
   </LayerGroup>
   <LayerGroup>
     <groupName>第 5 层</groupName>
@@ -237,7 +252,7 @@
     <layerNum>4</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>11.3299999</defaultVelocity>
+    <defaultVelocity>14.9899988</defaultVelocity>
   </LayerGroup>
   <LayerGroup>
     <groupName>第 6 层</groupName>
@@ -252,7 +267,7 @@
     <layerNum>5</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>11.3299999</defaultVelocity>
+    <defaultVelocity>14.9899988</defaultVelocity>
   </LayerGroup>
   <LayerGroup>
     <groupName>第 7 层</groupName>
@@ -267,7 +282,7 @@
     <layerNum>6</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>11.3299999</defaultVelocity>
+    <defaultVelocity>14.9899988</defaultVelocity>
   </LayerGroup>
   <TargetGroup>
     <groupName>钢筋</groupName>

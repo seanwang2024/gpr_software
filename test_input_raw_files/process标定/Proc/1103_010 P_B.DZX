@@ -40,12 +40,27 @@
     <Setting>
       <name>RibbonCategory</name>
       <state>0</state>
-      <value>1</value>
+      <value>3</value>
     </Setting>
     <Setting>
       <name>PickType</name>
       <state>0</state>
       <value>1</value>
+    </Setting>
+    <Setting>
+      <name>R3DXViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>R3DYViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>R3DZViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
     </Setting>
   </GlobalProperties>
   <ChannelProperties>
@@ -152,4 +167,124 @@
       </WayPt>
     </Profile>
   </File>
+  <LayerGroup>
+    <groupName>第 1 层</groupName>
+    <display>1</display>
+    <color>1</color>
+    <sizePx>4</sizePx>
+    <outline>1</outline>
+    <readOnly>0</readOnly>
+    <diameter>0.0000000</diameter>
+    <link>1</link>
+    <pickType>0</pickType>
+    <layerNum>0</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>11.3299999</defaultVelocity>
+  </LayerGroup>
+  <LayerGroup>
+    <groupName>第 2 层</groupName>
+    <display>1</display>
+    <color>2</color>
+    <sizePx>4</sizePx>
+    <outline>1</outline>
+    <readOnly>0</readOnly>
+    <diameter>0.0000000</diameter>
+    <link>1</link>
+    <pickType>0</pickType>
+    <layerNum>1</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>11.3299999</defaultVelocity>
+  </LayerGroup>
+  <LayerGroup>
+    <groupName>第 3 层</groupName>
+    <display>1</display>
+    <color>3</color>
+    <sizePx>4</sizePx>
+    <outline>1</outline>
+    <readOnly>0</readOnly>
+    <diameter>0.0000000</diameter>
+    <link>1</link>
+    <pickType>0</pickType>
+    <layerNum>2</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>11.3299999</defaultVelocity>
+  </LayerGroup>
+  <LayerGroup>
+    <groupName>第 4 层</groupName>
+    <display>1</display>
+    <color>4</color>
+    <sizePx>4</sizePx>
+    <outline>1</outline>
+    <readOnly>0</readOnly>
+    <diameter>0.0000000</diameter>
+    <link>1</link>
+    <pickType>0</pickType>
+    <layerNum>3</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>11.3299999</defaultVelocity>
+  </LayerGroup>
+  <LayerGroup>
+    <groupName>第 5 层</groupName>
+    <display>1</display>
+    <color>5</color>
+    <sizePx>4</sizePx>
+    <outline>1</outline>
+    <readOnly>0</readOnly>
+    <diameter>0.0000000</diameter>
+    <link>1</link>
+    <pickType>0</pickType>
+    <layerNum>4</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>11.3299999</defaultVelocity>
+  </LayerGroup>
+  <LayerGroup>
+    <groupName>第 6 层</groupName>
+    <display>1</display>
+    <color>7</color>
+    <sizePx>4</sizePx>
+    <outline>1</outline>
+    <readOnly>0</readOnly>
+    <diameter>0.0000000</diameter>
+    <link>1</link>
+    <pickType>0</pickType>
+    <layerNum>5</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>11.3299999</defaultVelocity>
+  </LayerGroup>
+  <LayerGroup>
+    <groupName>第 7 层</groupName>
+    <display>1</display>
+    <color>7</color>
+    <sizePx>4</sizePx>
+    <outline>1</outline>
+    <readOnly>0</readOnly>
+    <diameter>0.0000000</diameter>
+    <link>1</link>
+    <pickType>0</pickType>
+    <layerNum>6</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>11.3299999</defaultVelocity>
+  </LayerGroup>
+  <TargetGroup>
+    <groupName>钢筋</groupName>
+    <display>1</display>
+    <color>13</color>
+    <sizePx>3</sizePx>
+    <outline>1</outline>
+    <readOnly>0</readOnly>
+    <diameter>600.0000000</diameter>
+    <link>1</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>11.3299999</defaultVelocity>
+  </TargetGroup>
 </DZX>

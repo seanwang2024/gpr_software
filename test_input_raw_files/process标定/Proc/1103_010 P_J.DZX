@@ -164,7 +164,7 @@
   </WayPtNameProperties>
   <File>
     <scanRange>0,5952</scanRange>
-    <name>1103_010 P_G.DZT</name>
+    <name>1103_010 P_J.DZT</name>
     <Profile>
       <scanRange>0,5952</scanRange>
       <Comment>
@@ -285,18 +285,250 @@
     <defaultVelocity>11.3299999</defaultVelocity>
   </LayerGroup>
   <TargetGroup>
-    <groupName>钢筋</groupName>
+    <groupName>Dot 0</groupName>
     <display>1</display>
-    <color>13</color>
-    <sizePx>3</sizePx>
-    <outline>1</outline>
+    <color>18</color>
+    <sizePx>2</sizePx>
+    <outline>0</outline>
     <readOnly>0</readOnly>
-    <diameter>600.0000000</diameter>
-    <link>1</link>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
     <pickType>1</pickType>
     <layerNum>7</layerNum>
     <velMethod>0</velMethod>
     <lockVelocity>0</lockVelocity>
-    <defaultVelocity>11.3299999</defaultVelocity>
+    <defaultVelocity>35.1699982</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>5908,152,0,0</scanSampChanProp>
+      <timeAmpDepVel>5.9375000,510.0000000,104.4109116,35.1699982</timeAmpDepVel>
+    </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 1</groupName>
+    <display>1</display>
+    <color>10</color>
+    <sizePx>3</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>125.0599976</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>5829,322,0,0</scanSampChanProp>
+      <timeAmpDepVel>12.5781250,992.0000000,786.5101318,125.0599976</timeAmpDepVel>
+    </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 2</groupName>
+    <display>1</display>
+    <color>9</color>
+    <sizePx>7</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>77.5899963</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>5732,339,0,0</scanSampChanProp>
+      <timeAmpDepVel>13.2421875,733.0000000,513.7306519,77.5899963</timeAmpDepVel>
+    </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 3</groupName>
+    <display>1</display>
+    <color>10</color>
+    <sizePx>3</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>151.6699982</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>5613,304,0,0</scanSampChanProp>
+      <timeAmpDepVel>11.8750000,1650.0000000,900.5406494,151.6699982</timeAmpDepVel>
+    </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 4</groupName>
+    <display>1</display>
+    <color>16</color>
+    <sizePx>5</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>113.7800064</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>5483,339,0,0</scanSampChanProp>
+      <timeAmpDepVel>13.2421875,622.0000000,753.3481445,113.7800064</timeAmpDepVel>
+    </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 5</groupName>
+    <display>1</display>
+    <color>18</color>
+    <sizePx>2</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>88.1299973</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>5480,120,0,0</scanSampChanProp>
+      <timeAmpDepVel>4.6875000,4464.0000000,206.5546570,88.1299973</timeAmpDepVel>
+    </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 6</groupName>
+    <display>1</display>
+    <color>16</color>
+    <sizePx>5</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>125.9100037</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>5367,364,0,0</scanSampChanProp>
+      <timeAmpDepVel>14.2187500,683.0000000,895.1413574,125.9100037</timeAmpDepVel>
+    </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 7</groupName>
+    <display>1</display>
+    <color>16</color>
+    <sizePx>5</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>103.9300079</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>5222,320,0,0</scanSampChanProp>
+      <timeAmpDepVel>12.5000000,848.0000000,649.5625610,103.9300079</timeAmpDepVel>
+    </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 8</groupName>
+    <display>1</display>
+    <color>16</color>
+    <sizePx>5</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>82.7699966</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>5101,323,0,0</scanSampChanProp>
+      <timeAmpDepVel>12.6171875,655.0000000,522.1622925,82.7699966</timeAmpDepVel>
+    </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 9</groupName>
+    <display>1</display>
+    <color>18</color>
+    <sizePx>2</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>94.9599991</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>4957,296,0,0</scanSampChanProp>
+      <timeAmpDepVel>11.5625000,810.0000000,548.9874878,94.9599991</timeAmpDepVel>
+    </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 10</groupName>
+    <display>1</display>
+    <color>16</color>
+    <sizePx>5</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>143.9799957</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>4821,300,0,0</scanSampChanProp>
+      <timeAmpDepVel>11.7187500,1032.0000000,843.6328125,143.9799957</timeAmpDepVel>
+    </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 11</groupName>
+    <display>1</display>
+    <color>16</color>
+    <sizePx>5</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>94.0000000</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>4676,291,0,0</scanSampChanProp>
+      <timeAmpDepVel>11.3671875,828.0000000,534.2578125,94.0000000</timeAmpDepVel>
+    </TargetWayPt>
+  </TargetGroup>
+  <TargetGroup>
+    <groupName>Dot 12</groupName>
+    <display>1</display>
+    <color>16</color>
+    <sizePx>5</sizePx>
+    <outline>0</outline>
+    <readOnly>0</readOnly>
+    <diameter>3.3333333</diameter>
+    <link>0</link>
+    <pickType>1</pickType>
+    <layerNum>7</layerNum>
+    <velMethod>0</velMethod>
+    <lockVelocity>0</lockVelocity>
+    <defaultVelocity>123.6699905</defaultVelocity>
+    <TargetWayPt>
+      <scanSampChanProp>4563,320,0,0</scanSampChanProp>
+      <timeAmpDepVel>12.5000000,598.0000000,772.9374390,123.6699905</timeAmpDepVel>
+    </TargetWayPt>
   </TargetGroup>
 </DZX>

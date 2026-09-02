@@ -47,6 +47,21 @@
       <state>0</state>
       <value>1</value>
     </Setting>
+    <Setting>
+      <name>R3DXViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>R3DYViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>R3DZViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
   </GlobalProperties>
   <ChannelProperties>
     <channel>0</channel>

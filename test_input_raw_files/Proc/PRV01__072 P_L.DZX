@@ -37,6 +37,31 @@
       <state>0</state>
       <value>1</value>
     </Setting>
+    <Setting>
+      <name>AmpUnits</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>LayerFill</name>
+      <state>0</state>
+      <value>1</value>
+    </Setting>
+    <Setting>
+      <name>R3DXViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>R3DYViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
+    <Setting>
+      <name>R3DZViewRotAngle</name>
+      <state>0</state>
+      <value>0</value>
+    </Setting>
   </GlobalProperties>
   <File>
     <scanRange>0,1732</scanRange>
@@ -55,6 +80,7 @@
       <WayPt>
         <scan>1732</scan>
         <distance>34.6400000</distance>
+        <localCoords>10.0000000,0.0000000,0.0000000</localCoords>
       </WayPt>
     </Profile>
   </File>
