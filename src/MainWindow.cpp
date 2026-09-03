@@ -10795,7 +10795,8 @@ void MainWindow::saveProcessedFile()
     // v1.0.152: 一键处理输出按"以前的逻辑"追加处理记录(DZT头 proc history 追加式)
     // + rhf_position 归零 + rhb_mdt 编辑时间更新 — 模式同 saveProcessedWithDzx 既有实现
     // v1.0.178: 数字滤波IIR单独应用后保存也写记录(04/03, sub=极点, c=fs/2πfc)
-    if ((m_pipelineApplied || m_filterApplied) && header.size() >= 128) {
+    if ((m_pipelineApplied || m_filterApplied || m_kirchhoffApplied || m_deconvApplied)
+        && header.size() >= 128) {
         auto appendProcRec = [&header](const QByteArray &rec) {
             qint16 procOff = (header.size() >= 50)
                 ? qint16((quint8(header[48]) << 0) | (quint8(header[49]) << 8)) : 128;
@@ -10859,6 +10860,30 @@ void MainWindow::saveProcessedFile()
                 appendIir(0x04, double(m_lastIirHpMHz));      // 高通因子(带通=低频框)
             if (m_lastIirBand == 0 || m_lastIirBand == 2)
                 appendIir(0x03, double(m_lastIirLpMHz));      // 低通因子(带通=高频框)
+        }
+        // v1.0.179 克西霍夫偏移记录: 24 <宽度> f32(斜率=v_cm/512) 1b0100 f32(增益)
+        // (P_5字节级验证的编码; 斜率端点=顶层速度cm/ns)
+        if (m_kirchhoffApplied && m_lastMigWidth > 0) {
+            QByteArray rec;
+            rec.append(char(0x24));
+            rec.append(char(qBound(1, m_lastMigWidth, 255)));
+            float slope = float(m_lastMigVel * 100.0 / 512.0);
+            rec.append(reinterpret_cast<const char *>(&slope), 4);
+            rec.append(QByteArray("\x1b\x01\x00", 3));        // 固定占位(全样本一致)
+            float g = float(m_lastMigGain);
+            rec.append(reinterpret_cast<const char *>(&g), 4);
+            appendProcRec(rec);
+        }
+        // v1.0.179 预测反褶积记录: 1e <算子长> <滞后u8> f32(白化%)
+        // (P_6字节级验证: 1e 1f 05 f32(10.0))
+        if (m_deconvApplied && m_lastDeconOp > 0) {
+            QByteArray rec;
+            rec.append(char(0x1e));
+            rec.append(char(qBound(1, m_lastDeconOp, 255)));
+            rec.append(char(qBound(1, m_lastDeconLag, 255)));
+            float w = float(m_lastDeconWhiten);
+            rec.append(reinterpret_cast<const char *>(&w), 4);
+            appendProcRec(rec);
         }
         // 3) rhb_mdt 编辑时间(以前的逻辑)
         {
@@ -14776,6 +14801,7 @@ void MainWindow::showKirchhoffMigration()
         m_kirchhoffVelocitySpin = nullptr;
         m_kirchhoffWidthSpin = nullptr;
         m_kirchhoffSpacingSpin = nullptr;
+        m_kirchhoffGainSpin = nullptr;
         m_kirchhoffBtnApply = nullptr;
         m_kirchhoffApplied = false;
         if (imageLabel) imageLabel->setHyperbolaTracking(false);
@@ -14811,6 +14837,13 @@ void MainWindow::showKirchhoffMigration()
     m_kirchhoffSpacingSpin->setSuffix(" cm");
     m_kirchhoffSpacingSpin->setValue(1.0);
     paramForm->addRow("道间距离：", m_kirchhoffSpacingSpin);
+
+    // v1.0.179 增益(RADAN同款: 偏移平均后幅度补偿, 常用1.5-5)
+    m_kirchhoffGainSpin = new QDoubleSpinBox();
+    m_kirchhoffGainSpin->setRange(0.1, 100.0);
+    m_kirchhoffGainSpin->setDecimals(1);
+    m_kirchhoffGainSpin->setValue(4.0);
+    paramForm->addRow(QString::fromUtf8("增益："), m_kirchhoffGainSpin);
     mainLayout->addWidget(paramGroup);
 
     // Buttons
@@ -14889,97 +14922,62 @@ void MainWindow::applyKirchhoffMigration()
     int numTraces = totalPixels / samplesPerTrace;
     if (numTraces == 0 || samplesPerTrace == 0) return;
 
-    double firstWave = m_kirchhoffFirstWaveSpin ? m_kirchhoffFirstWaveSpin->value() : 27.0;
+    // v1.0.179 RADAN 标定版克西霍夫(处理process文档.md §6.6-6.8, 3数据集验证):
+    //   双曲线(样本域): sIn = sqrt(sOut² + (k·Δx)²),  k = 2·DX·100/(v_cm·dt_ns)
+    //   固定孔径(宽度/2) + 无权重 + 平均 + ×增益;  信号区段 corr 0.99+
+    //   (旧版DC去除/动态孔径/Yilmaz权重/加权归一均非RADAN行为, 已移除)
     double vel = m_kirchhoffVelocitySpin ? m_kirchhoffVelocitySpin->value() : 0.106;       // m/ns
     int aperture = m_kirchhoffWidthSpin ? m_kirchhoffWidthSpin->value() : 60;              // traces
     double spacingCm = m_kirchhoffSpacingSpin ? m_kirchhoffSpacingSpin->value() : 1.0;
+    double gain = m_kirchhoffGainSpin ? m_kirchhoffGainSpin->value() : 4.0;
     double dxM = spacingCm * 0.01;                                                          // m
     double tps = (m_timeRange > 0) ? (m_timeRange / samplesPerTrace) : 0.039;               // ns/sample
     if (vel < 1e-6 || dxM < 1e-9 || tps < 1e-12) return;
+    const double vCm = vel * 100.0;
+    const double kGeo = 2.0 * dxM * 100.0 / (vCm * tps);                                    // samples/trace
 
     m_progressBar->setValue(0);
-    m_progressBar->setFormat("克西霍夫: 读取数据...");
+    m_progressBar->setFormat(QString::fromUtf8("克西霍夫: 偏移求和... %p%"));
     m_progressBar->show();
     QCoreApplication::processEvents();
 
-    const char *srcData = m_rawData.constData();
-    std::vector<double> samples(totalPixels);
-    for (int i = 0; i < totalPixels; ++i) {
-        int idx = i * 4;
-        qint32 v = (static_cast<quint8>(srcData[idx+3]) << 24) |
-                   (static_cast<quint8>(srcData[idx+2]) << 16) |
-                   (static_cast<quint8>(srcData[idx+1]) << 8) |
-                   (static_cast<quint8>(srcData[idx]));
-        samples[i] = static_cast<double>(v);
-    }
-
-    // DC 去除：减去输入中位数（仪器偏移会使深部数据整体偏置 > 0，
-    // 算术平均保留该偏置导致深部灰偏白）。中位数对绕射峰鲁棒。
-    {
-        std::vector<double> tmp(samples);
-        std::nth_element(tmp.begin(), tmp.begin() + totalPixels / 2, tmp.end());
-        double inMedian = tmp[totalPixels / 2];
-        for (int i = 0; i < totalPixels; ++i) samples[i] -= inMedian;
-    }
-
-    m_progressBar->setValue(10);
-    m_progressBar->setFormat("克西霍夫: 偏移求和... %p%");
-    QCoreApplication::processEvents();
+    const qint32 *s32 = reinterpret_cast<const qint32*>(m_rawData.constData());
 
     int halfW = aperture / 2;
     if (halfW < 1) halfW = 1;
     std::vector<double> out(totalPixels, 0.0);
 
-    // Kirchhoff 时间偏移：动态孔径 + Yilmaz 标准权重 (t0/t)^(3/2)
-    //   τ(x_in) = sqrt(τ0^2 + (dx/v_mig)^2)
-    //   动态孔径: dx ≤ z·tan(θ_max), θ_max=45°
-    //     浅层 z 小 → 孔径自动收缩到 1 道 → 浅层不受远道反向极性抵消
-    //     深部 z 大 → 孔径自动放大(上限 halfW) → 多道参与聚焦绕射
-    //   权重 w = (t0/t)^(3/2) = cos(θ)·sqrt(t0/t) (倾斜因子×反混叠因子)
-    //     远道 t 大 → w 小 → 软截断远道"拖尾"
-    //   归一化 sum/wsum 保留相干绕射峰振幅，输入已 ±2^23 满量程不后处理缩放
-    const double thetaMax = 45.0 * M_PI / 180.0;
-    const double tanThetaMax = std::tan(thetaMax);  // ≈ 1.0
     for (int xOut = 0; xOut < numTraces; ++xOut) {
+        const int xMin = std::max(0, xOut - halfW);
+        const int xMax = std::min(numTraces - 1, xOut + halfW);
+        const int nAp = xMax - xMin + 1;
         for (int sOut = 0; sOut < samplesPerTrace; ++sOut) {
-            int outIdx = xOut * samplesPerTrace + sOut;
-            double tau0 = (sOut - firstWave) * tps;
-            if (tau0 <= 0.0) {
-                out[outIdx] = samples[outIdx];
-                continue;
-            }
-            double zM = vel * tau0 / 2.0;
-            double dxMaxM = zM * tanThetaMax;
-            int halfWDyn = (dxM > 1e-9) ? (static_cast<int>(dxMaxM / dxM) + 1) : halfW;
-            if (halfWDyn < 1) halfWDyn = 1;
-            if (halfWDyn > halfW) halfWDyn = halfW;
-            int xMin = std::max(0, xOut - halfWDyn);
-            int xMax = std::min(numTraces - 1, xOut + halfWDyn);
-
+            const int outIdx = xOut * samplesPerTrace + sOut;
+            if (sOut == 0) { out[outIdx] = double(s32[outIdx]); continue; }   // 行0保留原值(RADAN保存布局)
             double sum = 0.0;
-            double wsum = 0.0;
             for (int xIn = xMin; xIn <= xMax; ++xIn) {
-                double dx = (xIn - xOut) * dxM;
-                double arg = dx / vel;
-                double tauIn = std::sqrt(tau0 * tau0 + arg * arg);  // ns
-                double sInF = firstWave + tauIn / tps;
-                if (sInF < 0.0 || sInF > samplesPerTrace - 1.001) continue;
-                int sI0 = static_cast<int>(sInF);
-                double frac = sInF - sI0;
-                double v0 = samples[xIn * samplesPerTrace + sI0];
-                double v1 = samples[xIn * samplesPerTrace + sI0 + 1];
-                double val = v0 + (v1 - v0) * frac;
-                double w = std::pow(tau0 / tauIn, 1.5);  // (t0/t)^(3/2)
-                sum += val * w;
-                wsum += w;
+                const double dtS = std::sqrt(double(sOut * sOut)
+                                             + (kGeo * (xIn - xOut)) * (kGeo * (xIn - xOut)));
+                const double sI0f = std::min(dtS, double(samplesPerTrace - 1.001));
+                const int sI0 = int(sI0f);
+                const double frac = sI0f - sI0;
+                const qint32 *tr = s32 + qint64(xIn) * samplesPerTrace;
+                sum += double(tr[sI0]) * (1.0 - frac) + double(tr[sI0 + 1]) * frac;
             }
-            out[outIdx] = (wsum > 1e-12) ? (sum / wsum) : 0.0;
+            out[outIdx] = sum / nAp * gain;                                   // 平均 × 增益
         }
         if (xOut % qMax(1, numTraces / 20) == 0) {
             m_progressBar->setValue(10 + 80 * xOut / numTraces);
             QCoreApplication::processEvents();
         }
     }
+    // v1.0.179: 行1哨兵(RADAN偏移族保存布局, 全道 -2^24 黑线标记)
+    for (int xOut = 0; xOut < numTraces; ++xOut)
+        out[xOut * samplesPerTrace + 1] = -16777216.0;
+    // proc 记录参数(保存时写): 24 宽度 f32(斜率=v_cm/512) 1b 01 00 f32(增益)
+    m_lastMigWidth = aperture;
+    m_lastMigVel = vel;
+    m_lastMigGain = gain;
 
     // 无后处理缩放：输出已在 ±2^23 范围内，直接写入（仅做 qint32 截断保护）
     char *data = m_rawData.data();
@@ -15277,6 +15275,7 @@ void MainWindow::showDeconvolution()
         m_deconvDlg = nullptr;
         m_deconvFilterLenSpin = nullptr;
         m_deconvPredStepSpin = nullptr;
+        m_deconvWhitenSpin = nullptr;
         m_deconvBtnApply = nullptr;
         m_deconvApplied = false;
     });
@@ -15287,14 +15286,22 @@ void MainWindow::showDeconvolution()
     QGroupBox *paramGroup = new QGroupBox("参数设置");
     QFormLayout *paramForm = new QFormLayout(paramGroup);
     m_deconvFilterLenSpin = new QSpinBox();
-    m_deconvFilterLenSpin->setRange(3, 999);
+    m_deconvFilterLenSpin->setRange(3, 128);
     m_deconvFilterLenSpin->setValue(31);
     paramForm->addRow("滤波器长：", m_deconvFilterLenSpin);
 
     m_deconvPredStepSpin = new QSpinBox();
-    m_deconvPredStepSpin->setRange(1, 999);
+    m_deconvPredStepSpin->setRange(1, 255);
     m_deconvPredStepSpin->setValue(5);
     paramForm->addRow("预测步长：", m_deconvPredStepSpin);
+
+    // v1.0.179 白化%(RADAN同款, 标定值10)
+    m_deconvWhitenSpin = new QDoubleSpinBox();
+    m_deconvWhitenSpin->setRange(0.0, 100.0);
+    m_deconvWhitenSpin->setDecimals(1);
+    m_deconvWhitenSpin->setValue(10.0);
+    m_deconvWhitenSpin->setSuffix(" %");
+    paramForm->addRow(QString::fromUtf8("白化："), m_deconvWhitenSpin);
     mainLayout->addWidget(paramGroup);
 
     // Buttons
@@ -15362,137 +15369,90 @@ void MainWindow::applyDeconvolution()
 
     int filterLen = m_deconvFilterLenSpin ? m_deconvFilterLenSpin->value() : 31;
     int predStep = m_deconvPredStepSpin ? m_deconvPredStepSpin->value() : 5;
+    const double whiten = m_deconvWhitenSpin ? m_deconvWhitenSpin->value() / 100.0 : 0.10;
     if (filterLen < 1) filterLen = 1;
     if (predStep < 1) predStep = 1;
 
     m_progressBar->setValue(0);
-    m_progressBar->setFormat("反褶积: 读取数据...");
+    m_progressBar->setFormat(QString::fromUtf8("反褶积: 逐道Wiener求解... %p%"));
     m_progressBar->show();
     QCoreApplication::processEvents();
 
-    const char *srcData = m_rawData.constData();
-    std::vector<double> samples(totalPixels);
-    for (int i = 0; i < totalPixels; ++i) {
-        int idx = i * 4;
-        qint32 v = (static_cast<quint8>(srcData[idx+3]) << 24) |
-                   (static_cast<quint8>(srcData[idx+2]) << 16) |
-                   (static_cast<quint8>(srcData[idx+1]) << 8) |
-                   (static_cast<quint8>(srcData[idx]));
-        samples[i] = static_cast<double>(v);
-    }
-
-    // 计算 input RMS（用于输出幅度匹配）
-    double inSqSum = 0.0;
-    for (int i = 0; i < totalPixels; ++i) inSqSum += samples[i] * samples[i];
-    double inRms = std::sqrt(inSqSum / totalPixels);
-
-    m_progressBar->setValue(10);
-    m_progressBar->setFormat("反褶积: 全局自相关... %p%");
-    QCoreApplication::processEvents();
-
-    // RADAN 风格 Wiener 预测反褶积
-    // 关键改进：使用所有 trace 平均的"全局自相关"求一个公共滤波器，
-    // 而非每条 trace 各自求——后者会导致横向不一致 + 弱信号 trace 噪声放大。
-    //   1) 全局自相关 r[k] = mean_t( E[x_t[n] x_t[n+k]] )
-    //   2) 解 Wiener-Hopf 方程 R f = g, R[i][j] = r[|i-j|], g[i] = r[predStep+i]
-    //   3) 残差输出 e[n] = x[n] - sum_{k=0}^{L-1} f[k] * x[n - predStep - k]
-    int acorrLen = filterLen + predStep;
-    std::vector<double> acorr(acorrLen, 0.0);
-    for (int t = 0; t < numTraces; ++t) {
-        double *tr = &samples[t * samplesPerTrace];
-        for (int k = 0; k < acorrLen; ++k) {
-            double sum = 0.0;
-            int count = samplesPerTrace - k;
-            for (int n = 0; n < count; ++n) {
-                sum += tr[n] * tr[n + k];
-            }
-            acorr[k] += (count > 0) ? sum / count : 0.0;
-        }
-        if (t % qMax(1, numTraces / 10) == 0) {
-            m_progressBar->setValue(10 + 20 * t / numTraces);
-            QCoreApplication::processEvents();
-        }
-    }
-    for (int k = 0; k < acorrLen; ++k) acorr[k] /= numTraces;
-
-    // 白噪声加成 0.1%，保证 Toeplitz 矩阵正定可解
-    if (acorr[0] > 0.0) acorr[0] *= (1.0 + 1e-3);
-
-    m_progressBar->setValue(35);
-    m_progressBar->setFormat("反褶积: Wiener 滤波器... %p%");
-    QCoreApplication::processEvents();
-
-    // 构造增广矩阵 [R | g]
-    std::vector<std::vector<double>> A(filterLen, std::vector<double>(filterLen + 1, 0.0));
-    for (int i = 0; i < filterLen; ++i) {
-        for (int j = 0; j < filterLen; ++j) {
-            A[i][j] = acorr[std::abs(i - j)];
-        }
-        A[i][filterLen] = acorr[predStep + i];
-    }
-
-    // 高斯消元 (部分主元)
-    for (int p = 0; p < filterLen; ++p) {
-        int maxRow = p;
-        for (int r = p + 1; r < filterLen; ++r) {
-            if (std::abs(A[r][p]) > std::abs(A[maxRow][p])) maxRow = r;
-        }
-        if (maxRow != p) std::swap(A[p], A[maxRow]);
-
-        if (std::abs(A[p][p]) < 1e-18) continue;
-
-        for (int r = p + 1; r < filterLen; ++r) {
-            double f = A[r][p] / A[p][p];
-            if (f == 0.0) continue;
-            for (int c = p; c <= filterLen; ++c) {
-                A[r][c] -= f * A[p][c];
-            }
-        }
-    }
-
-    // 回代
-    std::vector<double> filter(filterLen, 0.0);
-    for (int i = filterLen - 1; i >= 0; --i) {
-        double s = A[i][filterLen];
-        for (int j = i + 1; j < filterLen; ++j) {
-            s -= A[i][j] * filter[j];
-        }
-        filter[i] = (std::abs(A[i][i]) > 1e-18) ? s / A[i][i] : 0.0;
-    }
-
-    m_progressBar->setValue(45);
-    m_progressBar->setFormat("反褶积: 应用预测误差... %p%");
-    QCoreApplication::processEvents();
-
-    // 应用全局 filter 到所有 trace
+    // v1.0.179 RADAN 标定版预测反褶积(P_6 逆向, corr=0.965):
+    //   逐道独立: biased自相关 r[k]=Σx[n]x[n+k]/N → 白化 r[0]×(1+w)
+    //   解 filterLen 阶 Toeplitz(部分主元高斯消元): Σf[i]r[|i-j|]=r[lag+j]
+    //   输出 e[k]=x[k]−Σf[i]·x[k−lag−i] (无RMS匹配, RADAN直接落残差)
+    //   (旧版全局平均自相关+单滤波器+RMS缩放均非RADAN行为, 已移除)
+    const qint32 *s32 = reinterpret_cast<const qint32*>(m_rawData.constData());
     std::vector<double> out(totalPixels, 0.0);
+    const int L = filterLen + predStep;
+    std::vector<double> r(L + 1), f(filterLen);
+    std::vector<double> A(size_t(filterLen) * (filterLen + 1));
+
+    const int W1 = filterLen + 1;   // 增广矩阵宽
     for (int t = 0; t < numTraces; ++t) {
-        double *tr = &samples[t * samplesPerTrace];
-        for (int n = 0; n < samplesPerTrace; ++n) {
-            double pred = 0.0;
-            for (int k = 0; k < filterLen; ++k) {
-                int idx = n - predStep - k;
-                if (idx >= 0) pred += filter[k] * tr[idx];
+        const qint32 *tr = s32 + qint64(t) * samplesPerTrace;
+        // biased 自相关(÷N, 标定确认)
+        for (int k = 0; k <= L; ++k) {
+            double sum = 0.0;
+            const int cnt = samplesPerTrace - k;
+            for (int n = 0; n < cnt; ++n)
+                sum += double(tr[n]) * double(tr[n + k]);
+            r[k] = sum / samplesPerTrace;
+        }
+        const double r0w = r[0] * (1.0 + whiten);   // 白化
+        // 增广 Toeplitz [R | g]
+        for (int i = 0; i < filterLen; ++i) {
+            for (int j = 0; j < filterLen; ++j)
+                A[size_t(i) * W1 + j] = (i == j) ? r0w : r[std::abs(i - j)];
+            A[size_t(i) * W1 + filterLen] = r[predStep + i];
+        }
+        // 高斯消元(部分主元)+回代
+        for (int p = 0; p < filterLen; ++p) {
+            int mr = p;
+            for (int q = p + 1; q < filterLen; ++q)
+                if (std::abs(A[size_t(q) * W1 + p]) > std::abs(A[size_t(mr) * W1 + p])) mr = q;
+            if (mr != p)
+                for (int c = 0; c <= filterLen; ++c)
+                    std::swap(A[size_t(p) * W1 + c], A[size_t(mr) * W1 + c]);
+            if (std::abs(A[size_t(p) * W1 + p]) < 1e-30) continue;
+            for (int q = p + 1; q < filterLen; ++q) {
+                const double fac = A[size_t(q) * W1 + p] / A[size_t(p) * W1 + p];
+                if (fac == 0.0) continue;
+                for (int c = p; c <= filterLen; ++c)
+                    A[size_t(q) * W1 + c] -= fac * A[size_t(p) * W1 + c];
             }
-            out[t * samplesPerTrace + n] = tr[n] - pred;
+        }
+        for (int i = filterLen - 1; i >= 0; --i) {
+            double s = A[size_t(i) * W1 + filterLen];
+            for (int j = i + 1; j < filterLen; ++j)
+                s -= A[size_t(i) * W1 + j] * f[j];
+            f[i] = (std::abs(A[size_t(i) * W1 + i]) > 1e-30) ? s / A[size_t(i) * W1 + i] : 0.0;
+        }
+        // 应用: e[k] = x[k] − Σ f[i]·x[k−lag−i]
+        double *dst = &out[qint64(t) * samplesPerTrace];
+        for (int k = 0; k < samplesPerTrace; ++k) {
+            double pred = 0.0;
+            for (int i = 0; i < filterLen; ++i) {
+                const int idx = k - predStep - i;
+                if (idx >= 0) pred += f[i] * double(tr[idx]);
+            }
+            dst[k] = double(tr[k]) - pred;
         }
         if (t % qMax(1, numTraces / 20) == 0) {
-            m_progressBar->setValue(45 + 45 * t / numTraces);
+            m_progressBar->setValue(5 + 90 * t / numTraces);
             QCoreApplication::processEvents();
         }
     }
+    // proc 记录参数: 1e <算子长> <滞后u8> f32(白化%)
+    m_lastDeconOp = filterLen;
+    m_lastDeconLag = predStep;
+    m_lastDeconWhiten = whiten * 100.0;
 
-    // 输出幅度匹配：scale = input_RMS / output_RMS
-    // 线性 min/max 归一化会把残差噪声拉伸到满量程，破坏相对幅度并放大噪声；
-    // RMS 匹配保留弱/强反射之间的相对能量结构，整体亮度与原图一致。
-    double outSqSum = 0.0;
-    for (int i = 0; i < totalPixels; ++i) outSqSum += out[i] * out[i];
-    double outRms = std::sqrt(outSqSum / totalPixels);
-    double scale = (outRms > 1e-9) ? inRms / outRms : 1.0;
-
+    // v1.0.179: 无RMS匹配(RADAN直接落残差, 标定g≈1.003)
     char *data = m_rawData.data();
     for (int i = 0; i < totalPixels; ++i) {
-        double v = out[i] * scale;
+        double v = out[i];
         // 显示 LUT 范围 ±2^23，钳位防止溢出
         if (v > 8388607.0) v = 8388607.0;
         if (v < -8388608.0) v = -8388608.0;

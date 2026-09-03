@@ -780,8 +780,11 @@ private:
     QDialog *m_deconvDlg = nullptr;
     QSpinBox *m_deconvFilterLenSpin = nullptr;
     QSpinBox *m_deconvPredStepSpin = nullptr;
+    QDoubleSpinBox *m_deconvWhitenSpin = nullptr;   // v1.0.179 白化%(RADAN同款, 标定0.965)
     QPushButton *m_deconvBtnApply = nullptr;
     bool m_deconvApplied = false;
+    int m_lastDeconOp = 0, m_lastDeconLag = 0;       // v1.0.179 proc记录用
+    double m_lastDeconWhiten = 0.0;
     void showDeconvolution();
     void applyDeconvolution();
 
@@ -799,8 +802,11 @@ private:
     QDoubleSpinBox *m_kirchhoffVelocitySpin = nullptr;
     QSpinBox *m_kirchhoffWidthSpin = nullptr;
     QDoubleSpinBox *m_kirchhoffSpacingSpin = nullptr;
+    QDoubleSpinBox *m_kirchhoffGainSpin = nullptr;  // v1.0.179 增益(RADAN 1.5-5, 偏移平均后幅度补偿)
     QPushButton *m_kirchhoffBtnApply = nullptr;
     bool m_kirchhoffApplied = false;
+    int m_lastMigWidth = 0;                          // v1.0.179 proc记录用
+    double m_lastMigVel = 0.0, m_lastMigGain = 0.0;
     void showKirchhoffMigration();
     void applyKirchhoffMigration();
     void pushKirchhoffParamsToImage();
