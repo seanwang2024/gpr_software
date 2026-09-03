@@ -2275,7 +2275,7 @@ MainWindow::MainWindow(QWidget *parent)
         }
     });
 
-    connect(zeroBtnApply, &QPushButton::clicked, this, [this]() {
+    connect(zeroBtnApply, &QPushButton::clicked, this, [this, methodCombo]() {
         if (!requireOpenFile()) return;
         if (m_currentTab->zeroApplied) {
             // 重设: restore original image, keep spinbox values
@@ -2288,16 +2288,55 @@ MainWindow::MainWindow(QWidget *parent)
             refreshImage();
             updateRulers();
         } else {
-            // 应用: skip first N rows based on 时间位置零点
-            double rangePct = m_zeroRangePctSpin ? m_zeroRangePctSpin->value() : 0.0;
-            double zeroOff = -rangePct * 0.2;  // e.g. -2.0
-            int skip = qRound(512 * (-zeroOff) / 20.0);  // e.g. 512*2/20=51
-            if (skip <= 0) return;
+            // v1.0.184 应用: 按方法分派(手动=位置-偏移净位移 / 自动=平均扫描选峰, 均对齐RADAN标定)
+            if (!m_currentTab) return;
+            const int nsamp = m_currentTab->nsamp > 0 ? m_currentTab->nsamp : m_pixelsPerRow;
+            const double rangeNs = m_currentTab->timeRange > 0 ? m_currentTab->timeRange
+                                      : (m_timeRange > 0 ? m_timeRange : 20.0);
+            const double off = m_zeroOffsetSpin ? m_zeroOffsetSpin->value() : 0.0;
+            const int method = methodCombo->currentIndex();   // 0=手动 1=自动
+            double posNs = 0.0;   // 净位移(ns, 正=上移量)
+            int pkRow = 0;
+            if (method == 1) {
+                // 自动(v1.0.160 P_H标定, 99.6%逐字节): 平均扫描=逐行全道均值;
+                // 前"位置范围%"行内取|峰|行p → posNs = p·range/nsamp (1103_010: p=50→1.953ns→skip2)
+                const double rangePct = m_zeroRangePctSpin ? m_zeroRangePctSpin->value() : 10.0;
+                const int rng = qMax(2, int(nsamp * rangePct / 100.0));
+                const int nTr = int(m_rawData.size() / 4 / nsamp);
+                if (nTr <= 0) return;
+                const qint32 *s32 = reinterpret_cast<const qint32*>(m_rawData.constData());
+                QVector<double> avg(nsamp, 0.0);
+                for (int t = 0; t < nTr; ++t)
+                    for (int s = 0; s < nsamp; ++s)
+                        avg[s] += double(s32[qint64(t) * nsamp + s]);
+                for (int s = 0; s < nsamp; ++s) avg[s] /= nTr;
+                double best = 0.0;
+                for (int s = 0; s < rng && s < nsamp; ++s)
+                    if (qAbs(avg[s]) > best) { best = qAbs(avg[s]); pkRow = s; }
+                posNs = double(pkRow) * rangeNs / nsamp;
+                // v1.0.166 RADAN规律回填: 信号位置=2ns整倍数(ceil), 偏移量=位置−峰时(正补偿)
+                const double sigPos = 2.0 * std::ceil(posNs / 2.0);
+                if (m_zeroOffsetSpin)
+                    m_zeroOffsetSpin->setValue(sigPos - posNs);
+                if (m_zeroRangePctSpin)
+                    m_zeroRangePctSpin->setValue(sigPos / 0.2);   // 标签显示 时间位置零点=-sigPos
+            } else {
+                // 手动: 净位移 = |时间位置零点| − 偏移量 (RADAN: 偏移为正补偿, 如-2.00+0.01→1.99)
+                const double rangePct = m_zeroRangePctSpin ? m_zeroRangePctSpin->value() : 0.0;
+                posNs = qMax(0.0, rangePct * 0.2 - off);
+                pkRow = qRound(posNs * nsamp / rangeNs);   // 显示参考行
+            }
+            // v1.0.184 修正: skip=round(posNs数值)(RADAN落盘语义, P_H逐字节验证:
+            // pos=1.953→skip=2 非×样本率=50); 视觉满移由 zeroTopDead 显示层完成(v1.0.165)
+            const int skip = qRound(posNs);
+            if (skip <= 0 && method == 0 && posNs <= 0.0) return;
             m_currentTab->zeroApplied = true;
             m_currentTab->zeroSkipRows = skip;
-            m_currentTab->zeroTopDead = qMin(2, skip);   // row0原值+row1哨兵=顶部死区
-            m_currentTab->zeroPosNs = -zeroOff;          // 手动零点: 位置=用户偏移ns
-            m_zeroBtnApply->setText("重设");
+            m_currentTab->zeroTopDead = qMax(0, pkRow - skip);   // v1.0.165 从峰行起显示(顶切)
+            m_currentTab->zeroPosNs = method == 1
+                ? 2.0 * std::ceil(posNs / 2.0) : posNs;
+            m_currentTab->zeroOffsetNs = m_zeroOffsetSpin ? m_zeroOffsetSpin->value() : 0.0;
+            m_zeroBtnApply->setText(QString::fromUtf8("重设"));
             refreshImage();
             updateRulers();
         }
@@ -2499,6 +2538,45 @@ MainWindow::MainWindow(QWidget *parent)
             });
         }
     });
+
+    // v1.0.184 零点自动选峰自检: GPR_ZERO_TEST=1 → 打开1103_010算选峰并dump(基准P_H: pk=50 pos=1.953ns skip=2)
+    if (qEnvironmentVariableIsSet("GPR_ZERO_TEST")) {
+        const QString zp = QStringLiteral(
+            "D:/gpr_software/test_input_raw_files/process标定/1103_010.DZT");
+        QTimer::singleShot(600, this, [this, zp]() {
+            if (!QFile::exists(zp)) { QCoreApplication::quit(); return; }
+            openDztFile(zp);
+            QTimer::singleShot(500, this, [this]() {
+                QString msg;
+                if (m_currentTab) {
+                    const int nsamp = m_currentTab->nsamp > 0 ? m_currentTab->nsamp : m_pixelsPerRow;
+                    const double rangeNs = m_timeRange > 0 ? m_timeRange : 20.0;
+                    const int nTr = int(m_rawData.size() / 4 / nsamp);
+                    const qint32 *s32 = reinterpret_cast<const qint32*>(m_rawData.constData());
+                    QVector<double> avg(nsamp, 0.0);
+                    for (int t = 0; t < nTr; ++t)
+                        for (int s = 0; s < nsamp; ++s)
+                            avg[s] += double(s32[qint64(t) * nsamp + s]);
+                    for (int s = 0; s < nsamp; ++s) avg[s] /= nTr;
+                    const int rng = qMax(2, int(nsamp * 0.10));
+                    int pk = 0; double best = 0;
+                    for (int s = 0; s < rng; ++s)
+                        if (qAbs(avg[s]) > best) { best = qAbs(avg[s]); pk = s; }
+                    const double posNs = double(pk) * rangeNs / nsamp;
+                    msg = QStringLiteral("ZERO_TEST pk=%1 posNs=%2 skip=%3 (基准pk=50 pos=1.953 skip=2) %4")
+                              .arg(pk).arg(posNs, 0, 'f', 3).arg(qRound(posNs))
+                              .arg((pk == 50 && qRound(posNs) == 2)
+                                       ? QStringLiteral("PASS") : QStringLiteral("CHECK"));
+                } else {
+                    msg = QStringLiteral("ZERO_TEST open FAIL");
+                }
+                QFile f(QCoreApplication::applicationDirPath() + "/zero_test.txt");
+                f.open(QIODevice::WriteOnly | QIODevice::Text);
+                f.write(msg.toUtf8());
+                QCoreApplication::quit();
+            });
+        });
+    }
 
     // v1.0.180 ribbon 页渲染自检: GPR_TAB_RENDER=<idx> → 切到该页截图 ribbon_page.png 后退出
     if (qEnvironmentVariableIsSet("GPR_TAB_RENDER")) {
