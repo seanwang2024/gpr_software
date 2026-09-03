@@ -2508,6 +2508,22 @@ MainWindow::MainWindow(QWidget *parent)
             ribbonTab->setCurrentIndex(ridx);
             QTimer::singleShot(400, this, [this, cur]() {
                 grab().save(QCoreApplication::applicationDirPath() + "/ribbon_page.png");
+                // v1.0.182: 一键处理按钮状态 dump(排查选中态)
+                if (m_btnOneClick) {
+                    QFile dbg(QCoreApplication::applicationDirPath() + "/rib_debug.txt");
+                    dbg.open(QIODevice::WriteOnly | QIODevice::Text);
+                    dbg.write(QStringLiteral("oneClick checked=%1 geo=%2,%3 %4x%5\n")
+                        .arg(m_btnOneClick->isChecked() ? 1 : 0)
+                        .arg(m_btnOneClick->mapTo(window(), QPoint(0,0)).x())
+                        .arg(m_btnOneClick->mapTo(window(), QPoint(0,0)).y())
+                        .arg(m_btnOneClick->width()).arg(m_btnOneClick->height()).toUtf8());
+                    for (QFrame *f : findChildren<QFrame*>("subSep"))
+                        dbg.write(QStringLiteral("subSep x=%1 y=%2 %3x%4 vis=%5\n")
+                            .arg(f->mapTo(window(), QPoint(0,0)).x())
+                            .arg(f->mapTo(window(), QPoint(0,0)).y())
+                            .arg(f->width()).arg(f->height())
+                            .arg(f->isVisible() ? 1 : 0).toUtf8());
+                }
                 ribbonTab->setCurrentIndex(cur);
                 QTimer::singleShot(200, this, []() { QCoreApplication::quit(); });
             });
@@ -8939,8 +8955,8 @@ void MainWindow::createOneClickPanel()
 void MainWindow::syncOneClickUiState()
 {
     const bool onIdx = ribbonTab && ribbonTab->currentIndex() == 2;
-    if (onIdx && m_btnOneClick && !m_btnOneClick->isChecked())
-        m_btnOneClick->setChecked(true);   // v1.0.147: 进数据处理页默认显示一键处理流水线
+    // v1.0.182: 删除"进页强制勾回一键处理"(v1.0.147旧逻辑) — 与处理按钮互斥组冲突;
+    // 默认选中由构建时 setChecked(true) 完成, 点其他处理项后一键取消且不再自动勾回
     const bool on = m_currentTab != nullptr && m_btnOneClick && onIdx
                     && m_btnOneClick->isChecked();
     if (m_oneClickPanel)
@@ -12420,13 +12436,13 @@ void MainWindow::createMenuBar()
         m_btnOneClick->setCheckable(true);
         m_btnOneClick->setCursor(Qt::PointingHandCursor);
         m_btnOneClick->setStyleSheet(
-            "QToolButton { border: none; border-bottom: 2px solid transparent; border-radius: 2px;"
-            " background: transparent; font-size: 12px; color: #121c2a; padding: 4px; }"
+            "QToolButton { border: 1px solid transparent; border-radius: 4px; background: transparent;"
+            " font-size: 12px; color: #121c2a; padding: 4px; }"
             "QToolButton:hover { background: " + Theme::hover + "; }"
-            "QToolButton:pressed { background: #c9d8f0; }"
-            "QToolButton:checked { background: " + Theme::priMid + "; color: " + Theme::onMid + ";"
-            " border-bottom: 2px solid " + Theme::pri + "; }");
+            "QToolButton:checked { background: " + Theme::hover + ";"
+            " border: 1px solid " + Theme::pri + "; color: " + Theme::priDark + "; }");
         connect(m_btnOneClick, &QToolButton::toggled, this, [this](bool) { syncOneClickUiState(); });
+        m_btnOneClick->setChecked(true);   // v1.0.182 设计稿默认: 进数据处理页一键处理选中(浅橙)
         gl->addWidget(m_btnOneClick, 0, Qt::AlignHCenter);
         QLabel *grpLbl = new QLabel(QString::fromUtf8("一键处理"));
         grpLbl->setAlignment(Qt::AlignCenter);
@@ -12455,13 +12471,51 @@ void MainWindow::createMenuBar()
         return btn;
     };
 
-    // v1.0.181 按设计稿(数据处理-增益.html)最终结构: 一键处理(大按钮) | 自定义处理(7项一行,
-    // 图标上文字下): 时间零点/偏移/滤波/距离归一化/背景清除/增益/高级滤波(下拉聚合);
-    // 不显示处理范围组; 交互维持现有对话框方式
+    // v1.0.182 按设计稿PNG最终结构: 「自定义处理」大组内含 3 个小组(细灰竖线区隔):
+    //   [时间零点|偏移] | [滤波|距离归一化|背景清除] | [增益|高级滤波]
+    // 选中态=浅橙圆角底+橙描边(与一键处理互斥, 默认一键处理选中);
+    // 点任一项: 一键处理取消选中+右侧一键面板收起, 本项变橙+打开对话框
     QVBoxLayout *g1 = addGroup(dataLayout, QString::fromUtf8("自定义处理"));
     QHBoxLayout *g1btns = qobject_cast<QHBoxLayout*>(g1->itemAt(0)->layout());
-    QToolButton *btnAdjZero2 = ribbonBtn(QStringLiteral("timer"), QString::fromUtf8("时间零点"), true);
-    connect(btnAdjZero2, &QToolButton::clicked, this, [this]() {
+    // 处理按钮工厂: 图标上文字下 + checkable + 选中浅橙底橙描边(设计稿 primary-container 风格)
+    auto makeProcBtn = [this](const QString &glyph, const QString &text) -> QToolButton * {
+        QToolButton *btn = new QToolButton();
+        if (MatIcon::ready())
+            btn->setIcon(MatIcon::icon(glyph, QColor(Theme::pri), QColor(Theme::priDark),
+                                       QColor(), 24));
+        btn->setText(text);
+        btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+        btn->setIconSize(QSize(24, 24));
+        btn->setMinimumSize(64, 52);
+        btn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        btn->setCheckable(true);
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setStyleSheet(
+            "QToolButton { border: 1px solid transparent; border-radius: 4px; background: transparent;"
+            " font-size: 12px; color: #121c2a; padding: 2px; }"
+            "QToolButton:hover { background: " + Theme::hover + "; }"
+            "QToolButton:checked { background: " + Theme::hover + ";"
+            " border: 1px solid " + Theme::pri + "; color: " + Theme::priDark + "; }");
+        return btn;
+    };
+    auto addSubSep = [&g1btns]() {   // 小组间细灰竖线(行内QFrame sizeHint高0, 需固定高度)
+        QFrame *sep = new QFrame();
+        sep->setObjectName(QStringLiteral("subSep"));
+        sep->setFrameShape(QFrame::NoFrame);
+        sep->setFixedSize(1, 48);
+        sep->setAttribute(Qt::WA_StyledBackground, true);
+        sep->setStyleSheet(QStringLiteral("background: #c3c6d6; border: none;"));
+        g1btns->addWidget(sep);
+    };
+    // 全体处理按钮互斥组(一键处理 + 7 项)
+    QButtonGroup *procGrp = new QButtonGroup(this);
+    procGrp->setExclusive(true);
+    procGrp->addButton(m_btnOneClick);
+
+    // ---- 小组1: 时间零点 | 偏移 ----
+    QToolButton *btnAdjZero2 = makeProcBtn(QStringLiteral("timer"), QString::fromUtf8("时间零点"));
+    connect(btnAdjZero2, &QToolButton::clicked, this, [this, btnAdjZero2]() {
+        btnAdjZero2->setChecked(true);
         if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_zeroPage);
         m_leftPanel->show();
@@ -12474,29 +12528,42 @@ void MainWindow::createMenuBar()
             updateChart(m_lastChartX);
         }
     });
+    procGrp->addButton(btnAdjZero2);
     g1btns->addWidget(btnAdjZero2);
-    QToolButton *btnKirchhoff = ribbonBtn(QStringLiteral("compare_arrows"),
-                                          QString::fromUtf8("偏移"), true);
+    QToolButton *btnKirchhoff = makeProcBtn(QStringLiteral("compare_arrows"), QString::fromUtf8("偏移"));
     btnKirchhoff->setToolTip(QString::fromUtf8("克西霍夫偏移(RADAN标定算法)"));
-    connect(btnKirchhoff, &QToolButton::clicked, this, &MainWindow::showKirchhoffMigration);
+    connect(btnKirchhoff, &QToolButton::clicked, this, [this, btnKirchhoff]() {
+        btnKirchhoff->setChecked(true);
+        showKirchhoffMigration();
+    });
+    procGrp->addButton(btnKirchhoff);
     g1btns->addWidget(btnKirchhoff);
-    QToolButton *btnDigFilter = ribbonBtn(QStringLiteral("filter_alt"),
-                                          QString::fromUtf8("滤波"), true);
+    addSubSep();
+    // ---- 小组2: 滤波 | 距离归一化 | 背景清除 ----
+    QToolButton *btnDigFilter = makeProcBtn(QStringLiteral("filter_alt"), QString::fromUtf8("滤波"));
     btnDigFilter->setToolTip(QString::fromUtf8("数字滤波(FIR/IIR)"));
-    connect(btnDigFilter, &QToolButton::clicked, this, &MainWindow::showDigitalFilter);
+    connect(btnDigFilter, &QToolButton::clicked, this, [this, btnDigFilter]() {
+        btnDigFilter->setChecked(true);
+        showDigitalFilter();
+    });
+    procGrp->addButton(btnDigFilter);
     g1btns->addWidget(btnDigFilter);
-    QToolButton *btnDistNorm = ribbonBtn(QStringLiteral("linear_scale"),
-                                         QString::fromUtf8("距离归一化"), false);
+    QToolButton *btnDistNorm = makeProcBtn(QStringLiteral("linear_scale"), QString::fromUtf8("距离归一化"));
     btnDistNorm->setEnabled(false);
     btnDistNorm->setToolTip(QString::fromUtf8("后续版本提供"));
     g1btns->addWidget(btnDistNorm);
-    QToolButton *btnBgRemove = ribbonBtn(QStringLiteral("layers_clear"),
-                                         QString::fromUtf8("背景清除"), true);
-    connect(btnBgRemove, &QToolButton::clicked, this, &MainWindow::showBackgroundRemoval);
+    QToolButton *btnBgRemove = makeProcBtn(QStringLiteral("layers_clear"), QString::fromUtf8("背景清除"));
+    connect(btnBgRemove, &QToolButton::clicked, this, [this, btnBgRemove]() {
+        btnBgRemove->setChecked(true);
+        showBackgroundRemoval();
+    });
+    procGrp->addButton(btnBgRemove);
     g1btns->addWidget(btnBgRemove);
-    QToolButton *btnAdjGain = ribbonBtn(QStringLiteral("signal_cellular_alt"),
-                                        QString::fromUtf8("增益"), true);
-    connect(btnAdjGain, &QToolButton::clicked, this, [this]() {
+    addSubSep();
+    // ---- 小组3: 增益 | 高级滤波 ----
+    QToolButton *btnAdjGain = makeProcBtn(QStringLiteral("signal_cellular_alt"), QString::fromUtf8("增益"));
+    connect(btnAdjGain, &QToolButton::clicked, this, [this, btnAdjGain]() {
+        btnAdjGain->setChecked(true);
         if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_gainPage);
         if (m_currentTab) {
@@ -12518,10 +12585,9 @@ void MainWindow::createMenuBar()
             updateChart(m_lastChartX);
         }
     });
+    procGrp->addButton(btnAdjGain);
     g1btns->addWidget(btnAdjGain);
-    // 高级滤波: 下拉聚合次级操作
-    QToolButton *btnAdvFilter = ribbonBtn(QStringLiteral("tune"),
-                                          QString::fromUtf8("高级滤波"), true);
+    QToolButton *btnAdvFilter = makeProcBtn(QStringLiteral("tune"), QString::fromUtf8("高级滤波"));
     QMenu *advMenu = new QMenu(btnAdvFilter);
     QAction *aCorrectOff = advMenu->addAction(QString::fromUtf8("校正零偏"));
     connect(aCorrectOff, &QAction::triggered, this, &MainWindow::showCorrectOffset);
@@ -12543,6 +12609,7 @@ void MainWindow::createMenuBar()
     Q_UNUSED(aLevelGrd);
     btnAdvFilter->setMenu(advMenu);
     btnAdvFilter->setPopupMode(QToolButton::InstantPopup);
+    procGrp->addButton(btnAdvFilter);
     g1btns->addWidget(btnAdvFilter);
 
     // Group 4: 处理范围 (labels + spinboxes)
