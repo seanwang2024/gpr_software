@@ -426,6 +426,7 @@ private:
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     void updateWindowTitle();
     bool requireOpenFile();  // 检查是否已打开文件,未打开则弹提示
+    void closeAllProcDialogs();   // v1.0.183 关闭全部处理设置窗口(处理选项互切时收起原窗口)
     bool requireLicense();   // v1.0.169 AI分析授权闸: 未激活弹授权窗拦截
     void licensePatrol();    // v1.0.169 启动+24h 巡检: 后台作废→清凭证锁AI(网络失败静默放行)
     // DZX 自动处理

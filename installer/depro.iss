@@ -4,7 +4,7 @@
 
 #define MyAppName "地听AI数据处理"
 #define MyAppNameEn "depro"
-#define MyAppVersion "1.0.182"
+#define MyAppVersion "1.0.183"
 #define MyAppPublisher "地听"
 #define MyAppExeName "depro.exe"
 

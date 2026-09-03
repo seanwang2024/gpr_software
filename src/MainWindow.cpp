@@ -11906,6 +11906,21 @@ bool MainWindow::requireLicense()
     return false;
 }
 
+// v1.0.183 处理选项互切时关闭原设置窗口(左侧面板 + 所有非模态处理对话框)
+void MainWindow::closeAllProcDialogs()
+{
+    if (m_leftPanel && m_leftPanel->isVisible())
+        m_leftPanel->hide();
+    for (QDialog **d : { &m_filterDlg, &m_kirchhoffDlg, &m_deconvDlg, &m_bgRemovalDlg,
+                        &m_correctOffsetDlg, &m_movingAvgDlg, &m_traceEqualDlg,
+                        &m_mathDlg, &m_hilbertDlg }) {
+        if (*d) {
+            (*d)->close();
+            *d = nullptr;   // WA_DeleteOnClose 会自删; 置空防 finished 回调竞态
+        }
+    }
+}
+
 void MainWindow::loadLUT(int index)
 {
     m_paletteIndex = index;
@@ -12477,6 +12492,7 @@ void MainWindow::createMenuBar()
     // 点任一项: 一键处理取消选中+右侧一键面板收起, 本项变橙+打开对话框
     QVBoxLayout *g1 = addGroup(dataLayout, QString::fromUtf8("自定义处理"));
     QHBoxLayout *g1btns = qobject_cast<QHBoxLayout*>(g1->itemAt(0)->layout());
+    if (g1btns) g1btns->setAlignment(Qt::AlignTop);   // v1.0.183 与一键处理按钮顶对齐
     // 处理按钮工厂: 图标上文字下 + checkable + 选中浅橙底橙描边(设计稿 primary-container 风格)
     auto makeProcBtn = [this](const QString &glyph, const QString &text) -> QToolButton * {
         QToolButton *btn = new QToolButton();
@@ -12486,7 +12502,7 @@ void MainWindow::createMenuBar()
         btn->setText(text);
         btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         btn->setIconSize(QSize(24, 24));
-        btn->setMinimumSize(64, 52);
+        btn->setMinimumSize(64, 64);
         btn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
@@ -12502,7 +12518,7 @@ void MainWindow::createMenuBar()
         QFrame *sep = new QFrame();
         sep->setObjectName(QStringLiteral("subSep"));
         sep->setFrameShape(QFrame::NoFrame);
-        sep->setFixedSize(1, 48);
+        sep->setFixedSize(1, 64);
         sep->setAttribute(Qt::WA_StyledBackground, true);
         sep->setStyleSheet(QStringLiteral("background: #c3c6d6; border: none;"));
         g1btns->addWidget(sep);
@@ -12515,6 +12531,7 @@ void MainWindow::createMenuBar()
     // ---- 小组1: 时间零点 | 偏移 ----
     QToolButton *btnAdjZero2 = makeProcBtn(QStringLiteral("timer"), QString::fromUtf8("时间零点"));
     connect(btnAdjZero2, &QToolButton::clicked, this, [this, btnAdjZero2]() {
+        closeAllProcDialogs();
         btnAdjZero2->setChecked(true);
         if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_zeroPage);
@@ -12533,6 +12550,7 @@ void MainWindow::createMenuBar()
     QToolButton *btnKirchhoff = makeProcBtn(QStringLiteral("compare_arrows"), QString::fromUtf8("偏移"));
     btnKirchhoff->setToolTip(QString::fromUtf8("克西霍夫偏移(RADAN标定算法)"));
     connect(btnKirchhoff, &QToolButton::clicked, this, [this, btnKirchhoff]() {
+        closeAllProcDialogs();
         btnKirchhoff->setChecked(true);
         showKirchhoffMigration();
     });
@@ -12543,6 +12561,7 @@ void MainWindow::createMenuBar()
     QToolButton *btnDigFilter = makeProcBtn(QStringLiteral("filter_alt"), QString::fromUtf8("滤波"));
     btnDigFilter->setToolTip(QString::fromUtf8("数字滤波(FIR/IIR)"));
     connect(btnDigFilter, &QToolButton::clicked, this, [this, btnDigFilter]() {
+        closeAllProcDialogs();
         btnDigFilter->setChecked(true);
         showDigitalFilter();
     });
@@ -12554,6 +12573,7 @@ void MainWindow::createMenuBar()
     g1btns->addWidget(btnDistNorm);
     QToolButton *btnBgRemove = makeProcBtn(QStringLiteral("layers_clear"), QString::fromUtf8("背景清除"));
     connect(btnBgRemove, &QToolButton::clicked, this, [this, btnBgRemove]() {
+        closeAllProcDialogs();
         btnBgRemove->setChecked(true);
         showBackgroundRemoval();
     });
@@ -12563,6 +12583,7 @@ void MainWindow::createMenuBar()
     // ---- 小组3: 增益 | 高级滤波 ----
     QToolButton *btnAdjGain = makeProcBtn(QStringLiteral("signal_cellular_alt"), QString::fromUtf8("增益"));
     connect(btnAdjGain, &QToolButton::clicked, this, [this, btnAdjGain]() {
+        closeAllProcDialogs();
         btnAdjGain->setChecked(true);
         if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_gainPage);
