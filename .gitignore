@@ -78,3 +78,8 @@ GPR_data/
 server/license/secrets/
 .qtc_clangd/
 build/
+
+# 构建产物(Qt Creator/qmake 复现用, 勿入库)
+qmake_build/
+qtc_build/
+depro_resource.rc
