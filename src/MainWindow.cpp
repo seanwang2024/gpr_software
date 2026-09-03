@@ -2500,6 +2500,20 @@ MainWindow::MainWindow(QWidget *parent)
         }
     });
 
+    // v1.0.180 ribbon 页渲染自检: GPR_TAB_RENDER=<idx> → 切到该页截图 ribbon_page.png 后退出
+    if (qEnvironmentVariableIsSet("GPR_TAB_RENDER")) {
+        const int ridx = qEnvironmentVariable("GPR_TAB_RENDER").toInt();
+        const int cur = ribbonTab->currentIndex();
+        QTimer::singleShot(500, this, [this, ridx, cur]() {
+            ribbonTab->setCurrentIndex(ridx);
+            QTimer::singleShot(400, this, [this, cur]() {
+                grab().save(QCoreApplication::applicationDirPath() + "/ribbon_page.png");
+                ribbonTab->setCurrentIndex(cur);
+                QTimer::singleShot(200, this, []() { QCoreApplication::quit(); });
+            });
+        });
+    }
+
     // 顶栏 5 模块标签 ↔ ribbon 页双向联动(程序化 setChecked 不发 idClicked, 无环)
     // v1.0.169: AI分析(idx=4)需授权解锁 — 未激活时拦截切换并弹授权窗(spec: 按钮可见不置灰)
     connect(m_topBar, &TopBar::moduleChanged, this, [this](int idx) {
@@ -12441,10 +12455,13 @@ void MainWindow::createMenuBar()
         return btn;
     };
 
-    // Group 1: 零点调节
-    QVBoxLayout *g1 = addGroup(dataLayout, "零点调节");
+    // v1.0.180 按设计稿(数据处理-增益.html)重排 ribbon 分组, PROCESS 归位:
+    // 一键处理 | 时间零点(时间零点+偏移) | 滤波(滤波+距离归一化) | 背景清除 | 增益 | 自定义处理(高级滤波下拉)
+    // 交互维持现有对话框方式(设计稿的右侧参数面板后续版本再评估)
+    // Group 2: 时间零点
+    QVBoxLayout *g1 = addGroup(dataLayout, QString::fromUtf8("时间零点"));
     QHBoxLayout *g1btns = qobject_cast<QHBoxLayout*>(g1->itemAt(0)->layout());
-    QToolButton *btnAdjZero2 = makeTextBtn("调节零点");
+    QToolButton *btnAdjZero2 = makeTextBtn(QString::fromUtf8("时间零点"));
     connect(btnAdjZero2, &QToolButton::clicked, this, [this]() {
         if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_zeroPage);
@@ -12459,13 +12476,34 @@ void MainWindow::createMenuBar()
         }
     });
     g1btns->addWidget(btnAdjZero2);
-    g1btns->addWidget(makeTextBtn("寻找地面"));
-    g1btns->addWidget(makeTextBtn("校平地面"));
+    QToolButton *btnKirchhoff = makeTextBtn(QString::fromUtf8("偏移"));
+    btnKirchhoff->setToolTip(QString::fromUtf8("克西霍夫偏移(RADAN标定算法)"));
+    connect(btnKirchhoff, &QToolButton::clicked, this, &MainWindow::showKirchhoffMigration);
+    g1btns->addWidget(btnKirchhoff);
 
-    // Group 2: 滤波
-    QVBoxLayout *g2 = addGroup(dataLayout, "滤波");
+    // Group 3: 滤波
+    QVBoxLayout *g2 = addGroup(dataLayout, QString::fromUtf8("滤波"));
     QHBoxLayout *g2row1 = qobject_cast<QHBoxLayout*>(g2->itemAt(0)->layout());
-    QToolButton *btnAdjGain = makeTextBtn("调节增益");
+    QToolButton *btnDigFilter = makeTextBtn(QString::fromUtf8("滤波"));
+    btnDigFilter->setToolTip(QString::fromUtf8("数字滤波(FIR/IIR)"));
+    connect(btnDigFilter, &QToolButton::clicked, this, &MainWindow::showDigitalFilter);
+    g2row1->addWidget(btnDigFilter);
+    QToolButton *btnDistNorm = makeTextBtn(QString::fromUtf8("距离归一化"));
+    btnDistNorm->setEnabled(false);
+    btnDistNorm->setToolTip(QString::fromUtf8("后续版本提供"));
+    g2row1->addWidget(btnDistNorm);
+
+    // Group 4: 背景清除
+    QVBoxLayout *g4 = addGroup(dataLayout, QString::fromUtf8("背景清除"));
+    QHBoxLayout *g4btns = qobject_cast<QHBoxLayout*>(g4->itemAt(0)->layout());
+    QToolButton *btnBgRemove = makeTextBtn(QString::fromUtf8("背景清除"));
+    connect(btnBgRemove, &QToolButton::clicked, this, &MainWindow::showBackgroundRemoval);
+    g4btns->addWidget(btnBgRemove);
+
+    // Group 5: 增益
+    QVBoxLayout *g5 = addGroup(dataLayout, QString::fromUtf8("增益"));
+    QHBoxLayout *g5btns = qobject_cast<QHBoxLayout*>(g5->itemAt(0)->layout());
+    QToolButton *btnAdjGain = makeTextBtn(QString::fromUtf8("增益"));
     connect(btnAdjGain, &QToolButton::clicked, this, [this]() {
         if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_gainPage);
@@ -12488,45 +12526,34 @@ void MainWindow::createMenuBar()
             updateChart(m_lastChartX);
         }
     });
-    g2row1->addWidget(btnAdjGain);
-    QToolButton *btnCorrectOffset = makeTextBtn("校正零偏");
-    connect(btnCorrectOffset, &QToolButton::clicked, this, &MainWindow::showCorrectOffset);
-    g2row1->addWidget(btnCorrectOffset);
-    QToolButton *btnBgRemove = makeTextBtn("背景消除");
-    connect(btnBgRemove, &QToolButton::clicked, this, &MainWindow::showBackgroundRemoval);
-    g2row1->addWidget(btnBgRemove);
-    QHBoxLayout *g2row2 = new QHBoxLayout();
-    g2row2->setSpacing(2);
-    QToolButton *btnDigFilter = makeTextBtn("数字滤波");
-    g2row2->addWidget(btnDigFilter);
-    connect(btnDigFilter, &QToolButton::clicked, this, &MainWindow::showDigitalFilter);
-    QToolButton *btnMovingAvg = makeTextBtn("滑动平均");
-    connect(btnMovingAvg, &QToolButton::clicked, this, &MainWindow::showMovingAverage);
-    g2row2->addWidget(btnMovingAvg);
-    QToolButton *btnTraceEqual = makeTextBtn("道间均衡");
-    connect(btnTraceEqual, &QToolButton::clicked, this, &MainWindow::showTraceEqualization);
-    g2row2->addWidget(btnTraceEqual);
-    g2->insertLayout(1, g2row2);
+    g5btns->addWidget(btnAdjGain);
 
-    // Group 3: 其他处理
-    QVBoxLayout *g3 = addGroup(dataLayout, "其他处理");
+    // Group 6: 自定义处理 — 高级滤波下拉聚合次级操作
+    QVBoxLayout *g3 = addGroup(dataLayout, QString::fromUtf8("自定义处理"));
     QHBoxLayout *g3row1 = qobject_cast<QHBoxLayout*>(g3->itemAt(0)->layout());
-    QToolButton *btnMathOp = makeTextBtn("数学运算");
-    connect(btnMathOp, &QToolButton::clicked, this, &MainWindow::showMathOperation);
-    g3row1->addWidget(btnMathOp);
-    QToolButton *btnDeconv = makeTextBtn("反褶积");
-    connect(btnDeconv, &QToolButton::clicked, this, &MainWindow::showDeconvolution);
-    g3row1->addWidget(btnDeconv);
-    QToolButton *btnHilbert = makeTextBtn("希尔伯特");
-    connect(btnHilbert, &QToolButton::clicked, this, &MainWindow::showHilbertTransform);
-    g3row1->addWidget(btnHilbert);
-    QHBoxLayout *g3row2 = new QHBoxLayout();
-    g3row2->setSpacing(2);
-    QToolButton *btnKirchhoff = makeTextBtn("克西霍夫");
-    connect(btnKirchhoff, &QToolButton::clicked, this, &MainWindow::showKirchhoffMigration);
-    g3row2->addWidget(btnKirchhoff);
-    g3row2->addWidget(makeTextBtn("批处理"));
-    g3->insertLayout(1, g3row2);
+    QToolButton *btnAdvFilter = makeTextBtn(QString::fromUtf8("高级滤波"));
+    QMenu *advMenu = new QMenu(btnAdvFilter);
+    QAction *aCorrectOff = advMenu->addAction(QString::fromUtf8("校正零偏"));
+    connect(aCorrectOff, &QAction::triggered, this, &MainWindow::showCorrectOffset);
+    QAction *aMovingAvg = advMenu->addAction(QString::fromUtf8("滑动平均"));
+    connect(aMovingAvg, &QAction::triggered, this, &MainWindow::showMovingAverage);
+    QAction *aTraceEq = advMenu->addAction(QString::fromUtf8("道间均衡"));
+    connect(aTraceEq, &QAction::triggered, this, &MainWindow::showTraceEqualization);
+    advMenu->addSeparator();
+    QAction *aDeconv = advMenu->addAction(QString::fromUtf8("反褶积"));
+    connect(aDeconv, &QAction::triggered, this, &MainWindow::showDeconvolution);
+    QAction *aHilbert = advMenu->addAction(QString::fromUtf8("希尔伯特"));
+    connect(aHilbert, &QAction::triggered, this, &MainWindow::showHilbertTransform);
+    QAction *aMathOp = advMenu->addAction(QString::fromUtf8("数学运算"));
+    connect(aMathOp, &QAction::triggered, this, &MainWindow::showMathOperation);
+    advMenu->addSeparator();
+    QAction *aFindGrd = advMenu->addAction(QString::fromUtf8("寻找地面"));
+    Q_UNUSED(aFindGrd);
+    QAction *aLevelGrd = advMenu->addAction(QString::fromUtf8("校平地面"));
+    Q_UNUSED(aLevelGrd);
+    btnAdvFilter->setMenu(advMenu);
+    btnAdvFilter->setPopupMode(QToolButton::InstantPopup);
+    g3row1->addWidget(btnAdvFilter);
 
     // Group 4: 处理范围 (labels + spinboxes)
     QFrame *rangeFrame = new QFrame();
