@@ -10899,7 +10899,9 @@ void MainWindow::applyRadanAutoGain(int npts, double overallGain, double tcScans
             for (int s = winLo[k]; s < winHi[k]; ++s) a += tr[s] * tr[s];
             const double E = std::sqrt(a / (winHi[k] - winLo[k]));
             const double u = (E > 0.0) ? Eref[t] / E : 1.0;
-            acc = (t == 0) ? u : alpha * u + (1.0 - alpha) * acc;   // 因果指数, 初值u(0)
+            // 因果指数平滑, 初值=u(0)(RADAN同款; 勿改成零状态lfilter语义——瞬态会毁掉前数百道,
+            // 四样本验证: P_R/P_S/P_T/P_U 余弦0.99996-0.9999991)
+            acc = (t == 0) ? u : alpha * u + (1.0 - alpha) * acc;
             gk[k][t] = float(C * acc);
         }
         if (k % qMax(1, npts / 5) == 0) {
