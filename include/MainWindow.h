@@ -589,6 +589,8 @@ private:
     QWidget *m_gainPage;
     QWidget *m_zeroPage;
     QComboBox *m_gainTypeCombo;
+    QSpinBox *m_gainPointSpin = nullptr;     // v1.0.186 增益面板"点数"(自动增益用)
+    QSpinBox *m_gainTcSpin = nullptr;        // v1.0.186 增益面板"水平时间常数(扫描数)"
     QPushButton *m_btnApply;
     QPushButton *m_btnOK;
     QPushButton *m_btnCancel;
@@ -788,6 +790,15 @@ private:
     double m_lastDeconWhiten = 0.0;
     void showDeconvolution();
     void applyDeconvolution();
+
+    // v1.0.186 RADAN自动增益(自定义处理→增益, typeId 0x1a) — P_R/P_S/P_T标定 corr≥0.998
+    // g_k(t) = C·因果指数平滑(E_全道/E_帽窗): 节点k·nsamp/(npts-1), 窗=节点±nsamp/(2(npts-1)),
+    // E_ref=行[1,nsamp-2), α=1-exp(-1/TC), C=0.721+0.26775·整体增益(经验线性, 校准点0→0.721 / 2→1.2565)
+    bool m_agcApplied = false;
+    int m_lastAgcNpts = 0;                    // proc记录: 1a <点数> 00 f32(整体增益) f32(时常)
+    double m_lastAgcOverall = 0.0;
+    double m_lastAgcTc = 0.0;
+    void applyRadanAutoGain(int npts, double overallGain, double tcScans);
 
     // Hilbert transform dialog pointers (non-modal)
     QDialog *m_hilbertDlg = nullptr;

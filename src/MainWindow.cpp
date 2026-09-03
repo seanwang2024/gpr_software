@@ -1731,6 +1731,7 @@ MainWindow::MainWindow(QWidget *parent)
     pointSpinBox->setRange(1, 16);
     pointSpinBox->setValue(1);
     gainTree->setItemWidget(pointCountItem, 1, pointSpinBox);
+    m_gainPointSpin = pointSpinBox;                     // v1.0.186 自动增益用
 
     // 增益 rows (1-16, dynamic)
     QVector<QTreeWidgetItem*> gainItems(17);
@@ -1761,9 +1762,14 @@ MainWindow::MainWindow(QWidget *parent)
     gainTree->setItemWidget(overallGainItem, 1, overallGainSpinBox);
     m_gainSpinBoxes[0] = overallGainSpinBox;
 
-    // 水平时间常数(固定值，不可编辑)
-    QTreeWidgetItem *scanConstItem = new QTreeWidgetItem(channelParamItem, QStringList() << "水平时间常数" << "1");
+    // 水平时间常数(扫描数) — v1.0.186 自动增益参数(标定: P_S=20/P_T=40), 可编辑
+    QTreeWidgetItem *scanConstItem = new QTreeWidgetItem(channelParamItem, QStringList() << "水平时间常数" << "");
     scanConstItem->setFlags(scanConstItem->flags() & ~Qt::ItemIsEditable);
+    QSpinBox *tcSpinBox = new QSpinBox();
+    tcSpinBox->setRange(0, 500);
+    tcSpinBox->setValue(20);
+    gainTree->setItemWidget(scanConstItem, 1, tcSpinBox);
+    m_gainTcSpin = tcSpinBox;
 
     // 采样点数 (expandable)
     QTreeWidgetItem *sampleItem = new QTreeWidgetItem(rootItem, QStringList() << "采样点数" << "");
@@ -2040,6 +2046,7 @@ MainWindow::MainWindow(QWidget *parent)
             m_rawData = m_currentTab->originalRawData;
             m_currentTab->rawData = m_rawData;
             m_currentTab->gainApplied = false;
+            m_agcApplied = false;                       // v1.0.186 取消自动增益
             m_btnApply->setText("应用");
             refreshImage();
         }
@@ -2571,6 +2578,53 @@ MainWindow::MainWindow(QWidget *parent)
                     msg = QStringLiteral("ZERO_TEST open FAIL");
                 }
                 QFile f(QCoreApplication::applicationDirPath() + "/zero_test.txt");
+                f.open(QIODevice::WriteOnly | QIODevice::Text);
+                f.write(msg.toUtf8());
+                QCoreApplication::quit();
+            });
+        });
+    }
+
+    // v1.0.186 自动增益自检: GPR_AGC_TEST=1 → 打开1103_010跑AGC(8点/2.0/时常20)与Proc/P_S对齐corr
+    if (qEnvironmentVariableIsSet("GPR_AGC_TEST")) {
+        const QString zp = QStringLiteral("D:/gpr_software/test_input_raw_files/process标定/1103_010.DZT");
+        QTimer::singleShot(600, this, [this, zp]() {
+            if (!QFile::exists(zp)) { QCoreApplication::quit(); return; }
+            openDztFile(zp);
+            QTimer::singleShot(500, this, [this]() {
+                QString msg;
+                if (m_currentTab) {
+                    const QByteArray before = m_rawData;
+                    applyRadanAutoGain(8, 2.0, 20.0);
+                    // 基准: Proc/1103_010 P_S.DZT (数据偏移0x20000)
+                    QFile ref(QStringLiteral("D:/gpr_software/test_input_raw_files/process标定/Proc/1103_010 P_S.DZT"));
+                    if (ref.open(QIODevice::ReadOnly)) {
+                        ref.seek(m_currentTab->dataOffset);
+                        const QByteArray refData = ref.readAll();
+                        const int nsamp = m_pixelsPerRow;
+                        const int n = qMin(int(refData.size() / 4), int(m_rawData.size() / 4));
+                        const qint32 *a = reinterpret_cast<const qint32*>(m_rawData.constData());
+                        const qint32 *b = reinterpret_cast<const qint32*>(refData.constData());
+                        double sa = 0, sb = 0, sab = 0; long cnt = 0;
+                        for (int t = 0; t < n / nsamp; ++t)
+                            for (int s = 2; s < nsamp; ++s) {           // 跳row0保留/row1哨兵
+                                const double va = double(a[qint64(t) * nsamp + s]);
+                                const double vb = double(b[qint64(t) * nsamp + s]);
+                                sa += va * va; sb += vb * vb; sab += va * vb; ++cnt;
+                            }
+                        const double corr = sab / std::sqrt(sa * sb + 1e-30);
+                        msg = QStringLiteral("AGC_TEST corr=%1 n=%2 (基准P_S corr>=0.998) %3")
+                                  .arg(corr, 0, 'f', 6).arg(cnt)
+                                  .arg(corr >= 0.998 ? QStringLiteral("PASS") : QStringLiteral("CHECK"));
+                        m_rawData = before;                             // 还原(不影响后续)
+                        m_currentTab->rawData = m_rawData;
+                    } else {
+                        msg = QStringLiteral("AGC_TEST ref open FAIL");
+                    }
+                } else {
+                    msg = QStringLiteral("AGC_TEST open FAIL");
+                }
+                QFile f(QCoreApplication::applicationDirPath() + "/agc_test.txt");
                 f.open(QIODevice::WriteOnly | QIODevice::Text);
                 f.write(msg.toUtf8());
                 QCoreApplication::quit();
@@ -10778,6 +10832,121 @@ void MainWindow::resetGainPanel()
     }
 }
 
+// v1.0.186 RADAN自动增益(标定: 处理process文档.md §9; 素材P_R/P_S/P_T, 端到端corr 0.998/0.998/0.99997)
+// 模型: 增益点k在 knot_k=k·nsamp/(npts-1), 窗=节点±nsamp/(2(npts-1))(帽子支集, 钳位[0,nsamp));
+//       g_k(t) = C·smooth(E_ref/E_k), E_ref=行[1,nsamp-2)全道RMS, 平滑=因果指数α=1-exp(-1/TC);
+//       深度方向增益域线性插值; C=0.721+0.26775·整体增益(经验线性, 校准点og=0→0.721 / og=2→1.2565);
+//       row0保留原值+row1=-2^24哨兵(RADAN落盘行为); 不钳位(P_S实测max>2^24)
+void MainWindow::applyRadanAutoGain(int npts, double overallGain, double tcScans)
+{
+    if (!m_currentTab) return;
+    const int nsamp = m_pixelsPerRow;
+    const int totalPixels = m_rawData.size() / 4;
+    const int numTraces = (nsamp > 0) ? totalPixels / nsamp : 0;
+    if (nsamp < 4 || numTraces == 0) return;
+    if (npts < 1) npts = 1;
+
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat(QString::fromUtf8("自动增益: 读取数据..."));
+    m_progressBar->show();
+    QCoreApplication::processEvents();
+
+    // 解析为double(逐道连续布局: t*nsamp+s)
+    const char *srcData = m_rawData.constData();
+    std::vector<double> x(totalPixels);
+    for (int i = 0; i < totalPixels; ++i) {
+        int idx = i * 4;
+        x[i] = double((static_cast<quint8>(srcData[idx+3]) << 24) |
+                      (static_cast<quint8>(srcData[idx+2]) << 16) |
+                      (static_cast<quint8>(srcData[idx+1]) << 8) |
+                      (static_cast<quint8>(srcData[idx])));
+    }
+
+    // E_ref(t): 全道RMS(行[1, nsamp-2), 标定E_ref=[1,510) for nsamp=512)
+    const int refLo = 1, refHi = qMax(refLo + 1, nsamp - 2);
+    std::vector<double> Eref(numTraces);
+    for (int t = 0; t < numTraces; ++t) {
+        double acc = 0.0;
+        const double *tr = &x[size_t(t) * nsamp];
+        for (int s = refLo; s < refHi; ++s) acc += tr[s] * tr[s];
+        Eref[t] = std::sqrt(acc / (refHi - refLo));
+    }
+
+    // 节点窗(帽子支集): npts=1 → 全道
+    const double spacing = (npts > 1) ? double(nsamp) / (npts - 1) : double(nsamp);
+    std::vector<int> winLo(npts), winHi(npts);
+    std::vector<double> knot(npts);
+    for (int k = 0; k < npts; ++k) {
+        knot[k] = (npts > 1) ? double(k) * nsamp / (npts - 1) : double(nsamp) / 2;
+        int lo, hi;
+        if (npts == 1) { lo = 0; hi = nsamp; }
+        else {
+            lo = qBound(0, int(std::lround(knot[k] - spacing / 2)), nsamp);
+            hi = qBound(lo + 1, int(std::lround(knot[k] + spacing / 2)), nsamp);
+        }
+        winLo[k] = lo; winHi[k] = hi;
+    }
+
+    // 各点增益序列 g_k(t) = C·smooth(E_ref/E_k)
+    const double alpha = (tcScans <= 0.0) ? 1.0 : (1.0 - std::exp(-1.0 / tcScans));
+    const double C = 0.721 + 0.26775 * overallGain;    // 经验线性(校准点0/2.0)
+    std::vector<std::vector<float>> gk(npts, std::vector<float>(numTraces));
+    for (int k = 0; k < npts; ++k) {
+        double acc = 0.0;
+        for (int t = 0; t < numTraces; ++t) {
+            const double *tr = &x[size_t(t) * nsamp];
+            double a = 0.0;
+            for (int s = winLo[k]; s < winHi[k]; ++s) a += tr[s] * tr[s];
+            const double E = std::sqrt(a / (winHi[k] - winLo[k]));
+            const double u = (E > 0.0) ? Eref[t] / E : 1.0;
+            acc = (t == 0) ? u : alpha * u + (1.0 - alpha) * acc;   // 因果指数, 初值u(0)
+            gk[k][t] = float(C * acc);
+        }
+        if (k % qMax(1, npts / 5) == 0) {
+            m_progressBar->setValue(10 + 60 * k / npts);
+            QCoreApplication::processEvents();
+        }
+    }
+
+    // 应用: G(r,t)=节点线性插值(增益域), out=G·x; row0保留/row1哨兵
+    char *data = m_rawData.data();
+    const qint32 SENTINEL = -(1 << 24);
+    for (int t = 0; t < numTraces; ++t) {
+        const double *tr = &x[size_t(t) * nsamp];
+        for (int s = 0; s < nsamp; ++s) {
+            qint32 out;
+            if (s == 0) {
+                out = qint32(tr[0]);                    // row0保留原值(RADAN落盘行为)
+            } else if (s == 1 && nsamp > 2) {
+                out = SENTINEL;                         // row1哨兵黑线
+            } else if (npts == 1) {
+                out = qint32(llround(double(gk[0][t]) * tr[s]));
+            } else {
+                // 帽函数插值: 位于[k_k, k_{k+1}]内线性
+                double pos = double(s);
+                int k = int(pos / spacing);
+                if (k > npts - 2) k = npts - 2;
+                double f = (pos - knot[k]) / (knot[k+1] - knot[k]);
+                if (f < 0.0) f = 0.0;
+                if (f > 1.0) f = 1.0;
+                const double g = double(gk[k][t]) * (1.0 - f) + double(gk[k+1][t]) * f;
+                out = qint32(llround(g * tr[s]));
+            }
+            const int idx = (t * nsamp + s) * 4;
+            data[idx]   = char(out & 0xFF);
+            data[idx+1] = char((out >> 8) & 0xFF);
+            data[idx+2] = char((out >> 16) & 0xFF);
+            data[idx+3] = char((out >> 24) & 0xFF);
+        }
+        if (t % qMax(1, numTraces / 20) == 0) {
+            m_progressBar->setValue(70 + 30 * t / numTraces);
+            QCoreApplication::processEvents();
+        }
+    }
+    m_progressBar->setValue(100);
+    QTimer::singleShot(1000, this, [this]() { m_progressBar->hide(); });
+}
+
 void MainWindow::applyGain()
 {
     if (!requireOpenFile()) return;
@@ -10787,10 +10956,32 @@ void MainWindow::applyGain()
         m_rawData = m_currentTab->originalRawData;
         m_currentTab->rawData = m_rawData;
         m_currentTab->gainApplied = false;
+        m_agcApplied = false;                          // v1.0.186 撤销自动增益(不写proc)
         m_btnApply->setText(QString::fromUtf8("应用"));
     } else {
         // 应用：备份原始数据，将增益乘入rawData
         m_currentTab->originalRawData = m_rawData;
+
+        // v1.0.186 增益类型=自动 → RADAN自动增益(标定算法, P_R/P_S/P_T corr≥0.998):
+        // 参数=点数/整体增益/水平时间常数, 结果写proc记录 0x1a
+        if (m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 0) {
+            const int npts = m_gainPointSpin ? m_gainPointSpin->value() : 1;
+            const double og = m_gainSpinBoxes[0] ? m_gainSpinBoxes[0]->value() : 0.0;
+            const double tc = m_gainTcSpin ? double(m_gainTcSpin->value()) : 20.0;
+            applyRadanAutoGain(npts, og, tc);
+            m_agcApplied = true;
+            m_lastAgcNpts = npts;
+            m_lastAgcOverall = og;
+            m_lastAgcTc = tc;
+            m_currentTab->rawData = m_rawData;
+            m_currentTab->gainApplied = true;
+            m_gain = 1.0f;                             // 增益已烘入数据, 显示增益复位避免二次放大
+            m_currentTab->gain = 1.0f;
+            m_btnApply->setText("撤销");
+            refreshImage();
+            updateChart(m_lastChartX);
+            return;
+        }
 
         bool isLinear = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
         const int gN = m_pixelsPerRow;
@@ -10830,7 +11021,7 @@ void MainWindow::saveProcessedFile()
     if (!requireOpenFile()) return;
 
     // 确保增益已应用（仅旧的增益系统；一键处理已自己处理数据）
-    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_pipelineApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied && !m_deconvApplied && !m_hilbertApplied && !m_kirchhoffApplied && !m_filterApplied) {
+    if (!m_currentTab->gainApplied && !m_oneClickApplied && !m_pipelineApplied && !m_movingAvgApplied && !m_traceEqualApplied && !m_mathApplied && !m_deconvApplied && !m_hilbertApplied && !m_kirchhoffApplied && !m_filterApplied && !m_agcApplied) {
         // 先应用增益
         m_currentTab->originalRawData = m_rawData;
         bool isLinear2 = m_gainTypeCombo && m_gainTypeCombo->currentIndex() == 2;
@@ -10903,7 +11094,7 @@ void MainWindow::saveProcessedFile()
     // v1.0.152: 一键处理输出按"以前的逻辑"追加处理记录(DZT头 proc history 追加式)
     // + rhf_position 归零 + rhb_mdt 编辑时间更新 — 模式同 saveProcessedWithDzx 既有实现
     // v1.0.178: 数字滤波IIR单独应用后保存也写记录(04/03, sub=极点, c=fs/2πfc)
-    if ((m_pipelineApplied || m_filterApplied || m_kirchhoffApplied || m_deconvApplied)
+    if ((m_pipelineApplied || m_filterApplied || m_kirchhoffApplied || m_deconvApplied || m_agcApplied)
         && header.size() >= 128) {
         auto appendProcRec = [&header](const QByteArray &rec) {
             qint16 procOff = (header.size() >= 50)
@@ -10992,6 +11183,22 @@ void MainWindow::saveProcessedFile()
             float w = float(m_lastDeconWhiten);
             rec.append(reinterpret_cast<const char *>(&w), 4);
             appendProcRec(rec);
+        }
+        // v1.0.186 自动增益记录: 1a <点数> 00 f32@3(整体增益) f32@7(水平时常) — 11字节
+        // (P_R/P_S字节级验证: P_R `1a 01 00…0` / P_S `1a 08 00 00000040 0000a041`=2.0/20.0;
+        //  同记录镜像到DZT头0x86, RADAN同款)
+        if (m_agcApplied && m_lastAgcNpts > 0) {
+            QByteArray rec;
+            rec.append(char(0x1a));
+            rec.append(char(qBound(1, m_lastAgcNpts, 255)));
+            rec.append(char(0x00));
+            float og = float(m_lastAgcOverall);
+            float tc = float(m_lastAgcTc);
+            rec.append(reinterpret_cast<const char *>(&og), 4);
+            rec.append(reinterpret_cast<const char *>(&tc), 4);
+            appendProcRec(rec);
+            if (0x86 + rec.size() <= header.size())
+                memcpy(header.data() + 0x86, rec.constData(), rec.size());   // 头部镜像(RADAN同款)
         }
         // 3) rhb_mdt 编辑时间(以前的逻辑)
         {
