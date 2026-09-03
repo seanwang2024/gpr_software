@@ -12570,7 +12570,10 @@ void MainWindow::createMenuBar()
     // 点任一项: 一键处理取消选中+右侧一键面板收起, 本项变橙+打开对话框
     QVBoxLayout *g1 = addGroup(dataLayout, QString::fromUtf8("自定义处理"));
     QHBoxLayout *g1btns = qobject_cast<QHBoxLayout*>(g1->itemAt(0)->layout());
-    if (g1btns) g1btns->setAlignment(Qt::AlignTop);   // v1.0.183 与一键处理按钮顶对齐
+    if (g1btns) {
+        g1btns->setAlignment(Qt::AlignTop);   // v1.0.183 与一键处理按钮顶对齐
+        g1btns->setContentsMargins(0, 10, 0, 0);   // v1.0.185 用户反馈: 7图标整体下移10px更协调
+    }
     // 处理按钮工厂: 图标上文字下 + checkable + 选中浅橙底橙描边(设计稿 primary-container 风格)
     auto makeProcBtn = [this](const QString &glyph, const QString &text) -> QToolButton * {
         QToolButton *btn = new QToolButton();
