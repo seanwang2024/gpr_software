@@ -12455,13 +12455,12 @@ void MainWindow::createMenuBar()
         return btn;
     };
 
-    // v1.0.180 按设计稿(数据处理-增益.html)重排 ribbon 分组, PROCESS 归位:
-    // 一键处理 | 时间零点(时间零点+偏移) | 滤波(滤波+距离归一化) | 背景清除 | 增益 | 自定义处理(高级滤波下拉)
-    // 交互维持现有对话框方式(设计稿的右侧参数面板后续版本再评估)
-    // Group 2: 时间零点
-    QVBoxLayout *g1 = addGroup(dataLayout, QString::fromUtf8("时间零点"));
+    // v1.0.181 按设计稿(数据处理-增益.html)最终结构: 一键处理(大按钮) | 自定义处理(7项一行,
+    // 图标上文字下): 时间零点/偏移/滤波/距离归一化/背景清除/增益/高级滤波(下拉聚合);
+    // 不显示处理范围组; 交互维持现有对话框方式
+    QVBoxLayout *g1 = addGroup(dataLayout, QString::fromUtf8("自定义处理"));
     QHBoxLayout *g1btns = qobject_cast<QHBoxLayout*>(g1->itemAt(0)->layout());
-    QToolButton *btnAdjZero2 = makeTextBtn(QString::fromUtf8("时间零点"));
+    QToolButton *btnAdjZero2 = ribbonBtn(QStringLiteral("timer"), QString::fromUtf8("时间零点"), true);
     connect(btnAdjZero2, &QToolButton::clicked, this, [this]() {
         if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_zeroPage);
@@ -12476,34 +12475,27 @@ void MainWindow::createMenuBar()
         }
     });
     g1btns->addWidget(btnAdjZero2);
-    QToolButton *btnKirchhoff = makeTextBtn(QString::fromUtf8("偏移"));
+    QToolButton *btnKirchhoff = ribbonBtn(QStringLiteral("compare_arrows"),
+                                          QString::fromUtf8("偏移"), true);
     btnKirchhoff->setToolTip(QString::fromUtf8("克西霍夫偏移(RADAN标定算法)"));
     connect(btnKirchhoff, &QToolButton::clicked, this, &MainWindow::showKirchhoffMigration);
     g1btns->addWidget(btnKirchhoff);
-
-    // Group 3: 滤波
-    QVBoxLayout *g2 = addGroup(dataLayout, QString::fromUtf8("滤波"));
-    QHBoxLayout *g2row1 = qobject_cast<QHBoxLayout*>(g2->itemAt(0)->layout());
-    QToolButton *btnDigFilter = makeTextBtn(QString::fromUtf8("滤波"));
+    QToolButton *btnDigFilter = ribbonBtn(QStringLiteral("filter_alt"),
+                                          QString::fromUtf8("滤波"), true);
     btnDigFilter->setToolTip(QString::fromUtf8("数字滤波(FIR/IIR)"));
     connect(btnDigFilter, &QToolButton::clicked, this, &MainWindow::showDigitalFilter);
-    g2row1->addWidget(btnDigFilter);
-    QToolButton *btnDistNorm = makeTextBtn(QString::fromUtf8("距离归一化"));
+    g1btns->addWidget(btnDigFilter);
+    QToolButton *btnDistNorm = ribbonBtn(QStringLiteral("linear_scale"),
+                                         QString::fromUtf8("距离归一化"), false);
     btnDistNorm->setEnabled(false);
     btnDistNorm->setToolTip(QString::fromUtf8("后续版本提供"));
-    g2row1->addWidget(btnDistNorm);
-
-    // Group 4: 背景清除
-    QVBoxLayout *g4 = addGroup(dataLayout, QString::fromUtf8("背景清除"));
-    QHBoxLayout *g4btns = qobject_cast<QHBoxLayout*>(g4->itemAt(0)->layout());
-    QToolButton *btnBgRemove = makeTextBtn(QString::fromUtf8("背景清除"));
+    g1btns->addWidget(btnDistNorm);
+    QToolButton *btnBgRemove = ribbonBtn(QStringLiteral("layers_clear"),
+                                         QString::fromUtf8("背景清除"), true);
     connect(btnBgRemove, &QToolButton::clicked, this, &MainWindow::showBackgroundRemoval);
-    g4btns->addWidget(btnBgRemove);
-
-    // Group 5: 增益
-    QVBoxLayout *g5 = addGroup(dataLayout, QString::fromUtf8("增益"));
-    QHBoxLayout *g5btns = qobject_cast<QHBoxLayout*>(g5->itemAt(0)->layout());
-    QToolButton *btnAdjGain = makeTextBtn(QString::fromUtf8("增益"));
+    g1btns->addWidget(btnBgRemove);
+    QToolButton *btnAdjGain = ribbonBtn(QStringLiteral("signal_cellular_alt"),
+                                        QString::fromUtf8("增益"), true);
     connect(btnAdjGain, &QToolButton::clicked, this, [this]() {
         if (!requireOpenFile()) return;
         m_leftStack->setCurrentWidget(m_gainPage);
@@ -12526,12 +12518,10 @@ void MainWindow::createMenuBar()
             updateChart(m_lastChartX);
         }
     });
-    g5btns->addWidget(btnAdjGain);
-
-    // Group 6: 自定义处理 — 高级滤波下拉聚合次级操作
-    QVBoxLayout *g3 = addGroup(dataLayout, QString::fromUtf8("自定义处理"));
-    QHBoxLayout *g3row1 = qobject_cast<QHBoxLayout*>(g3->itemAt(0)->layout());
-    QToolButton *btnAdvFilter = makeTextBtn(QString::fromUtf8("高级滤波"));
+    g1btns->addWidget(btnAdjGain);
+    // 高级滤波: 下拉聚合次级操作
+    QToolButton *btnAdvFilter = ribbonBtn(QStringLiteral("tune"),
+                                          QString::fromUtf8("高级滤波"), true);
     QMenu *advMenu = new QMenu(btnAdvFilter);
     QAction *aCorrectOff = advMenu->addAction(QString::fromUtf8("校正零偏"));
     connect(aCorrectOff, &QAction::triggered, this, &MainWindow::showCorrectOffset);
@@ -12553,7 +12543,7 @@ void MainWindow::createMenuBar()
     Q_UNUSED(aLevelGrd);
     btnAdvFilter->setMenu(advMenu);
     btnAdvFilter->setPopupMode(QToolButton::InstantPopup);
-    g3row1->addWidget(btnAdvFilter);
+    g1btns->addWidget(btnAdvFilter);
 
     // Group 4: 处理范围 (labels + spinboxes)
     QFrame *rangeFrame = new QFrame();
@@ -12604,7 +12594,8 @@ void MainWindow::createMenuBar()
     rangeLayout->addLayout(rangeRow1);
     rangeLayout->addLayout(rangeRow2);
     rangeLayout->addWidget(rangeLabel);
-    dataLayout->addWidget(rangeFrame);
+    // v1.0.181: 处理范围组按设计稿不再显示(对象保留创建, 避免空指针; 后续版本如需再恢复)
+    // dataLayout->addWidget(rangeFrame);
 
     dataLayout->addStretch();
     ribbonTab->addTab(dataPage, QString::fromUtf8("数据处理"));

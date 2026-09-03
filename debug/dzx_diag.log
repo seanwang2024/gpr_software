@@ -1,6 +1,6 @@
 环境: Windows 10 Version 22H2 | x86_64 | 内核 10.0.19045 | DPI缩放 100% | 主屏 2560x1440 | 设备ID 33ae-1972-c112-e0ed
 MatIcon OK: family=Material Symbols Outlined mono=JetBrains Mono
-==== 地听AI数据处理 [诊断版 1.0.171] ====
+==== 地听AI数据处理 [诊断版 1.0.180] ====
 本终端只显示 DZX 处理信息。
 复制方法:①终端内鼠标选中文字 -> 按 回车 或 右键 复制;
           ②或直接用记事本打开下面的日志文件,Ctrl+C/Ctrl+A 正常复制:

@@ -1,7 +1,9 @@
 QT       += core gui charts quick quickwidgets quick3d printsupport network
 
-# Windows 应用图标(劳雷 logo)
-RC_ICONS += installer/laurel_logo.ico
+TARGET = depro
+
+# Windows 应用图标(地听 logo)
+RC_ICONS += installer/diting_logo.ico
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 # Add C++17 support
@@ -36,8 +38,12 @@ DEFINES += QT_DEPRECATED_WARNINGS
 SOURCES += \
     src/main.cpp \
     src/MainWindow.cpp \
+    src/License.cpp \
     src/MatIcon.cpp \
     src/TopBar.cpp
+
+# License 验签(Windows 原生 CryptoAPI)
+LIBS += -lcrypt32 -ladvapi32
 
 INCLUDEPATH += $$PWD/include
 
@@ -58,6 +64,7 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 
 HEADERS += \
     include/MainWindow.h \
+    include/License.h \
     include/MatIcon.h \
     include/TopBar.h
 
